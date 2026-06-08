@@ -1,92 +1,204 @@
-# SecureChat ("BIT Chat")
+# 🔐 SecureChat ("BIT Chat")
 
-**BIT Chat** is an iOS/macOS SwiftUI chat app focused on **privacy**, **local-first communication**, and a **security-first UX**.
+<p align="center">
+  <img src="SecureChat/schat/Assets.xcassets/AppIcon.appiconset/icon_1024x1024.png" width="120" alt="SecureChat Icon">
+</p>
 
-It is designed for nearby communication using a **Bluetooth mesh** (store-and-forward) and end-to-end encryption for private chats.
+<p align="center">
+  <strong>iOS/macOS SwiftUI Messenger with E2E Encryption & Bluetooth Mesh</strong>
+</p>
 
-> App name in Info.plist: **BIT Chat**
-
----
-
-## What this project does
-
-- **Nearby / offline-ish messaging** via **Bluetooth mesh** (CoreBluetooth)
-  - peer discovery + relaying (store-and-forward) for longer distance / multi-hop delivery
-- **End-to-end encryption** for private chats using a **Double Ratchet** (Protocol v2 hard break)
-- **QR code invites** for joining channels / exchanging minimal invite metadata
-- **Local app protection** (Face ID / Touch ID) for protecting chats on the device
-- Security UX helpers (“Security Copilot”) explaining fingerprints/verification, QR invites, biometrics, etc.
-
----
-
-## Crypto (current)
-
-Private chats are using a **full Double Ratchet (DH-ratchet)** implementation.
-A short summary (see also `README_SECURITY_V2.md`):
-
-- X25519 key agreement
-- HKDF-SHA256 for root/chain/message keys
-- Per-message keys + skipped-key window (out-of-order handling)
-- AES-256-GCM with AAD binding
-
-See:
-- `README_SECURITY_V2.md`
-- `SecureChat/BIT/Crypto/DoubleRatchet.swift`
-- `SecureChat/BIT/Services/EncryptionService.swift`
+<p align="center">
+  <a href="#features">Features</a> •
+  <a href="#security">Security</a> •
+  <a href="#architecture">Architecture</a> •
+  <a href="#installation">Installation</a> •
+  <a href="#screenshots">Screenshots</a> •
+  <a href="#roadmap">Roadmap</a>
+</p>
 
 ---
 
-## Permissions / platform capabilities
+## ✨ Features
 
-This app uses:
+### 🔒 Privacy-First Messaging
+- **End-to-End Encryption** using Double Ratchet (X25519 + HKDF-SHA256 + AES-256-GCM)
+- **Local Identity** based on Curve25519 signing keys
+- **Peer ID** derived from SHA-256 of public key
+- **Safety Numbers** for fingerprint verification
 
-- **Bluetooth** (mesh networking)
-- **Local Network** (peer discovery / transport helpers)
-- **Camera** (QR invite scanning)
-- **Biometrics** (Face ID / Touch ID) for local unlock
+### 📡 Communication Modes
+- **Bluetooth Mesh** (CoreBluetooth) - store-and-forward relay
+- **Local Network** - peer discovery via MultipeerConnectivity
+- **Relay Server** - optional encrypted packet upload
+- **QR Code Invites** - easy channel joining
 
-Permission strings live in:
-- `Config/Info.plist`
+### 🛡️ Security Features
+- **Biometric Authentication** (Face ID / Touch ID)
+- **Trust States**: unverified → verified → blocked
+- **Encrypted Local Store** (AES-GCM)
+- **Keychain Storage** for keys and trust state
+- **Message Padding** and Bloom Filters
+- **Password-Protected Channels**
+- **Security Copilot** - explains fingerprints, QR invites, biometrics
 
----
-
-## Project structure (high level)
-
-- `SecureChat.xcodeproj/` – Xcode project
-- `SecureChat/BIT/` – main app source
-  - `Services/` – Bluetooth mesh, encryption, delivery tracking, security insights
-  - `Crypto/` – Double Ratchet and related crypto utilities
-  - `Views/` + `ViewModels/` – SwiftUI UI layer
-  - `Models/` + `Protocols/` – packet formats / protocol types
-- `Config/` – app configuration (Info.plist)
-- `Tests/` – unit tests
-
----
-
-## Build & run
-
-1. Open `SecureChat.xcodeproj` in Xcode.
-2. Select an iOS simulator/device target (or macOS if configured).
-3. Build & run.
-
-Notes:
-- Bluetooth features require a real device for full testing.
-- This repository is synced from local Xcode sources; review settings/targets as needed.
+### 📱 Platform
+- **iOS 16+** / **macOS 13+**
+- **SwiftUI** with modern design
+- **Watch App** companion
+- **Widgets** support
 
 ---
 
-## Security notes / disclaimer
+## 🔐 Security Architecture
 
-This project is security-focused, but **security is a process**.
-Before relying on it for real-world sensitive use:
+### Double Ratchet Implementation
+```
+X25519 Key Agreement
+    ↓
+HKDF-SHA256 (Root/Chain/Message Keys)
+    ↓
+AES-256-GCM with AAD binding
+    ↓
+Per-message keys + skipped-key window
+```
 
-- review crypto implementation and threat model
-- run your own audits and tests
-- avoid shipping secrets in the repo
+### Key Components
+- **IdentityManager** - Curve25519 key generation and storage
+- **CryptoService** - Encryption/decryption operations
+- **KeychainStore** - Secure key storage in iOS Keychain
+- **PeerTrustStore** - Trust state management
+- **DoubleRatchet** - Forward secrecy and future secrecy
+
+See [README_SECURITY_V2.md](README_SECURITY_V2.md) for full details.
 
 ---
 
-## License
+## 🏗️ Architecture
+
+```
+SecureChat/
+├── 📱 iOS App (PrivateChat/)
+│   ├── App/                    # App entry points
+│   ├── Core/
+│   │   ├── Security/           # Crypto, Identity, Keychain
+│   │   ├── Transport/          # Relay, Local, Bluetooth
+│   │   ├── Persistence/        # Encrypted stores
+│   │   └── Models/             # Chat models
+│   ├── Features/
+│   │   ├── Chat/               # Chat UI
+│   │   ├── Pairing/            # QR pairing
+│   │   └── Settings/           # App settings
+│   └── Features/Shared/        # Design system
+│
+├── 🖥️ Relay Server (RelayServer/)
+│   ├── Node.js/TypeScript
+│   ├── Docker support
+│   └── Caddy reverse proxy
+│
+├── 🧪 Tests/
+│   ├── Unit Tests
+│   ├── Integration Tests
+│   └── Security Tests
+│
+└── 📚 LegacyReference/         # Original BIT codebase
+```
+
+---
+
+## 📲 Installation
+
+### iOS App
+1. Clone the repository
+2. Open `PrivateChat.xcodeproj` in Xcode 15+
+3. Select your team in Signing & Capabilities
+4. Build & run on device (Bluetooth requires real device)
+
+### Relay Server
+```bash
+cd RelayServer
+cp .env.example .env
+# Edit .env with your settings
+docker compose up -d
+```
+
+See [RelayServer/README.md](RelayServer/README.md) for details.
+
+---
+
+## 📸 Screenshots
+
+*Coming soon - App Store screenshots*
+
+---
+
+## 🗺️ Roadmap
+
+See [Docs/SECURITY_ROADMAP.md](Docs/SECURITY_ROADMAP.md) for full roadmap.
+
+### Phase 1 ✅ (Completed)
+- [x] Basic E2E encryption
+- [x] Bluetooth mesh
+- [x] QR pairing
+- [x] Biometric auth
+
+### Phase 2 ✅ (Completed)
+- [x] Double Ratchet v2
+- [x] Relay server
+- [x] Message padding
+- [x] Bloom filters
+
+### Phase 3 🚧 (In Progress)
+- [ ] Group chats
+- [ ] File sharing
+- [ ] Voice messages
+- [ ] Cross-platform sync
+
+### Phase 4 📅 (Planned)
+- [ ] Desktop app (macOS)
+- [ ] Web client
+- [ ] Federation
+- [ ] Audits
+
+---
+
+## 🧪 Testing
+
+```bash
+# Run all tests
+xcodebuild test -project PrivateChat.xcodeproj -scheme PrivateChat
+
+# Run specific test suite
+xcodebuild test -project PrivateChat.xcodeproj -scheme PrivateChat -only-testing:PrivateChatTests
+```
+
+---
+
+## 📄 License
 
 Some files include an Unlicense/public-domain header.
-If you want a single, repo-wide license statement, add a top-level `LICENSE` file.
+This project is open source - see individual file headers.
+
+---
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'feat: add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+---
+
+## 🙏 Acknowledgments
+
+- [Signal Protocol](https://signal.org/docs/) for the Double Ratchet inspiration
+- [libsodium](https://libsodium.gitbook.io/doc/) for crypto primitives
+- Apple for CoreBluetooth and CryptoKit
+
+---
+
+<p align="center">
+  <strong>🔐 Privacy is a right, not a privilege 🔐</strong>
+</p>
