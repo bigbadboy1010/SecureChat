@@ -192,7 +192,7 @@ SecureChat/BIT/
 - Soft-deletes enable message recovery
 - Backup system prevents data loss
 
-This implementation transforms SecureChat from a minimal P2P app into a **feature-complete, production-ready group messaging platform** while maintaining security and performance.
+This implementation transforms SecureChat from a minimal P2P app into a **feature-complete, production-candidate group messaging platform** while maintaining security and performance.
 
 ## Phase 8 Ergänzungen
 

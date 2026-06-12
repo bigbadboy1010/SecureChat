@@ -143,6 +143,10 @@ enum SecurityAISentinel {
                 findings.append(SecurityAIFinding(title: "Production Relay konfiguriert", detail: "Die App nutzt https://chatsecure.ddns.net mit gesetztem RELAY_AUTH_TOKEN.", severity: .info, recommendation: "In der App regelmäßig Relay prüfen und bei Tokenwechsel nur RELAY_AUTH_TOKEN aktualisieren."))
             }
 
+            if SecureChatProductionProfile.isObsoleteLocalRelay(trimmedURL) {
+                add(.high, "Alte LAN-Relay-URL gespeichert", "Die App hat noch eine lokale Relay-Adresse aus der Entwicklungsphase gespeichert.", "Production Relay aktivieren: https://chatsecure.ddns.net und RELAY_AUTH_TOKEN setzen.", penalty: 14)
+            }
+
             if hasToken == false {
                 add(.high, "Relay ohne Token", "Der Relay-Transport ist erlaubt, aber kein Bearer-Token ist gesetzt.", "Für Production RELAY_AUTH_TOKEN setzen und dasselbe Token in der App eintragen.", penalty: 14)
             }

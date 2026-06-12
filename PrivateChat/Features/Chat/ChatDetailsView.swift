@@ -124,6 +124,12 @@ struct ChatDetailsView: View {
                         .font(.caption.monospaced())
                         .textSelection(.enabled)
                 }
+                NavigationLink {
+                    SafetyNumberView(service: service, peer: peer)
+                } label: {
+                    Label("Safety Number vergleichen", systemImage: "checkmark.shield")
+                }
+
                 Button {
                     UIPasteboard.general.string = peer.safetyNumber
                 } label: {

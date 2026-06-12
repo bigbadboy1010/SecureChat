@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>BIT Chat</string>
+	<string>PrivateChat</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -13,45 +13,58 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>BIT Chat</string>
+	<string>PrivateChat</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
-	<key>LSMinimumSystemVersion</key>
-	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
-	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>schat uses Bluetooth to create a secure mesh network for chatting with nearby users.</string>
-	<key>NSBluetoothPeripheralUsageDescription</key>
-	<string>schat uses Bluetooth to discover and connect with other schat users nearby.</string>
-	<key>NSBonjourServices</key>
-	<array>
-		<string>_bit-mesh._tcp</string>
-	</array>
-	<key>NSCameraUsageDescription</key>
-	<string>Kamera wird benötigt, um QR-In-Dekodierung für Channel-Invites zu scannen.</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>NSFaceIDUsageDescription</key>
+	<string>PrivateChat nutzt Face ID oder Touch ID, um lokale Chats und Schlüssel vor unbefugtem Zugriff zu schützen.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Lokales Netzwerk wird benötigt, um Peers in der Nähe zu finden und Nachrichten im Mesh zu senden.</string>
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>bluetooth-central</string>
-		<string>bluetooth-peripheral</string>
-	</array>
+	<string>PrivateChat nutzt die lokale Netzwerkfreigabe, um optional einen lokalen Relay-Server auf deinem Mac oder direkte lokale Peers zu erreichen.</string>
+	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
 	<key>UILaunchScreen</key>
 	<dict>
 		<key>UIColorName</key>
-		<string>Black</string>
+		<string>systemBackground</string>
 	</dict>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
 		<string>UIInterfaceOrientationPortrait</string>
 		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
-	<key>NSFaceIDUsageDescription</key>
-	<string>BIT SecureChat verwendet Face ID (oder Touch ID), um die App lokal zu entsperren und deine Chats zu schützen.</string>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~iphone</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>PrivateChat nutzt die Kamera ausschließlich, um Pairing-QR-Codes anderer Kontakte zu scannen.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_http._tcp</string>
+		<string>_privatechat._tcp</string>
+	</array>
 </dict>
 </plist>

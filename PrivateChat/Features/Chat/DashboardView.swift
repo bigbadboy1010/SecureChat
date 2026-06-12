@@ -8,6 +8,7 @@ struct DashboardView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     hero
+                    testFlightGuidancePanel
                     healthGrid
                     relayPanel
                     activityPanel
@@ -70,6 +71,36 @@ struct DashboardView: View {
                     if service.securityState.hideMessagePreviews {
                         PrivateChatStatusPill(title: "Privacy", systemImage: "eye.slash", tint: .green)
                     }
+                }
+            }
+        }
+        .privateChatGlassCard(padding: 16)
+    }
+
+    private var testFlightGuidancePanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            PrivateChatSectionHeader("TestFlight Einstieg", subtitle: service.conversations.isEmpty ? "Erste Schritte für Solo-Tests" : "Schnellstart bleibt verfügbar")
+
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Pairing benötigt zwei Geräte oder zwei Installationen.", systemImage: "qrcode")
+                Label("Der Solo-Test-Chat prüft lokale Speicherung, Composer und Chat-UI ohne Relay.", systemImage: "lock.doc")
+                Label("Production Relay: chatsecure.ddns.net plus RELAY_AUTH_TOKEN.", systemImage: "globe")
+            }
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+
+            HStack {
+                Button {
+                    _ = service.createSoloTestConversation()
+                } label: {
+                    Label("Solo-Test-Chat anlegen", systemImage: "plus.message")
+                }
+                .buttonStyle(.borderedProminent)
+
+                Spacer()
+
+                ShareLink(item: service.appDiagnosticsReport()) {
+                    Label("Diagnose teilen", systemImage: "square.and.arrow.up")
                 }
             }
         }

@@ -9,6 +9,7 @@ struct ChatView: View {
     @State private var messageSearchText = ""
     @State private var showDetails = false
     @State private var selectedMessage: ChatMessage?
+    @State private var scrollUpdateTask: Task<Void, Never>?
 
     private let quickReplies = [
         "Bin dran.",
@@ -41,7 +42,7 @@ struct ChatView: View {
         messageSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
     }
 
-    private var draftStorageKey: String {
+    private var legacyDraftStorageKey: String {
         "PrivateChat.Draft.\(currentConversation.id.uuidString)"
     }
 
@@ -92,10 +93,8 @@ struct ChatView: View {
                     .padding(.vertical, 14)
                 }
                 .background(PrivateChatDesign.pageGradient)
-                .onChange(of: currentConversation.messages.count) { _ in
-                    guard isMessageSearchActive == false else { return }
-                    scrollToBottom(proxy: proxy)
-                    deferMarkConversationRead()
+                .task(id: currentConversation.messages.last?.id) {
+                    scheduleDeferredScrollAndRead(proxy: proxy)
                 }
                 .task(id: currentConversation.id) {
                     restoreDraftIfAvailable()
@@ -148,6 +147,8 @@ struct ChatView: View {
             MessageDetailView(service: service, conversationID: currentConversation.id, message: message)
         }
         .onDisappear {
+            scrollUpdateTask?.cancel()
+            scrollUpdateTask = nil
             persistDraftValue(draft)
             deferMarkConversationRead()
         }
@@ -189,7 +190,7 @@ struct ChatView: View {
                 }
             } else {
                 HStack {
-                    Label("Entwurf wird lokal gespeichert", systemImage: "square.and.pencil")
+                    Label("Entwurf wird verschlüsselt lokal gespeichert", systemImage: "lock")
                         .font(.caption2)
                         .foregroundStyle(Color.secondary)
                     Spacer()
@@ -278,7 +279,12 @@ struct ChatView: View {
 
     private func restoreDraftIfAvailable() {
         guard draft.isEmpty else { return }
-        updateDraft(UserDefaults.standard.string(forKey: draftStorageKey) ?? "", persist: false)
+        let legacyValue = UserDefaults.standard.string(forKey: legacyDraftStorageKey)
+        let restoredDraft = service.loadDraft(conversationID: currentConversation.id, legacyUserDefaultsValue: legacyValue)
+        if legacyValue != nil {
+            UserDefaults.standard.removeObject(forKey: legacyDraftStorageKey)
+        }
+        updateDraft(restoredDraft, persist: false)
     }
 
     private func updateDraft(_ newValue: String, persist: Bool) {
@@ -291,10 +297,11 @@ struct ChatView: View {
 
     private func persistDraftValue(_ value: String) {
         let trimmedDraft = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        UserDefaults.standard.removeObject(forKey: legacyDraftStorageKey)
         if trimmedDraft.isEmpty {
-            UserDefaults.standard.removeObject(forKey: draftStorageKey)
+            service.deleteDraft(conversationID: currentConversation.id)
         } else {
-            UserDefaults.standard.set(value, forKey: draftStorageKey)
+            service.saveDraft(value, conversationID: currentConversation.id)
         }
     }
 
@@ -304,6 +311,24 @@ struct ChatView: View {
             withAnimation(.easeOut(duration: 0.22)) { proxy.scrollTo(lastID, anchor: .bottom) }
         } else {
             proxy.scrollTo(lastID, anchor: .bottom)
+        }
+    }
+
+    private func scheduleDeferredScrollAndRead(proxy: ScrollViewProxy) {
+        guard isMessageSearchActive == false else { return }
+        let conversationID = currentConversation.id
+        let lastMessageID = currentConversation.messages.last?.id
+        scrollUpdateTask?.cancel()
+        scrollUpdateTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 80_000_000)
+            guard Task.isCancelled == false else { return }
+            guard currentConversation.id == conversationID else { return }
+            if let lastMessageID {
+                withAnimation(.easeOut(duration: 0.22)) {
+                    proxy.scrollTo(lastMessageID, anchor: .bottom)
+                }
+            }
+            service.markConversationRead(id: conversationID)
         }
     }
 

@@ -1,204 +1,399 @@
-# 🔐 SecureChat ("BIT Chat")
+# 🔐 PrivateChat / SecureChat
 
-<p align="center">
-  <img src="SecureChat/schat/Assets.xcassets/AppIcon.appiconset/icon_1024x1024.png" width="120" alt="SecureChat Icon">
-</p>
+> **End-to-end encrypted messaging for iOS** — built with Swift, secured by Curve25519 & AES-GCM, relayed by a hardened TypeScript/Fastify blind relay.
 
-<p align="center">
-  <strong>iOS/macOS SwiftUI Messenger with E2E Encryption & Bluetooth Mesh</strong>
-</p>
+**Status:** Production Candidate ⚠️ — external security audit still recommended before high-assurance claims.
 
-<p align="center">
-  <a href="#features">Features</a> •
-  <a href="#security">Security</a> •
-  <a href="#architecture">Architecture</a> •
-  <a href="#installation">Installation</a> •
-  <a href="#screenshots">Screenshots</a> •
-  <a href="#roadmap">Roadmap</a>
-</p>
+---
+
+## 📖 Project Overview
+
+PrivateChat (also referenced as SecureChat in legacy contexts) is a privacy-first iOS messenger built from the ground up with end-to-end encryption at its core. It is designed as a **hardened, production-oriented baseline** for secure messaging, not as a feature-complete consumer app.
+
+The project follows a phased development approach (currently at **Phase 14.6.2**), with each phase adding hardening, UX improvements, or security features while keeping the core cryptographic layer stable.
+
+### Key Design Principles
+
+- **Zero-knowledge relay** — the relay server never sees plaintext, keys, or decrypted payloads.
+- **Client-side cryptography** — all encryption/decryption happens on-device using Apple's CryptoKit.
+- **No phone number required** — identity is based on Curve25519 keypairs, not phone numbers or email.
+- **Local-first data** — messages are stored encrypted locally; iCloud backup is explicitly excluded for sensitive stores.
+- **Trust, but verify** — manual Safety Number verification workflow for peer identity confirmation.
 
 ---
 
 ## ✨ Features
 
-### 🔒 Privacy-First Messaging
-- **End-to-End Encryption** using Double Ratchet (X25519 + HKDF-SHA256 + AES-256-GCM)
-- **Local Identity** based on Curve25519 signing keys
-- **Peer ID** derived from SHA-256 of public key
-- **Safety Numbers** for fingerprint verification
+### Core Messaging
+- 🔐 **End-to-end encryption** using Curve25519 key agreement + AES-GCM
+- 📝 **Encrypted local persistence** — messages and drafts stored with AES-GCM, keys in iOS Keychain
+- 🔑 **Curve25519 identity keys** — signing + key agreement keypairs per device
+- 🛡️ **Safety Number verification** — manual fingerprint comparison for out-of-band trust establishment
+- 🔄 **Relay transport** — encrypted packet dropbox for offline/remote messaging
+- 📬 **Delivery receipts & ACK tombstones** — reliable delivery tracking with deduplication
+- 🔍 **Chat search, drafts, export** — local-only, encrypted-at-rest
 
-### 📡 Communication Modes
-- **Bluetooth Mesh** (CoreBluetooth) - store-and-forward relay
-- **Local Network** - peer discovery via MultipeerConnectivity
-- **Relay Server** - optional encrypted packet upload
-- **QR Code Invites** - easy channel joining
+### Security & Privacy
+- 🔒 **Biometric app lock** — Face ID / Touch ID gate with device-owner authentication
+- 🚫 **Screenshot/Preview protection** — optional chat-list preview masking
+- ⌨️ **Privacy composer** — reduced keyboard suggestions to minimize system-side leakage
+- 🏃 **Runtime security** — debug/simulator/jailbreak/injection detection with optional relay blocking
+- 🤖 **Security Sentinel** — local AI-powered security scoring (0–100) with actionable recommendations
+- 📋 **Diagnostics reports** — technical summary without chat plaintext, shareable for support
+- 🧹 **Local retention cleanup** — manual purge controls for messages and relay ledger
 
-### 🛡️ Security Features
-- **Biometric Authentication** (Face ID / Touch ID)
-- **Trust States**: unverified → verified → blocked
-- **Encrypted Local Store** (AES-GCM)
-- **Keychain Storage** for keys and trust state
-- **Message Padding** and Bloom Filters
-- **Password-Protected Channels**
-- **Security Copilot** - explains fingerprints, QR invites, biometrics
+### UI / UX (Phase 14)
+- 🎨 **Modern glass-card design system** — professional iOS 16+ UI
+- 📊 **Command Center Dashboard** — relay stats, security score, privacy status at a glance
+- 💬 **Refined chat bubbles** — with message actions, quick reply, editing history
+- 📌 **Pinned & archived chats** — with unread counters
+- 🔗 **QR pairing** — scan or share pairing codes for contact discovery
+- 🗂️ **Chat organization** — searchable list, chat details, local rename, mute
 
-### 📱 Platform
-- **iOS 16+** / **macOS 13+**
-- **SwiftUI** with modern design
-- **Watch App** companion
-- **Widgets** support
-
----
-
-## 🔐 Security Architecture
-
-### Double Ratchet Implementation
-```
-X25519 Key Agreement
-    ↓
-HKDF-SHA256 (Root/Chain/Message Keys)
-    ↓
-AES-256-GCM with AAD binding
-    ↓
-Per-message keys + skipped-key window
-```
-
-### Key Components
-- **IdentityManager** - Curve25519 key generation and storage
-- **CryptoService** - Encryption/decryption operations
-- **KeychainStore** - Secure key storage in iOS Keychain
-- **PeerTrustStore** - Trust state management
-- **DoubleRatchet** - Forward secrecy and future secrecy
-
-See [README_SECURITY_V2.md](README_SECURITY_V2.md) for full details.
+### Relay Server
+- 🐳 **Dockerized Fastify backend** with TypeScript
+- 🔒 **Bearer-token auth** — separate client (`RELAY_AUTH_TOKEN`) and admin (`RELAY_ADMIN_TOKEN`) tokens
+- 🛡️ **Production hardening** — HTTPS enforcement, rate limiting, clock-skew validation, sanitized audit logs
+- 📦 **File-backed persistence** — `STORE_TYPE=file` with TTL and size limits
+- 🧹 **Admin-only purge** — clients cannot purge inboxes in production
+- 📈 **Stats endpoint** — admin-only relay diagnostics
 
 ---
 
 ## 🏗️ Architecture
 
 ```
-SecureChat/
-├── 📱 iOS App (PrivateChat/)
-│   ├── App/                    # App entry points
-│   ├── Core/
-│   │   ├── Security/           # Crypto, Identity, Keychain
-│   │   ├── Transport/          # Relay, Local, Bluetooth
-│   │   ├── Persistence/        # Encrypted stores
-│   │   └── Models/             # Chat models
-│   ├── Features/
-│   │   ├── Chat/               # Chat UI
-│   │   ├── Pairing/            # QR pairing
-│   │   └── Settings/           # App settings
-│   └── Features/Shared/        # Design system
-│
-├── 🖥️ Relay Server (RelayServer/)
-│   ├── Node.js/TypeScript
-│   ├── Docker support
-│   └── Caddy reverse proxy
-│
-├── 🧪 Tests/
-│   ├── Unit Tests
-│   ├── Integration Tests
-│   └── Security Tests
-│
-└── 📚 LegacyReference/         # Original BIT codebase
+┌─────────────────────────────────────────────────────────────────┐
+│                         iOS Client (Swift)                       │
+│  ┌─────────────┐  ┌──────────────┐  ┌──────────────────────┐  │
+│  │   UI Layer  │  │  App Layer   │  │    Security Layer    │  │
+│  │ (SwiftUI)   │  │ (Services)   │  │ (CryptoKit + Keychain)│  │
+│  └──────┬──────┘  └──────┬───────┘  └──────────┬───────────┘  │
+│         │                │                      │              │
+│  ┌──────▼──────┐  ┌──────▼───────┐  ┌───────────▼───────────┐  │
+│  │  Features   │  │   Core       │  │    Persistence        │  │
+│  │ Chat/Pairing│  │ Models/Sec   │  │ EncryptedMessageStore │  │
+│  │ Settings    │  │ Transport    │  │ EncryptedDraftStore   │  │
+│  └─────────────┘  └──────┬───────┘  │ RelayPacketLedgerStore│  │
+│                          │           └───────────────────────┘  │
+└──────────────────────────┼──────────────────────────────────────┘
+                           │
+                           ▼ HTTPS / WSS
+┌─────────────────────────────────────────────────────────────────┐
+│                      Relay Server (TypeScript/Fastify)           │
+│  ┌─────────────┐  ┌──────────────┐  ┌──────────────────────┐  │
+│  │   Health    │  │  /v1/relay/* │  │    /v1/admin/*      │  │
+│  │   (public)  │  │ (client auth)│  │  (admin auth)       │  │
+│  └─────────────┘  └──────────────┘  └──────────────────────┘  │
+│                              │                                  │
+│                    ┌─────────▼──────────┐                      │
+│                    │   File Store (WAL)   │                      │
+│                    │   /data (Docker vol) │                      │
+│                    └─────────────────────┘                      │
+└─────────────────────────────────────────────────────────────────┘
 ```
+
+### Client Stack
+
+| Layer | Technology |
+|-------|-----------|
+| UI | SwiftUI (iOS 16+) |
+| Crypto | Apple CryptoKit (Curve25519, AES-GCM, Ed25519) |
+| Keys | iOS Keychain |
+| Persistence | Encrypted file stores (AES-GCM), WAL mode |
+| Transport | URLSession → Relay HTTPS |
+| Language | Swift |
+| IDE | Xcode |
+
+### Relay Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Runtime | Node.js + Fastify |
+| Language | TypeScript |
+| Auth | Bearer token (constant-time comparison) |
+| Store | File-backed (production) / In-memory (dev) |
+| Container | Docker + Docker Compose |
+| Reverse Proxy | Caddy (HTTPS, auto-certs) |
+| Host | Linux VPS (production) |
 
 ---
 
-## 📲 Installation
+## 🔐 Security Features
+
+### Cryptography
+- **Identity**: Curve25519 keypair (signing + key agreement) per device
+- **Peer ID**: SHA-256 of signing public key (64 hex chars)
+- **Message encryption**: AES-GCM with authenticated additional data (AAD)
+- **Packet signatures**: Ed25519 signatures over canonical envelope
+- **Local storage**: AES-GCM encrypted stores, keys in Keychain
+- **Password-channel KDF**: Custom memory-hard KDF (not Argon2id — documented honestly)
+
+### Relay Security (Phase 13+)
+- Separate client and admin bearer tokens
+- Production fail-fast for missing auth / file-store / HTTPS
+- Client purge disabled by default; admin-only purge endpoint
+- Per-recipient packet cap + global packet cap
+- Clock-skew validation (±5 min)
+- Rate limiting per IP
+- Sanitized audit logs (no query strings, no plaintext)
+- Security headers (`no-store`, `X-Content-Type-Options`, etc.)
+- Docker hardening: `read_only`, `no-new-privileges`, `cap_drop: ALL`
+
+### App Runtime Security (Phase 11–12)
+- Debugger / debug-build / simulator detection
+- Jailbreak / injection indicator checks
+- Optional relay transport blocking on critical runtime risks
+- Local Security Sentinel scoring with concrete recommendations
+- Privacy composer to reduce iOS keyboard-side data exposure
+
+### Privacy
+- No advertising SDKs, trackers, or analytics third-parties
+- Diagnostic reports contain NO chat plaintext, NO private keys, NO tokens
+- Local stores excluded from iCloud backup
+- Camera permission ONLY for QR pairing
+- Biometric data never leaves Apple Secure Enclave
+
+---
+
+## 🚀 Setup Instructions
+
+### Prerequisites
+- macOS with Xcode 14+
+- iOS 16+ device or simulator
+- (Optional) Docker for relay server testing
 
 ### iOS App
-1. Clone the repository
-2. Open `PrivateChat.xcodeproj` in Xcode 15+
-3. Select your team in Signing & Capabilities
-4. Build & run on device (Bluetooth requires real device)
 
-### Relay Server
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/bigbadboy1010/SecureChat.git
+   cd SecureChat
+   ```
+
+2. Open in Xcode:
+   ```bash
+   open PrivateChat.xcodeproj
+   ```
+
+3. Select target `PrivateChat`
+
+4. Configure signing:
+   - Select your Team in Signing & Capabilities
+   - Bundle ID: `org.francois.PrivateChat` (or your own)
+
+5. Build and run on iOS Simulator or physical device
+
+### Relay Server (Local Testing)
+
 ```bash
 cd RelayServer
 cp .env.example .env
-# Edit .env with your settings
-docker compose up -d
+# Edit .env with your tokens and domain
+
+docker compose up -d --build
+
+# Verify
+curl http://127.0.0.1:8080/health
 ```
 
-See [RelayServer/README.md](RelayServer/README.md) for details.
+### Production Relay Deployment
+
+See [`RelayServer/README_PRODUCTION.md`](RelayServer/README_PRODUCTION.md) for:
+- Recommended `.env` configuration
+- Caddy reverse proxy setup
+- Token generation (`openssl rand -base64 48`)
+- Hardened Docker controls
+- Admin API usage
+
+Production relay: `https://chatsecure.ddns.net`
 
 ---
 
-## 📸 Screenshots
+## 📡 API Documentation
 
-*Coming soon - App Store screenshots*
+### Relay API (Client)
+
+All client routes require `Authorization: Bearer <RELAY_AUTH_TOKEN>`.
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | `GET` | Public health check (no auth) |
+| `/v1/relay/security/policy` | `GET` | Current relay policy metadata |
+| `/v1/relay/messages` | `POST` | Store encrypted packet |
+| `/v1/relay/messages` | `GET` | Fetch inbox for recipient |
+| `/v1/relay/messages/:id` | `DELETE` | Delete specific packet |
+
+#### Store Packet (POST)
+
+```json
+POST /v1/relay/messages
+Content-Type: application/json
+Authorization: Bearer <token>
+
+{
+  "protocolVersion": 2,
+  "id": "uuid-v4",
+  "senderID": "64-hex-chars",
+  "recipientID": "64-hex-chars",
+  "sealedPayloadBase64": "base64-aes-gcm-payload",
+  "signatureBase64": "base64-ed25519-signature",
+  "createdAt": "2026-06-12T12:00:00Z",
+  "expiresAt": "2026-06-13T12:00:00Z"
+}
+```
+
+Response `202`:
+```json
+{
+  "accepted": true,
+  "packetID": "uuid-v4"
+}
+```
+
+#### Fetch Inbox (GET)
+
+```
+GET /v1/relay/messages?recipientID=<64-hex>&limit=50
+Authorization: Bearer <token>
+```
+
+Response:
+```json
+{
+  "packets": [...]
+}
+```
+
+#### Delete Packet (DELETE)
+
+```
+DELETE /v1/relay/messages/:packetID
+Authorization: Bearer <token>
+```
+
+### Relay API (Admin)
+
+Requires `Authorization: Bearer <RELAY_ADMIN_TOKEN>`.
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/v1/admin/relay/stats` | `GET` | Relay statistics |
+| `/v1/admin/relay/messages/purge` | `POST` | Admin-only inbox purge |
+
+**Note:** `RELAY_ADMIN_TOKEN` must NEVER be embedded in the iOS app.
+
+### Full API Contract
+
+See [`Docs/RELAY_API_CONTRACT.md`](Docs/RELAY_API_CONTRACT.md)
 
 ---
 
-## 🗺️ Roadmap
+## 📂 Project Structure
 
-See [Docs/SECURITY_ROADMAP.md](Docs/SECURITY_ROADMAP.md) for full roadmap.
+```
+SecureChat/
+├── PrivateChat/               # Active iOS app target (Swift)
+│   ├── App/                   # App entry, container, device info
+│   ├── Core/
+│   │   ├── Models/            # Chat models, production profile
+│   │   ├── Security/          # Identity, crypto, keychain, trust store
+│   │   ├── Persistence/       # Encrypted stores (messages, drafts, ledger)
+│   │   ├── Services/          # Conversation, biometric gate
+│   │   └── Transport/         # Relay transport, local transport, models
+│   ├── Features/
+│   │   ├── Chat/              # Chat views, dashboard, conversation list
+│   │   ├── Pairing/           # QR pairing, manual pairing
+│   │   ├── Settings/          # Settings, privacy policy, support
+│   │   ├── Onboarding/        # Onboarding flow
+│   │   └── Shared/            # Shared UI components
+│   ├── Assets.xcassets/       # App icons (universal + macOS sizes)
+│   └── PrivacyInfo.xcprivacy  # Apple privacy manifest
+├── RelayServer/               # TypeScript/Fastify relay backend
+│   ├── src/                   # Server source
+│   ├── Dockerfile
+│   ├── docker-compose.yml
+│   ├── Caddyfile
+│   └── README_PRODUCTION.md
+├── Docs/                      # Changelogs, privacy policy, API docs, roadmap
+├── Tests/                     # Unit tests (PrivateChatTests target)
+├── Config/                    # Info.plist
+└── README.md                  # This file
+```
 
-### Phase 1 ✅ (Completed)
-- [x] Basic E2E encryption
-- [x] Bluetooth mesh
-- [x] QR pairing
-- [x] Biometric auth
+---
 
-### Phase 2 ✅ (Completed)
-- [x] Double Ratchet v2
-- [x] Relay server
-- [x] Message padding
-- [x] Bloom filters
+## 🗺️ Development Phases
 
-### Phase 3 🚧 (In Progress)
-- [ ] Group chats
-- [ ] File sharing
-- [ ] Voice messages
-- [ ] Cross-platform sync
+| Phase | Focus |
+|-------|-------|
+| 1 | Stabilized baseline, identity, encrypted store |
+| 2 | QR pairing, Safety Number, relay transport scaffold |
+| 3–5 | Relay ACKs, delivery receipts, deduplication, stats |
+| 6–7 | Messenger UI: chat list, bubbles, search, pinned |
+| 8 | Chat search, drafts, export, relay ledger maintenance |
+| 9 | Privacy composer, preview protection, diagnostics, backoff |
+| 10 | Production relay: Docker, Caddy, HTTPS, bearer auth |
+| 11 | App hardening: runtime integrity checks |
+| 12 | Security Sentinel: local AI security scoring |
+| 13 | Relay hardening: production fail-fast, rate limits, sanitized logs |
+| 14 | Professional UI refresh: glass cards, Command Center, refined composer |
+| 14.1–14.6 | Security UX calibration, App Store cleanup, encrypted drafts, tests |
 
-### Phase 4 📅 (Planned)
-- [ ] Desktop app (macOS)
-- [ ] Web client
-- [ ] Federation
-- [ ] Audits
+See `Docs/PHASE*_CHANGELOG.md` for detailed per-phase notes.
 
 ---
 
 ## 🧪 Testing
 
-```bash
-# Run all tests
-xcodebuild test -project PrivateChat.xcodeproj -scheme PrivateChat
+The `PrivateChatTests` target is present but still being expanded. Required before strong production claims:
 
-# Run specific test suite
-xcodebuild test -project PrivateChat.xcodeproj -scheme PrivateChat -only-testing:PrivateChatTests
+- [ ] `PrivateChat/Core/Security` unit tests
+- [ ] `PrivateChat/Core/Transport` tests
+- [ ] Encrypted store migration tests
+- [ ] Relay configuration migration tests
+- [ ] External security audit
+
+Run existing tests:
+```bash
+# In Xcode: Cmd+U with PrivateChatTests target selected
 ```
 
 ---
 
-## 📄 License
+## ⚠️ Production Caveats
 
-Some files include an Unlicense/public-domain header.
-This project is open source - see individual file headers.
-
----
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'feat: add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+- **Not independently audited** — suitable for moderate-risk messaging, not yet for high-sensitivity use.
+- **Custom KDF** — the password-channel KDF is documented as custom memory-hard, not Argon2id. Do not market as formally reviewed password hashing.
+- **No Double Ratchet yet** — the legacy Double Ratchet exists in history but is not integrated into the active `PrivateChat` target.
+- **No group sender keys yet** — group messaging is on the roadmap but not implemented in the active target.
+- **Test on physical hardware** — simulator behavior differs for keychain, biometric, and runtime security.
 
 ---
 
-## 🙏 Acknowledgments
+## 📄 License & Legal
 
-- [Signal Protocol](https://signal.org/docs/) for the Double Ratchet inspiration
-- [libsodium](https://libsodium.gitbook.io/doc/) for crypto primitives
-- Apple for CoreBluetooth and CryptoKit
+- Privacy Policy: [`Docs/PRIVACY_POLICY.md`](Docs/PRIVACY_POLICY.md)
+- App Store Connect: Privacy Policy URL must be publicly reachable HTTPS
+- Export compliance must be reviewed for App Store submission
+- No analytics SDKs or trackers are integrated
 
 ---
 
-<p align="center">
-  <strong>🔐 Privacy is a right, not a privilege 🔐</strong>
-</p>
+## 🤝 Contributing & Support
+
+- See [`Docs/SUPPORT_AND_FEEDBACK.md`](Docs/SUPPORT_AND_FEEDBACK.md)
+- Security roadmap: [`Docs/SECURITY_ROADMAP.md`](Docs/SECURITY_ROADMAP.md)
+- For security issues, please report via the app's diagnostic report or contact channels
+
+---
+
+## 🔗 Links
+
+- **Repository:** https://github.com/bigbadboy1010/SecureChat
+- **Production Relay:** https://chatsecure.ddns.net
+- **Relay Docs:** [`RelayServer/README_PRODUCTION.md`](RelayServer/README_PRODUCTION.md)
+
+---
+
+*Built with ❤️ for privacy by default.*

@@ -33,6 +33,10 @@ struct ConversationListView: View {
     @State private var searchText = ""
     @State private var filter: ConversationFilter = .active
 
+    private var isSearchActive: Bool {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+    }
+
     private var visibleConversations: [StoredConversation] {
         service.conversations.filter { storedConversation in
             switch filter {
@@ -82,7 +86,12 @@ struct ConversationListView: View {
 
                 SwiftUI.Section {
                     if visibleConversations.isEmpty {
-                        EmptyConversationView(filter: filter, isSearching: searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+                        if service.conversations.isEmpty && filter == .active && isSearchActive == false {
+                            FirstRunConversationHint {
+                                _ = service.createSoloTestConversation()
+                            }
+                        }
+                        EmptyConversationView(filter: filter, isSearching: isSearchActive)
                     } else {
                         ForEach(visibleConversations) { storedConversation in
                             NavigationLink {
@@ -306,6 +315,48 @@ private struct MiniMetric: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(PrivateChatDesign.subtleBorder, lineWidth: 1)
         }
+    }
+}
+
+private struct FirstRunConversationHint: View {
+    let createSoloTestChat: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "sparkles")
+                    .font(.title2)
+                    .foregroundStyle(Color.accentColor)
+                    .frame(width: 34, height: 34)
+                    .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Erster Test in 10 Sekunden")
+                        .font(.headline.weight(.semibold))
+                    Text("Lege einen lokalen Solo-Test-Chat an, prüfe die verschlüsselte lokale Speicherung und teste die UI ohne zweites Gerät.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Label("Pairing braucht zwei Geräte oder zwei TestFlight-Installationen.", systemImage: "qrcode.viewfinder")
+                Label("Relay ist optional und läuft über chatsecure.ddns.net.", systemImage: "network")
+                Label("Safety Number erst nach realem Kontaktvergleich bestätigen.", systemImage: "checkmark.shield")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
+            Button {
+                createSoloTestChat()
+            } label: {
+                Label("Solo-Test-Chat starten", systemImage: "message.badge")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .privateChatGlassCard(padding: 16, cornerRadius: 22, highlighted: true)
+        .padding(.vertical, 4)
     }
 }
 

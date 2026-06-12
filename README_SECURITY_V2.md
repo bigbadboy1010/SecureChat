@@ -1,33 +1,43 @@
-# BIT Chat – Security (Protocol v2)
+# PrivateChat / SecureChat – Security Notes
 
-## Status (Step 2)
-This build enables **Protocol v2 (hard break)** with **Full Double Ratchet (DH-ratchet)** for private chats.
+## Scope
 
-## Crypto in v2 (current)
-- X25519 key agreement (ephemeral session)
-- Root key derived via HKDF-SHA256
-- Full Double Ratchet (DH-ratchet): X25519 + HKDF-SHA256
-- Per-message keys (symmetric ratchet) + skipped-key window
-- AES-256-GCM with AAD binding (version + counter)
+This document describes the active `PrivateChat` baseline and the hardened Relay Server. Historical BIT/SecureChat reference code was removed from the package in Phase 14.4 to reduce duplicate-code risk.
 
-## Next steps (planned v2)
-- Full Double Ratchet (DH-ratchet) for PCS
-- Sender Keys for channels
-- Argon2id for password channels (memory-hard)
-- Message header v2 (routing-minimal metadata + strict AAD audit)
+## Active security baseline
 
+- Local identity uses Curve25519 key material through CryptoKit.
+- Peer IDs are derived from signing public keys.
+- Local message persistence is encrypted with AES-GCM.
+- Store keys, trust state and Relay ledger metadata are stored via Keychain-backed stores.
+- Relay packets are signed and payloads are AEAD-protected before upload.
+- Relay server is a blind relay and does not receive message plaintext.
+- Public production Relay is `https://chatsecure.ddns.net` behind Caddy.
+- `/v1/relay/*` requires `RELAY_AUTH_TOKEN`.
+- `/v1/admin/*` requires `RELAY_ADMIN_TOKEN` and must never be configured in the app.
 
-## Step 4
-- Unprotected channels generate a random 32-byte channel key.
-- QR invites may embed the channel key (base64) for one-scan secure join.
-- Channel messages use Sender-Keys format v2 (0x52 + counter + AES-GCM) with AAD.
+## KDF statement
 
+Password-channel derivation is documented as a **custom memory-hard KDF**, not Argon2id.
 
-## Step 5
-- Channel invites are one-time tokens with expiry (default 10 minutes) to reduce key replays.
-- Channel Sender-Keys packet upgraded to v3 header: counter + timestamp + messageId, bound via AAD.
+This distinction matters. The current KDF is intended to raise local brute-force cost without external dependencies, but it must not be marketed as Argon2id or as a substitute for a formally reviewed password-hashing construction.
 
+## Production caveat
 
-## Step 6
-- Optional passphrase-wrap for embedded channel keys in QR invites (MemoryHardKDF + AES-GCM + AAD).
-- Replay protection for channel messages via msgId cache per sender/channel.
+The project is a production candidate, not externally audited secure-messaging infrastructure. Before public security claims:
+
+- migrate tests to the active `PrivateChat` target;
+- add transport and persistence tests;
+- review KDF design;
+- run external cryptographic/security audit;
+- verify Release/TestFlight builds on physical hardware.
+
+## Relay production configuration
+
+```text
+Relay URL: https://chatsecure.ddns.net
+Client token: RELAY_AUTH_TOKEN
+Admin token: RELAY_ADMIN_TOKEN, server only
+```
+
+Old local Relay URLs are blocked/migrated in Phase 14.4 and must not be used for production.

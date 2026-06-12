@@ -30,9 +30,11 @@ final class AppContainer: ObservableObject {
         do {
             let identity = try identityManager.loadOrCreateLocalIdentity(displayName: UIDeviceNameProvider.defaultDisplayName)
             let messageStore = try EncryptedMessageStore(keychain: keychain, crypto: crypto)
+            let draftStore = try EncryptedDraftStore(keychain: keychain, crypto: crypto)
             let service = ConversationService(
                 localIdentity: identity,
                 messageStore: messageStore,
+                draftStore: draftStore,
                 peerTrustStore: peerTrustStore,
                 settingsStore: settingsStore,
                 relayPacketLedgerStore: relayPacketLedgerStore,
@@ -52,6 +54,7 @@ final class AppContainer: ObservableObject {
             let service = ConversationService(
                 localIdentity: fallbackIdentity,
                 messageStore: InMemoryMessageStore(),
+                draftStore: InMemoryDraftStore(),
                 peerTrustStore: peerTrustStore,
                 settingsStore: settingsStore,
                 relayPacketLedgerStore: InMemoryRelayPacketLedgerStore(),

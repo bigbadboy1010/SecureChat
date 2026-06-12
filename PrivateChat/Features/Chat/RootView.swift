@@ -2,15 +2,49 @@ import SwiftUI
 
 struct RootView: View {
     @ObservedObject var container: AppContainer
+    @AppStorage("PrivateChat.didOnboard.v1") private var didOnboard = false
+    @AppStorage("PrivateChat.didAcceptBetaDisclaimer.v1") private var didAcceptBetaDisclaimer = false
 
     var body: some View {
         Group {
             if container.isUnlocked {
                 MainTabView(service: container.conversationService)
+                    .fullScreenCover(isPresented: onboardingPresentationBinding) {
+                        OnboardingView {
+                            didOnboard = true
+                        }
+                    }
+                    .sheet(isPresented: betaDisclaimerPresentationBinding) {
+                        BetaDisclaimerView {
+                            didAcceptBetaDisclaimer = true
+                        }
+                    }
             } else {
                 UnlockView(container: container)
             }
         }
+    }
+
+    private var onboardingPresentationBinding: Binding<Bool> {
+        Binding(
+            get: { didOnboard == false },
+            set: { isPresented in
+                if isPresented == false {
+                    didOnboard = true
+                }
+            }
+        )
+    }
+
+    private var betaDisclaimerPresentationBinding: Binding<Bool> {
+        Binding(
+            get: { didOnboard && didAcceptBetaDisclaimer == false },
+            set: { isPresented in
+                if isPresented == false {
+                    didAcceptBetaDisclaimer = true
+                }
+            }
+        )
     }
 }
 
@@ -114,7 +148,10 @@ private struct MainTabView: View {
         }
         .task {
             service.refreshRuntimeSecurityAssessment()
-            await service.runRelayAutoSyncLoop()
+            service.startRelayAutoSyncLoop()
+        }
+        .onDisappear {
+            service.stopRelayAutoSyncLoop()
         }
     }
 }

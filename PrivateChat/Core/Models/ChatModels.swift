@@ -245,6 +245,26 @@ struct RelayConfiguration: Codable, Equatable {
     var autoPurgeRelayInboxAfterSuccessfulSync: Bool
     var verboseRelayLogging: Bool
 
+    var normalizedBaseURLString: String {
+        SecureChatProductionProfile.normalizeRelayBaseURL(baseURLString)
+    }
+
+    var hasUsableClientToken: Bool {
+        SecureChatProductionProfile.isUsableClientToken(registrationToken)
+    }
+
+    var readinessIssue: String? {
+        SecureChatProductionProfile.readinessIssue(for: self)
+    }
+
+    var isReadyForNetworkRequests: Bool {
+        readinessIssue == nil
+    }
+
+    var migratedForSecureChatProduction: RelayConfiguration {
+        SecureChatProductionProfile.migratedConfiguration(self)
+    }
+
     static let disabled = RelayConfiguration(
         isEnabled: false,
         baseURLString: "",
@@ -343,6 +363,16 @@ struct AppSecurityState: Codable, Equatable {
         self.restrictRelayOnRuntimeRisk = restrictRelayOnRuntimeRisk
     }
 
+    func migratedForSecureChatProduction() -> AppSecurityState {
+        var migrated = self
+        migrated.relayConfiguration = relayConfiguration.migratedForSecureChatProduction
+        if migrated.transportMode == .relayAllowed, migrated.relayConfiguration.isEnabled == false {
+            // Keep the user's selected mode visible, but prevent background network calls until a valid token is saved.
+            migrated.relayConfiguration.isEnabled = false
+        }
+        return migrated
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.transportMode = try container.decodeIfPresent(TransportMode.self, forKey: .transportMode) ?? .localOnly
@@ -354,6 +384,10 @@ struct AppSecurityState: Codable, Equatable {
         self.reduceKeyboardSuggestions = try container.decodeIfPresent(Bool.self, forKey: .reduceKeyboardSuggestions) ?? true
         self.warnOnRuntimeRisk = try container.decodeIfPresent(Bool.self, forKey: .warnOnRuntimeRisk) ?? true
         self.restrictRelayOnRuntimeRisk = try container.decodeIfPresent(Bool.self, forKey: .restrictRelayOnRuntimeRisk) ?? false
+
+        let migrated = migratedForSecureChatProduction()
+        self.transportMode = migrated.transportMode
+        self.relayConfiguration = migrated.relayConfiguration
     }
 
     func encode(to encoder: Encoder) throws {

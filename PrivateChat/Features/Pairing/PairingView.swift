@@ -5,12 +5,40 @@ struct PairingView: View {
 
     @State private var inboundPairingCode = ""
     @State private var localPairingCode = ""
+    @State private var localDisplayName = ""
     @State private var hasLoadedPairingCode = false
     @State private var showScanner = false
 
     var body: some View {
         NavigationStack {
             Form {
+                SwiftUI.Section {
+                    TextField("Dein Anzeigename", text: $localDisplayName)
+                        .textInputAutocapitalization(.words)
+                        .autocorrectionDisabled(true)
+
+                    Label("Maximal 80 Zeichen. Erlaubt sind Buchstaben, Zahlen, Leerzeichen sowie . - _ und '. Andere Zeichen werden beim Speichern entfernt.", systemImage: "textformat.abc")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    LabeledContent("Aktive Identity") {
+                        Text(String(service.localIdentity.id.prefix(12)) + "…")
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Button {
+                        saveLocalDisplayName()
+                    } label: {
+                        Label("Anzeigename speichern", systemImage: "person.crop.circle.badge.checkmark")
+                    }
+                    .disabled(localDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                } header: {
+                    Text("Lokale Identität")
+                } footer: {
+                    Text("Der Anzeigename wird lokal im Keychain gespeichert und in neuen Pairing-Codes als öffentlicher Name übertragen. Private Keys bleiben auf diesem Gerät.")
+                }
+
                 SwiftUI.Section {
                     VStack(spacing: 16) {
                         if localPairingCode.isEmpty {
@@ -93,6 +121,7 @@ struct PairingView: View {
             .navigationTitle("Pairing")
             .privateChatErrorAlert(service: service)
             .onAppear {
+                localDisplayName = service.localIdentity.displayName
                 guard hasLoadedPairingCode == false else {
                     return
                 }
@@ -123,6 +152,16 @@ struct PairingView: View {
             localPairingCode = ""
             service.reportError(error)
         }
+    }
+
+    private func saveLocalDisplayName() {
+        let normalizedName = localDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalizedName.isEmpty == false else {
+            return
+        }
+        service.updateLocalDisplayName(normalizedName)
+        localDisplayName = service.localIdentity.displayName
+        refreshLocalPairingCode()
     }
 
     private func importInboundPairingCode() {

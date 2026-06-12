@@ -26,6 +26,7 @@ struct PairingPayload: Codable, Equatable {
 
 protocol IdentityManaging {
     func loadOrCreateLocalIdentity(displayName: String) throws -> LocalIdentity
+    func updateDisplayName(_ displayName: String, identity: LocalIdentity) throws -> LocalIdentity
     func exportPairingPayload(identity: LocalIdentity) throws -> String
     func importPairingPayload(_ encodedPayload: String) throws -> TrustedPeer
 }
@@ -34,6 +35,7 @@ final class IdentityManager: IdentityManaging {
     private enum Account {
         static let keyAgreementPrivateKey = "identity.keyAgreement.private.v1"
         static let signingPrivateKey = "identity.signing.private.v1"
+        static let displayName = "identity.displayName.v1"
     }
 
     private enum Pairing {
@@ -69,12 +71,30 @@ final class IdentityManager: IdentityManaging {
             try keychain.writeData(signingPrivateKey.rawRepresentation, account: Account.signingPrivateKey)
         }
 
+        let storedDisplayName = try keychain.readData(account: Account.displayName)
+            .flatMap { String(data: $0, encoding: .utf8) }
+        let effectiveDisplayName = Self.normalizedDisplayName(storedDisplayName ?? displayName)
+        if storedDisplayName == nil {
+            try keychain.writeData(Data(effectiveDisplayName.utf8), account: Account.displayName)
+        }
+
         let identityID = crypto.peerID(publicKeyData: signingPrivateKey.publicKey.rawRepresentation)
         return LocalIdentity(
             id: identityID,
-            displayName: Self.normalizedDisplayName(displayName),
+            displayName: effectiveDisplayName,
             keyAgreementPrivateKey: keyAgreementPrivateKey,
             signingPrivateKey: signingPrivateKey
+        )
+    }
+
+    func updateDisplayName(_ displayName: String, identity: LocalIdentity) throws -> LocalIdentity {
+        let normalizedName = Self.normalizedDisplayName(displayName)
+        try keychain.writeData(Data(normalizedName.utf8), account: Account.displayName)
+        return LocalIdentity(
+            id: identity.id,
+            displayName: normalizedName,
+            keyAgreementPrivateKey: identity.keyAgreementPrivateKey,
+            signingPrivateKey: identity.signingPrivateKey
         )
     }
 
@@ -122,6 +142,18 @@ final class IdentityManager: IdentityManaging {
         guard trimmed.isEmpty == false else {
             return "PrivateChat Peer"
         }
-        return String(trimmed.prefix(80))
+
+        let collapsedWhitespace = trimmed
+            .split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: " ")
+        let allowedPunctuation = CharacterSet(charactersIn: " .-_'")
+        let allowedScalars = CharacterSet.alphanumerics.union(allowedPunctuation)
+        let sanitizedScalars = collapsedWhitespace.unicodeScalars.filter { allowedScalars.contains($0) }
+        let sanitized = String(String.UnicodeScalarView(sanitizedScalars))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard sanitized.isEmpty == false else {
+            return "PrivateChat Peer"
+        }
+        return String(sanitized.prefix(80))
     }
 }

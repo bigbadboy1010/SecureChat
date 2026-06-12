@@ -22,9 +22,15 @@ final class SecuritySettingsStore: SecuritySettingsStoring {
 
     func load() throws -> AppSecurityState {
         guard let data = try keychain.readData(account: Account.settings) else {
-            return .secureDefault
+            return .secureDefault.migratedForSecureChatProduction()
         }
-        return try decoder.decode(AppSecurityState.self, from: data)
+
+        let decodedState = try decoder.decode(AppSecurityState.self, from: data)
+        let migratedState = decodedState.migratedForSecureChatProduction()
+        if migratedState != decodedState {
+            try save(migratedState)
+        }
+        return migratedState
     }
 
     func save(_ state: AppSecurityState) throws {

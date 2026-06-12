@@ -60,10 +60,10 @@ final class ConversationService: ObservableObject {
     @Published private(set) var relayConnectivityStatus: RelayConnectivityStatus
     @Published private(set) var runtimeSecuritySnapshot: RuntimeSecuritySnapshot
     @Published private(set) var securityAISnapshot: SecurityAISnapshot
-
-    let localIdentity: LocalIdentity
+    @Published private(set) var localIdentity: LocalIdentity
 
     private let messageStore: MessageStoring
+    private let draftStore: DraftStoring
     private let peerTrustStore: PeerTrustStoring
     private let settingsStore: SecuritySettingsStoring
     private let relayPacketLedgerStore: RelayPacketLedgerStoring
@@ -73,10 +73,12 @@ final class ConversationService: ObservableObject {
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private var relayPacketLedger: RelayPacketLedger
+    private var relayAutoSyncTask: Task<Void, Never>?
 
     init(
         localIdentity: LocalIdentity,
         messageStore: MessageStoring,
+        draftStore: DraftStoring,
         peerTrustStore: PeerTrustStoring,
         settingsStore: SecuritySettingsStoring,
         relayPacketLedgerStore: RelayPacketLedgerStoring,
@@ -86,6 +88,7 @@ final class ConversationService: ObservableObject {
     ) {
         self.localIdentity = localIdentity
         self.messageStore = messageStore
+        self.draftStore = draftStore
         self.peerTrustStore = peerTrustStore
         self.settingsStore = settingsStore
         self.relayPacketLedgerStore = relayPacketLedgerStore
@@ -142,17 +145,64 @@ final class ConversationService: ObservableObject {
         lastErrorMessage = error.localizedDescription
     }
 
-    func runRelayAutoSyncLoop() async {
+    func loadDraft(conversationID: UUID, legacyUserDefaultsValue: String?) -> String {
+        do {
+            if let migratedDraft = try draftStore.migrateLegacyDraftIfNeeded(conversationID: conversationID, legacyValue: legacyUserDefaultsValue) {
+                return migratedDraft
+            }
+            return try draftStore.loadDraft(conversationID: conversationID) ?? ""
+        } catch {
+            lastErrorMessage = "Entwurf konnte nicht entschlüsselt geladen werden: \(error.localizedDescription)"
+            return legacyUserDefaultsValue ?? ""
+        }
+    }
+
+    func saveDraft(_ draft: String, conversationID: UUID) {
+        do {
+            try draftStore.saveDraft(draft, conversationID: conversationID)
+        } catch {
+            lastErrorMessage = "Entwurf konnte nicht verschlüsselt gespeichert werden: \(error.localizedDescription)"
+        }
+    }
+
+    func deleteDraft(conversationID: UUID) {
+        do {
+            try draftStore.deleteDraft(conversationID: conversationID)
+        } catch {
+            lastErrorMessage = "Entwurf konnte nicht gelöscht werden: \(error.localizedDescription)"
+        }
+    }
+
+    func startRelayAutoSyncLoop() {
+        guard relayAutoSyncTask == nil else {
+            return
+        }
+
+        relayAutoSyncTask = Task { [weak self] in
+            await self?.runRelayAutoSyncLoop()
+        }
+    }
+
+    func stopRelayAutoSyncLoop() {
+        relayAutoSyncTask?.cancel()
+        relayAutoSyncTask = nil
+        isRelayAutoPollingActive = false
+    }
+
+    private func runRelayAutoSyncLoop() async {
         guard isRelayAutoPollingActive == false else {
             return
         }
 
         isRelayAutoPollingActive = true
-        defer { isRelayAutoPollingActive = false }
+        defer {
+            isRelayAutoPollingActive = false
+            relayAutoSyncTask = nil
+        }
 
         while Task.isCancelled == false {
             if securityState.transportMode == .relayAllowed, securityState.relayConfiguration.isEnabled {
-                if shouldPauseRelayRequests(showUserFacingError: false) == false {
+                if shouldBlockRelayDueToConfiguration(showUserFacingError: false, context: "Auto-Sync") == false, shouldPauseRelayRequests(showUserFacingError: false) == false {
                     await syncRelayInbox(showDisabledError: false)
                     if securityState.relayConfiguration.retryFailedMessagesAutomatically, shouldPauseRelayRequests(showUserFacingError: false) == false {
                         await retryPendingOutboundMessages(showEmptyResult: false)
@@ -175,6 +225,36 @@ final class ConversationService: ObservableObject {
         let conversation = Conversation(title: trimmedTitle, peerID: peerID)
         conversations.insert(StoredConversation(conversation: conversation, messages: []), at: 0)
         persistConversations()
+    }
+
+    @discardableResult
+    func createSoloTestConversation() -> UUID {
+        if let existing = conversations.first(where: { $0.conversation.title == "Solo-Test" && $0.conversation.peerID == nil }) {
+            return existing.id
+        }
+
+        let conversation = Conversation(title: "Solo-Test", peerID: nil)
+        let welcomeMessage = ChatMessage(
+            conversationID: conversation.id,
+            senderID: "privatechat.system",
+            recipientID: localIdentity.id,
+            body: "Dies ist ein lokaler Test-Chat. Nachrichten in diesem Chat bleiben auf diesem Gerät und werden nicht an den Relay gesendet.",
+            status: .delivered,
+            isIncoming: true,
+            readAt: Date()
+        )
+        let hintMessage = ChatMessage(
+            conversationID: conversation.id,
+            senderID: localIdentity.id,
+            recipientID: nil,
+            body: "Solo-Test bereit. Du kannst hier den Composer, die verschlüsselte lokale Speicherung und die Chat-UI ohne zweiten Peer testen.",
+            status: .delivered,
+            isIncoming: false
+        )
+        conversations.insert(StoredConversation(conversation: conversation, messages: [welcomeMessage, hintMessage]), at: 0)
+        persistConversations()
+        lastTransportDiagnosticMessage = "Solo-Test-Chat lokal angelegt. Kein Relay-Transport erforderlich."
+        return conversation.id
     }
 
     func deleteConversation(id: UUID) {
@@ -353,6 +433,9 @@ final class ConversationService: ObservableObject {
         guard shouldBlockRelayForRuntimeRisk(showUserFacingError: true, context: "Relay-Stats") == false else {
             return
         }
+        guard shouldBlockRelayDueToConfiguration(showUserFacingError: true, context: "Relay-Stats") == false else {
+            return
+        }
 
         isRelayStatsRunning = true
         defer { isRelayStatsRunning = false }
@@ -384,6 +467,9 @@ final class ConversationService: ObservableObject {
         }
 
         guard shouldBlockRelayForRuntimeRisk(showUserFacingError: true, context: "Relay-Inbox bereinigen") == false else {
+            return
+        }
+        guard shouldBlockRelayDueToConfiguration(showUserFacingError: true, context: "Relay-Inbox bereinigen") == false else {
             return
         }
 
@@ -441,6 +527,9 @@ final class ConversationService: ObservableObject {
         defer { isRelayHealthCheckRunning = false }
         lastTransportDiagnosticMessage = "Relay-Prüfung gestartet. \(transportDiagnosticSummary())"
         guard shouldBlockRelayForRuntimeRisk(showUserFacingError: true, context: "Relay-Prüfung") == false else {
+            return
+        }
+        guard shouldBlockRelayDueToConfiguration(showUserFacingError: true, context: "Relay-Prüfung") == false else {
             return
         }
 
@@ -529,18 +618,29 @@ final class ConversationService: ObservableObject {
         (try? makeLocalPairingCode()) ?? ""
     }
 
+    func updateLocalDisplayName(_ displayName: String) {
+        do {
+            localIdentity = try identityManager.updateDisplayName(displayName, identity: localIdentity)
+            lastTransportDiagnosticMessage = "Anzeigename aktualisiert. Der neue Name wird im nächsten Pairing-Code verwendet."
+            lastErrorMessage = nil
+        } catch {
+            lastErrorMessage = "Anzeigename konnte nicht gespeichert werden: \(error.localizedDescription)"
+        }
+    }
+
     func updateSecurityState(_ state: AppSecurityState) {
         do {
-            try settingsStore.save(state)
+            let migratedState = state.migratedForSecureChatProduction()
+            try settingsStore.save(migratedState)
             let previousRelayURL = securityState.relayConfiguration.baseURLString
-            securityState = state
+            securityState = migratedState
             refreshRuntimeSecurityAssessment()
             refreshSecurityAIAssessment()
             lastRelayHealthMessage = nil
-            if previousRelayURL != state.relayConfiguration.baseURLString {
+            if previousRelayURL != migratedState.relayConfiguration.baseURLString {
                 relayConnectivityStatus = .healthy
             }
-            lastTransportDiagnosticMessage = transportDiagnosticSummary(for: state)
+            lastTransportDiagnosticMessage = transportDiagnosticSummary(for: migratedState)
             lastErrorMessage = nil
         } catch {
             lastErrorMessage = error.localizedDescription
@@ -579,6 +679,8 @@ final class ConversationService: ObservableObject {
 
         let relayActiveText = securityState.relayConfiguration.isEnabled ? "ja" : "nein"
         let relayURLText = securityState.relayConfiguration.baseURLString.isEmpty ? "nicht gesetzt" : securityState.relayConfiguration.baseURLString
+        let relayTokenText = securityState.relayConfiguration.hasUsableClientToken ? "gesetzt" : "fehlt/ungültig"
+        let relayProductionText = SecureChatProductionProfile.isConfiguredProductionRelay(securityState.relayConfiguration.baseURLString) ? "ja" : "nein"
         let verboseLoggingText = securityState.relayConfiguration.verboseRelayLogging ? "aktiv" : "leise"
         let previewProtectionText = securityState.hideMessagePreviews ? "aktiv" : "aus"
         let keyboardProtectionText = securityState.reduceKeyboardSuggestions ? "ja" : "nein"
@@ -592,6 +694,8 @@ final class ConversationService: ObservableObject {
         lines.append("Transportmodus: \(securityState.transportMode.rawValue)")
         lines.append("Relay aktiv: \(relayActiveText)")
         lines.append("Relay URL: \(relayURLText)")
+        lines.append("Relay Token: \(relayTokenText)")
+        lines.append("Production Relay: \(relayProductionText)")
         lines.append("Auto-Polling: \(securityState.relayConfiguration.autoPollingIntervalSeconds)s")
         lines.append("Inbox Limit: \(securityState.relayConfiguration.inboxPollingLimit)")
         lines.append("Relay Erfolgslogs: \(verboseLoggingText)")
@@ -780,6 +884,9 @@ final class ConversationService: ObservableObject {
         guard shouldBlockRelayForRuntimeRisk(showUserFacingError: showDisabledError, context: "Relay-Inbox-Abruf") == false else {
             return
         }
+        guard shouldBlockRelayDueToConfiguration(showUserFacingError: showDisabledError, context: "Relay-Inbox-Abruf") == false else {
+            return
+        }
         guard shouldPauseRelayRequests(showUserFacingError: showDisabledError) == false else {
             return
         }
@@ -888,6 +995,9 @@ final class ConversationService: ObservableObject {
         guard shouldBlockRelayForRuntimeRisk(showUserFacingError: showEmptyResult, context: "Outbox-Retry") == false else {
             return
         }
+        guard shouldBlockRelayDueToConfiguration(showUserFacingError: showEmptyResult, context: "Outbox-Retry") == false else {
+            return
+        }
 
         guard shouldPauseRelayRequests(showUserFacingError: showEmptyResult) == false else {
             return
@@ -956,10 +1066,15 @@ final class ConversationService: ObservableObject {
             return
         }
 
-        if securityState.transportMode == .relayAllowed,
-           shouldBlockRelayForRuntimeRisk(showUserFacingError: true, context: "Nachricht senden") {
-            markMessage(messageID, in: conversationID, status: .failed)
-            throw PrivateChatError.runtimeIntegrityBlocked(runtimeSecuritySnapshot.localizedSummary)
+        if securityState.transportMode == .relayAllowed {
+            if shouldBlockRelayForRuntimeRisk(showUserFacingError: true, context: "Nachricht senden") {
+                markMessage(messageID, in: conversationID, status: .failed)
+                throw PrivateChatError.runtimeIntegrityBlocked(runtimeSecuritySnapshot.localizedSummary)
+            }
+            if shouldBlockRelayDueToConfiguration(showUserFacingError: true, context: "Nachricht senden") {
+                markMessage(messageID, in: conversationID, status: .failed)
+                throw PrivateChatError.relayMissingClientToken
+            }
         }
 
         markMessage(messageID, in: conversationID, status: .sending)
@@ -1008,6 +1123,32 @@ final class ConversationService: ObservableObject {
         )
     }
 
+
+    private func shouldBlockRelayDueToConfiguration(showUserFacingError: Bool, context: String) -> Bool {
+        guard securityState.transportMode == .relayAllowed, securityState.relayConfiguration.isEnabled else {
+            return false
+        }
+
+        if SecureChatProductionProfile.isObsoleteLocalRelay(securityState.relayConfiguration.baseURLString) {
+            let message = "\(context): alte lokale Relay-URL blockiert. Bitte Production Relay aktivieren: \(SecureChatProductionProfile.relayBaseURLString)."
+            lastTransportDiagnosticMessage = message
+            if showUserFacingError {
+                lastErrorMessage = PrivateChatError.relayObsoleteLocalConfiguration(securityState.relayConfiguration.baseURLString).localizedDescription
+            }
+            return true
+        }
+
+        if let readinessIssue = securityState.relayConfiguration.readinessIssue {
+            let message = "\(context): Relay-Konfiguration nicht bereit. \(readinessIssue)"
+            lastTransportDiagnosticMessage = message
+            if showUserFacingError {
+                lastErrorMessage = message
+            }
+            return true
+        }
+
+        return false
+    }
 
     private func shouldBlockRelayForRuntimeRisk(showUserFacingError: Bool, context: String) -> Bool {
         refreshRuntimeSecurityAssessment()
@@ -1107,9 +1248,12 @@ final class ConversationService: ObservableObject {
             return "Transportmodus: Nur lokal. Direkttransport ist noch nicht aktiv."
         case .relayAllowed:
             if relayURL.isEmpty {
-                return "Transportmodus: Relay erlaubt, aber keine Relay-URL gespeichert."
+                return "Transportmodus: Relay erlaubt, aber keine Relay-URL gespeichert. Production: \(SecureChatProductionProfile.relayBaseURLString)."
             }
-            return "Transportmodus: Relay erlaubt. Relay-URL: \(relayURL). Auto-Polling: \(state.relayConfiguration.autoPollingIntervalSeconds)s. Retention: \(state.localMessageRetentionDays)d."
+            if let readinessIssue = state.relayConfiguration.readinessIssue {
+                return "Transportmodus: Relay erlaubt, aber nicht bereit. \(readinessIssue)"
+            }
+            return "Transportmodus: Relay erlaubt. Relay-URL: \(relayURL). Token: gesetzt. Auto-Polling: \(state.relayConfiguration.autoPollingIntervalSeconds)s. Retention: \(state.localMessageRetentionDays)d."
         }
     }
 

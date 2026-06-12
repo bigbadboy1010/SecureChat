@@ -20,6 +20,58 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 SwiftUI.Section {
+                    LabeledContent("Status") {
+                        Text("Production Candidate")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.orange)
+                    }
+
+                    Label("Externer Security-Audit steht noch aus. Nicht für hochsensible Kommunikation in der Beta verwenden.", systemImage: "exclamationmark.shield")
+                        .font(.footnote)
+                        .foregroundStyle(.orange)
+
+                    Button {
+                        UserDefaults.standard.set(false, forKey: "PrivateChat.didOnboard.v1")
+                        UserDefaults.standard.set(false, forKey: "PrivateChat.didAcceptBetaDisclaimer.v1")
+                    } label: {
+                        Label("Onboarding & Beta-Hinweis erneut anzeigen", systemImage: "arrow.counterclockwise")
+                    }
+                } header: {
+                    Text("Beta & TestFlight")
+                } footer: {
+                    Text("Diese App ist technisch für TestFlight vorbereitet. Die Bezeichnung Production Candidate bedeutet: harte lokale Schutzmaßnahmen sind aktiv, aber externe Audits und Produkt-UX sind noch in Arbeit.")
+                }
+
+                SwiftUI.Section {
+                    NavigationLink {
+                        PrivacyPolicyView()
+                    } label: {
+                        Label("Datenschutzerklärung", systemImage: "hand.raised")
+                    }
+
+                    NavigationLink {
+                        SupportFeedbackView(service: service)
+                    } label: {
+                        Label("Support & Feedback", systemImage: "bubble.left.and.exclamationmark.bubble.right")
+                    }
+
+                    NavigationLink {
+                        TestFlightSubmissionView()
+                    } label: {
+                        Label("TestFlight Vorbereitung", systemImage: "testtube.2")
+                    }
+
+                    LabeledContent("Version") {
+                        Text(appVersionString)
+                            .font(.caption.monospaced())
+                    }
+                } header: {
+                    Text("TestFlight & App Store Connect")
+                } footer: {
+                    Text("Privacy-Policy-URL und Support-URL müssen in App Store Connect als externe HTTPS-URLs hinterlegt werden. Die Inhalte sind hier vorbereitet und in Docs/ dokumentiert.")
+                }
+
+                SwiftUI.Section {
                     LabeledContent("Bundle") {
                         Text("org.francois.PrivateChat")
                     }
@@ -186,6 +238,24 @@ struct SettingsView: View {
                         .disabled(service.isRelayHealthCheckRunning)
                     }
 
+                    HStack {
+                        Button {
+                            activateProductionRelay()
+                        } label: {
+                            Label("Production Relay aktivieren", systemImage: "checkmark.shield")
+                        }
+                        .buttonStyle(.borderedProminent)
+
+                        Spacer()
+
+                        Button(role: .destructive) {
+                            clearObsoleteLocalRelayConfiguration()
+                        } label: {
+                            Label("Lokale Relay-Altlast löschen", systemImage: "trash")
+                        }
+                        .disabled(SecureChatProductionProfile.isObsoleteLocalRelay(relayURL) == false && SecureChatProductionProfile.isLocalOrPrivateRelay(relayURL) == false)
+                    }
+
                     TextField(SecureChatProductionProfile.relayBaseURLString, text: $relayURL)
                         .textInputAutocapitalization(.never)
                         .keyboardType(.URL)
@@ -194,6 +264,18 @@ struct SettingsView: View {
                     SecureField("RELAY_AUTH_TOKEN", text: $relayToken)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled(true)
+
+                    LabeledContent("Token-Status") {
+                        Text(relayTokenStatusText)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(relayTokenStatusColor)
+                    }
+
+                    if SecureChatProductionProfile.isObsoleteLocalRelay(relayURL) {
+                        Label("Alte lokale Relay-URL erkannt. Diese wird nicht mehr für Production verwendet.", systemImage: "exclamationmark.triangle")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
 
                     Stepper("Inbox Limit: \(relayPollingLimit)", value: $relayPollingLimit, in: 1...100)
                     Stepper("Auto-Polling: \(relayAutoPollingInterval)s", value: $relayAutoPollingInterval, in: 5...300, step: 5)
@@ -231,7 +313,7 @@ struct SettingsView: View {
                                 Text("Inbox abrufen")
                             }
                         }
-                        .disabled(service.isRelaySyncRunning || service.securityState.transportMode != .relayAllowed)
+                        .disabled(service.isRelaySyncRunning || service.securityState.transportMode != .relayAllowed || service.securityState.relayConfiguration.isReadyForNetworkRequests == false)
 
                         Spacer()
 
@@ -244,7 +326,7 @@ struct SettingsView: View {
                                 Text("Outbox erneut senden")
                             }
                         }
-                        .disabled(service.isOutboxRetryRunning || service.pendingOutboxCount() == 0)
+                        .disabled(service.isOutboxRetryRunning || service.pendingOutboxCount() == 0 || service.securityState.relayConfiguration.isReadyForNetworkRequests == false)
                     }
 
                     HStack {
@@ -257,7 +339,7 @@ struct SettingsView: View {
                                 Text("Relay Stats")
                             }
                         }
-                        .disabled(service.isRelayStatsRunning || service.securityState.transportMode != .relayAllowed)
+                        .disabled(service.isRelayStatsRunning || service.securityState.transportMode != .relayAllowed || service.securityState.relayConfiguration.isReadyForNetworkRequests == false)
 
                         Spacer()
 
@@ -270,7 +352,7 @@ struct SettingsView: View {
                                 Text("Inbox am Relay leeren")
                             }
                         }
-                        .disabled(service.isRelayPurgeRunning || service.securityState.transportMode != .relayAllowed)
+                        .disabled(service.isRelayPurgeRunning || service.securityState.transportMode != .relayAllowed || service.securityState.relayConfiguration.isReadyForNetworkRequests == false)
                     }
 
                     if let stats = service.lastRelayStatsSnapshot {
@@ -462,6 +544,12 @@ struct SettingsView: View {
         }
     }
 
+    private var appVersionString: String {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+        return "\(version) (\(build))"
+    }
+
     private var shortIdentity: String {
         let idPrefix = String(service.localIdentity.id.prefix(12))
         return "\(idPrefix)…"
@@ -476,6 +564,9 @@ struct SettingsView: View {
             if url.isEmpty || service.securityState.relayConfiguration.isEnabled == false {
                 return "Relay fehlt"
             }
+            if service.securityState.relayConfiguration.isReadyForNetworkRequests == false {
+                return "Relay nicht bereit"
+            }
             return "Relay aktiv"
         }
     }
@@ -486,7 +577,8 @@ struct SettingsView: View {
             return .orange
         case .relayAllowed:
             let url = service.securityState.relayConfiguration.baseURLString.trimmingCharacters(in: .whitespacesAndNewlines)
-            return url.isEmpty || service.securityState.relayConfiguration.isEnabled == false ? .red : .green
+            if url.isEmpty || service.securityState.relayConfiguration.isEnabled == false { return .red }
+            return service.securityState.relayConfiguration.isReadyForNetworkRequests ? .green : .orange
         }
     }
 
@@ -513,7 +605,7 @@ struct SettingsView: View {
     }
 
     private var transportFooter: String {
-        "Production: https://chatsecure.ddns.net mit RELAY_AUTH_TOKEN aus /opt/securechat/.env verwenden. LAN-HTTP bleibt nur für lokale Entwicklung sinnvoll. Auto-Polling ruft Inbox und Outbox-Retry regelmäßig ab. Der Purge-Button löscht nur deine Relay-Inbox für diese Identität."
+        "Production: https://chatsecure.ddns.net mit RELAY_AUTH_TOKEN aus /opt/securechat/.env verwenden. Alte LAN-HTTP-URLs werden blockiert. Auto-Polling startet nur, wenn URL und Token gültig sind."
     }
 
     private var relayProfileStatusText: String {
@@ -521,8 +613,11 @@ struct SettingsView: View {
         if SecureChatProductionProfile.isConfiguredProductionRelay(trimmedURL) {
             return "Production aktiv"
         }
+        if SecureChatProductionProfile.isObsoleteLocalRelay(trimmedURL) {
+            return "alte lokale URL"
+        }
         if SecureChatProductionProfile.isLocalOrPrivateRelay(trimmedURL) {
-            return "LAN/Test"
+            return "lokal blockiert"
         }
         if SecureChatProductionProfile.isHTTPSProductionCandidate(trimmedURL) {
             return "HTTPS extern"
@@ -535,13 +630,35 @@ struct SettingsView: View {
         if SecureChatProductionProfile.isConfiguredProductionRelay(trimmedURL) {
             return .green
         }
-        if SecureChatProductionProfile.isLocalOrPrivateRelay(trimmedURL) || trimmedURL.isEmpty {
+        if SecureChatProductionProfile.isObsoleteLocalRelay(trimmedURL) || SecureChatProductionProfile.isLocalOrPrivateRelay(trimmedURL) {
+            return .orange
+        }
+        if trimmedURL.isEmpty {
             return .secondary
         }
         if SecureChatProductionProfile.isHTTPSProductionCandidate(trimmedURL) {
             return .accentColor
         }
         return .orange
+    }
+
+
+    private var relayTokenStatusText: String {
+        let trimmedToken = relayToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedToken.isEmpty {
+            return "fehlt"
+        }
+        if SecureChatProductionProfile.isUsableClientToken(trimmedToken) {
+            return "gesetzt"
+        }
+        if trimmedToken.contains("RELAY_AUTH_TOKEN=") {
+            return "nur Wert einfügen"
+        }
+        return "prüfen"
+    }
+
+    private var relayTokenStatusColor: Color {
+        SecureChatProductionProfile.isUsableClientToken(relayToken) ? .green : .orange
     }
 
     private var biometricBinding: Binding<Bool> {
@@ -578,7 +695,7 @@ struct SettingsView: View {
     }
 
     private func loadRelayConfiguration() {
-        relayURL = service.securityState.relayConfiguration.baseURLString
+        relayURL = service.securityState.relayConfiguration.migratedForSecureChatProduction.baseURLString
         relayToken = service.securityState.relayConfiguration.registrationToken ?? ""
         relayPollingLimit = service.securityState.relayConfiguration.inboxPollingLimit
         relayAutoPollingInterval = service.securityState.relayConfiguration.autoPollingIntervalSeconds
@@ -598,17 +715,39 @@ struct SettingsView: View {
         retryFailedMessagesAutomatically = true
     }
 
+    private func activateProductionRelay() {
+        applyProductionRelayTemplate()
+        saveRelayConfiguration()
+    }
+
+    private func clearObsoleteLocalRelayConfiguration() {
+        relayURL = SecureChatProductionProfile.relayBaseURLString
+        saveRelayConfiguration()
+    }
+
     private func saveRelayConfiguration() {
         let trimmedURL = relayURL.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedToken = relayToken.trimmingCharacters(in: .whitespacesAndNewlines)
 
         var state = service.securityState
-        let shouldEnableRelay = trimmedURL.isEmpty == false
-        state.transportMode = shouldEnableRelay ? .relayAllowed : state.transportMode
+        let normalizedURL = SecureChatProductionProfile.normalizeRelayBaseURL(trimmedURL)
+        let normalizedToken = SecureChatProductionProfile.normalizedToken(trimmedToken)
+        let candidateConfiguration = RelayConfiguration(
+            isEnabled: normalizedURL.isEmpty == false,
+            baseURLString: normalizedURL,
+            registrationToken: normalizedToken,
+            inboxPollingLimit: relayPollingLimit,
+            autoPollingIntervalSeconds: relayAutoPollingInterval,
+            retryFailedMessagesAutomatically: retryFailedMessagesAutomatically,
+            verboseRelayLogging: verboseRelayLogging
+        ).migratedForSecureChatProduction
+
+        let shouldEnableRelay = candidateConfiguration.baseURLString.isEmpty == false
+        state.transportMode = candidateConfiguration.baseURLString.isEmpty == false ? .relayAllowed : state.transportMode
         state.relayConfiguration = RelayConfiguration(
             isEnabled: shouldEnableRelay && state.transportMode == .relayAllowed,
-            baseURLString: trimmedURL,
-            registrationToken: trimmedToken.isEmpty ? nil : trimmedToken,
+            baseURLString: candidateConfiguration.baseURLString,
+            registrationToken: candidateConfiguration.registrationToken,
             inboxPollingLimit: relayPollingLimit,
             autoPollingIntervalSeconds: relayAutoPollingInterval,
             retryFailedMessagesAutomatically: retryFailedMessagesAutomatically,

@@ -18,20 +18,32 @@ final class EncryptedMessageStore: MessageStoring {
     private let fileURL: URL
     private let aad = Data("PrivateChat/EncryptedMessageStore/v1".utf8)
 
-    init(keychain: KeychainStoring, crypto: CryptoServicing, fileManager: FileManager = .default) throws {
+    init(
+        keychain: KeychainStoring,
+        crypto: CryptoServicing,
+        fileManager: FileManager = .default,
+        storageDirectoryURL: URL? = nil
+    ) throws {
         self.keychain = keychain
         self.crypto = crypto
         self.encoder = DateCoding.makeEncoder()
         self.decoder = DateCoding.makeDecoder()
 
-        let applicationSupportURL = try fileManager.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )
-        let directoryURL = applicationSupportURL.appendingPathComponent("PrivateChat", isDirectory: true)
+        let directoryURL: URL
+        if let storageDirectoryURL {
+            directoryURL = storageDirectoryURL
+        } else {
+            let applicationSupportURL = try fileManager.url(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask,
+                appropriateFor: nil,
+                create: true
+            )
+            directoryURL = applicationSupportURL.appendingPathComponent("PrivateChat", isDirectory: true)
+        }
+
         try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        try Self.excludeFromBackup(directoryURL)
         self.fileURL = directoryURL.appendingPathComponent("messages.store", isDirectory: false)
     }
 
@@ -60,11 +72,19 @@ final class EncryptedMessageStore: MessageStoring {
             #else
             try encryptedData.write(to: fileURL, options: [.atomic])
             #endif
+            try Self.excludeFromBackup(fileURL)
         } catch let error as PrivateChatError {
             throw error
         } catch {
             throw PrivateChatError.persistenceFailed(error.localizedDescription)
         }
+    }
+
+    private static func excludeFromBackup(_ url: URL) throws {
+        var mutableURL = url
+        var resourceValues = URLResourceValues()
+        resourceValues.isExcludedFromBackup = true
+        try mutableURL.setResourceValues(resourceValues)
     }
 
     private func databaseKey() throws -> SymmetricKey {
