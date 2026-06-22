@@ -22,6 +22,83 @@ public-beta trust regression.
 
 ## Unreleased
 
+### Sprint 4: brand refresh + code-signing + notarization (2026-06-22)
+
+Two large tracks that close the loop on "ready for public beta
+and investor pitch":
+
+* **Brand refresh (Sprint 4A-E).** SecureChatDesign (in
+  Features/Shared/PrivateChatDesign.swift) now defines a complete
+  brand system: securechat-cyan (#22D3EE) + deep-purple (#7C3AED)
+  on a dark canvas (#0B1220), with an aurora page gradient and
+  brand-tinted glass cards. Status pills, hero card, primary
+  button, status tile, and a live encryption-pulse animation are
+  all first-class types. The onboarding flow is rebuilt as three
+  animated pages (live encryption pulse, transport-mode card
+  stack, pairing-ceremony QR card) and the lock screen has its
+  own "SC" interlock mark on a brand-gradient circle with a
+  Face-ID button that has a cyan halo shadow. The bundle display
+  name on the iOS home screen is "SecureChat"; the CFBundleName
+  stays "PrivateChat" (Xcode target name) to keep tests working.
+
+* **Code-signing & notarization (Sprint 4G).** Bundle IDs renamed
+  from `org.francois.PrivateChat{,Tests}` to
+  `com.securechat.app{,Tests}`. All targets consolidated on team
+  `355NB9T8RJ` (Francois Alexandre Marie De Lattre), the team
+  that has working Apple Distribution and Developer ID
+  Application certificates. The 4 `4STY96V479` references that
+  pointed at the now-revoked distribution certificate are gone.
+  Bundle display name moved from `INFOPLIST_KEY_CFBundleDisplayName
+  = PrivateChat` to `SecureChat` while leaving the target
+  `PRODUCT_NAME` and `TEST_HOST` on `PrivateChat` so the test
+  target's `BUNDLE_LOADER` keeps resolving.
+
+* **Build pipeline.** Four new scripts under `scripts/`:
+  - `build-ios-archive.sh` (bump build number, run
+    `xcodebuild archive`, verify signature with `codesign -dvv`).
+  - `build-and-upload-testflight.sh` (archive -> IPA via
+    `xcodebuild -exportArchive` -> `xcrun altool --upload-package`
+    in one shot; honor `SKIP_BUMP=1` and `SKIP_UPLOAD=1`).
+  - `generate-export-options.sh` (copies the template plist to
+    the per-machine location, then lints it with `plutil -lint`).
+  - `notarize-mac-binary.sh` (notarizes a macOS .app/.dmg/.pkg
+    via `xcrun notarytool` + `xcrun stapler staple`).
+  Plus an `ExportOptions.template.plist` in `apps/SecureChat/`
+  (the actual `ExportOptions.plist` is gitignored because it
+  contains team identifiers, provisioning profile names, and
+  optionally API key paths).
+
+* **Testable scheme.** `PrivateChat.xcodeproj/xcshareddata/xcschemes/PrivateChat.xcscheme`
+  is now committed with a `TestAction` that points at the
+  `PrivateChatTests` target. `xcodebuild test` works on a clean
+  checkout without anyone having to re-create the scheme in the
+  Xcode UI.
+
+* **App icon v5 (Sprint 4F).** The 1024x1024 master
+  (`securechat-appicon-1024.png`) is redesigned: dark squircle,
+  cyan halo glow, cyan rounded-square brand mark, white padlock
+  with an asymmetric drop-shape keyhole. The 27 resized sizes
+  for iOS/iPad/mac are produced by `scripts/resize-icons.py`
+  and will be regenerated in Sprint 5 from this master. The
+  v1-v4 iterations live in `/tmp/gen-icon-v{1,2,3,4,5}.py` for
+  reference.
+
+* **Build & notarization documentation.** `docs/BUILD-SIGNING.md`
+  is a single source of truth: which identity to use, how to
+  store the app-specific password in the keychain (`AC_PASSWORD`),
+  what each script does, troubleshooting table, and the future
+  CI integration plan.
+
+Verification:
+
+```
+xcodebuild test     -> 36 tests passed (** TEST SUCCEEDED **)
+xcodebuild archive  -> ** ARCHIVE SUCCEEDED ** (Build 5)
+codesign -dvv       -> Identifier=com.securechat.app
+                      TeamIdentifier=355NB9T8RJ
+                      Authority=Apple Development: Francois Alexandre Marie De Lattre
+```
+
 ### Sprint 3: link consistency + repo public + test-script polish (2026-06-22)
 
 A release-readiness pass that cleaned up three pieces of drift

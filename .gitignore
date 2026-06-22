@@ -46,3 +46,10 @@ logs/
 # ===== Local tooling caches =====
 .cache/
 .tmp/
+
+# iOS code-signing & build artifacts
+# Per-machine ExportOptions.plist (generated from the .template.plist;
+# may contain the developer's Apple ID, team, or profile paths).
+apps/SecureChat/ExportOptions.plist
+build/
+*.xcarchive
