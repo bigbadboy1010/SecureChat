@@ -102,10 +102,28 @@ fi
 echo
 
 # ----- 4. Build & restart -----
+# The relay's publicVersion() function formats the final version
+# string as `${BUILD_VERSION}+${GIT_SHA}`, so BUILD_VERSION must be
+# the semver prefix (e.g. "0.1.0") and GIT_SHA the short commit.
+# Passing "0.1.0+0cd0b07" as BUILD_VERSION would produce
+# "0.1.0+0cd0b07+0cd0b07" in /healthz.
 COMPOSE_BUILD_VERSION="$BUILD_VERSION"
 COMPOSE_GIT_SHA="$GIT_SHA"
-
+# Distinct image tag per deploy so the previous image is preserved
+# for one quick `docker compose down && up` rollback. The compose
+# file's `image:` line is patched to match.
+IMAGE_TAG="securechat-relay:${GIT_SHA}"
 if [[ $DO_BUILD -eq 1 ]]; then
+  echo ">> patch /opt/securechat/docker-compose.yml image: $IMAGE_TAG"
+  if [[ $DRY_RUN -eq 1 ]]; then
+    echo "   (dry-run: would sed-replace 'image: securechat-relay:.*' -> 'image: $IMAGE_TAG')"
+  else
+    ssh -o ConnectTimeout=30 -o BatchMode=yes "$SSH_HOST" \
+      "cd $REMOTE_DIR && \
+       sed -i.bak -E 's#image: securechat-relay:.*#image: $IMAGE_TAG#' docker-compose.yml && \
+       grep '^    image:' docker-compose.yml"
+  fi
+  echo
   echo ">> docker compose build (multi-stage, --no-cache)"
   if [[ $DRY_RUN -eq 1 ]]; then
     echo "   (dry-run: would run"

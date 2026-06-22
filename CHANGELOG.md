@@ -22,6 +22,58 @@ public-beta trust regression.
 
 ## Unreleased
 
+### Sprint 2: site serving, Dockerfile hardening, deploy-script polish (2026-06-22)
+
+Three follow-up fixes that the public-beta release (Sprint 1) made
+visible the moment external traffic started hitting `securechat.team`.
+
+* **Static site serving**: Sprint 1 wrote 7 HTML pages and a CSS
+  file into `RelayServer/site/`, but the relay had no static-file
+  handler. Every page on `https://securechat.team/` returned 404
+  for any external visitor. Added `@fastify/static` as a dependency
+  (`@fastify/static` 8.x), registered it before the relay routes,
+  and resolved `SITE_DIR` relative to `import.meta.url` so the
+  same code works in `tsx` dev and in the compiled
+  `node dist/index.js` runtime. `index: ['index.html']` handles
+  the apex; the four other HTML files are matched by their literal
+  path. A `setNotFoundHandler` falls back to `index.html` for any
+  non-API path (SPA-style), so future marketing pages that link to
+  sub-URLs will work without per-route registration.
+* **Dockerfile site permissions**: the site files were committed
+  with `0600` permissions from the developer's local tree, and
+  `COPY site ./site` preserved that. The relay process runs as
+  root, so technically it can read them, but `@fastify/static` was
+  refusing the request. Fixed with `COPY --chmod=0444 site ./site`
+  so the files are world-readable inside the image regardless of
+  the source tree's permissions.
+* **`/healthz.version` doubled the git sha**: Sprint 1's compose
+  file passed `BUILD_VERSION: "v0.1.0+0cd0b07"`, and the relay's
+  `publicVersion()` formatter added the sha again, producing
+  `"v0.1.0+0cd0b07+0cd0b07"`. Fixed by passing the semver prefix
+  only (`"v0.1.0"`) and letting the formatter do the
+  `${BUILD_VERSION}+${GIT_SHA}` concatenation. Also taught
+  `scripts/deploy-relay.sh` to patch the compose file's `image:`
+  tag to the current git sha before every build, so the previous
+  image is preserved for a one-command rollback.
+
+Verified (live, `https://securechat.team`):
+
+* `/healthz` -> 200, `{"status":"ok","uptimeSeconds":...,"version":"v0.1.0+0cd0b07"}`.
+* `/healthz/internal` without `X-Securechat-Ops-Token` -> 401.
+* `/healthz/internal` with the operator token -> 200, full
+  operator surface including `nodeEnv: "production"`.
+* `/v1/relay/security/policy` -> 200, `encryptedPayloadOnly:true`.
+* `/v1/relay/stats` -> 200, counts only, no peer IDs.
+* `POST /v1/relay/messages` without auth -> 401.
+* All 10 public site paths (`/`, `/index.html`, `/style.css`,
+  `/favicon.svg`, `/status.html`, `/known-issues.html`,
+  `/privacy.html`, `/imprint.html`, `/docs/self-host.html`,
+  `/docs/architecture.html`) -> 200.
+* `http://chatsecure.ddns.net/` -> 308 Permanent Redirect to
+  `https://securechat.team/`.
+
+16/16 live tests passed. Container runs as `securechat-relay:0cd0b07`.
+
 ### Sprint 1: public-beta-ready setup (2026-06-22)
 
 The first release that puts the project on a level comparable to
