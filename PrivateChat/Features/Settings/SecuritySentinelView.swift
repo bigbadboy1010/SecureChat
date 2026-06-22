@@ -147,7 +147,7 @@ struct SecuritySentinelView: View {
             return "Development-Modus erkannt. Xcode/Debug-Hinweise werden nicht als echte Production-Kompromittierung gewertet. Für Production-Score: Release/TestFlight auf physischem iPhone testen."
         }
         if SecureChatProductionProfile.isConfiguredProductionRelay(service.securityState.relayConfiguration.baseURLString) {
-            return "Bewertet Runtime, chatsecure.ddns.net, Token-Status, Privacy, Outbox, Trust-Status und lokale Sicherheitsindikatoren."
+            return "Bewertet Runtime, securechat.team, Token-Status, Privacy, Outbox, Trust-Status und lokale Sicherheitsindikatoren."
         }
         return "Bewertet Runtime, Relay-Konfiguration, Privacy, Outbox, Trust-Status und lokale Sicherheitsindikatoren."
     }

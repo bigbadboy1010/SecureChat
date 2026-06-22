@@ -81,7 +81,7 @@ struct PrivacyPolicyView: View {
                 PolicyRow(
                     systemImage: "wifi.router",
                     title: "SecureChat Relay",
-                    message: "Bei aktivem Relay werden verschlüsselte Pakete an chatsecure.ddns.net übertragen. Authentifizierung erfolgt mit RELAY_AUTH_TOKEN."
+                    message: "Bei aktivem Relay werden verschlüsselte Pakete an securechat.team übertragen. Authentifizierung erfolgt mit RELAY_AUTH_TOKEN."
                 )
                 PolicyRow(
                     systemImage: "camera.viewfinder",
@@ -123,7 +123,7 @@ PrivateChat ist ein Ende-zu-Ende-verschlüsselter Messenger-Kern. Die App verwen
 
 Nachrichteninhalte werden lokal auf dem Gerät verschlüsselt gespeichert. Drafts und Nachrichtenstores verwenden AES-GCM und Schlüssel aus dem iOS-Keychain. Lokale Stores werden vom iCloud-Backup ausgeschlossen. Private Schlüssel verlassen das Gerät nicht.
 
-Wenn der Relay-Modus aktiviert ist, überträgt die App verschlüsselte Pakete an den SecureChat Relay unter https://chatsecure.ddns.net. Der Relay verarbeitet technische Zustellmetadaten wie Sender-ID, Empfänger-ID, Paket-ID, Ablaufzeit, ACKs und Zustellstatus. Der Relay kann Nachrichteninhalte nicht lesen.
+Wenn der Relay-Modus aktiviert ist, überträgt die App verschlüsselte Pakete an den SecureChat Relay unter https://securechat.team. Der Relay verarbeitet technische Zustellmetadaten wie Sender-ID, Empfänger-ID, Paket-ID, Ablaufzeit, ACKs und Zustellstatus. Der Relay kann Nachrichteninhalte nicht lesen.
 
 Pairing-Codes enthalten öffentliche Identity-Keys, Anzeigename und Erstellungszeitpunkt. Der lokale Anzeigename kann vom Nutzer geändert werden und wird bei neu erzeugten Pairing-Codes als öffentlicher Name geteilt.
 

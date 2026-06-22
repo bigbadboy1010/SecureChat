@@ -18,8 +18,8 @@ struct DashboardView: View {
                 }
                 .padding()
             }
-            .background(PrivateChatDesign.pageGradient.ignoresSafeArea())
-            .navigationTitle("Command Center")
+            .background(SecureChatDesign.pageGradient.ignoresSafeArea())
+            .navigationTitle("Status-Center")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
@@ -51,25 +51,25 @@ struct DashboardView: View {
 
     private var hero: some View {
         VStack(alignment: .leading, spacing: 12) {
-            PrivateChatHeroCard(
+            SecureChatHeroCard(
                 eyebrow: "Secure Operations",
                 title: commandCenterTitle,
                 subtitle: commandCenterSubtitle,
-                systemImage: isUsingProductionRelay ? "checkmark.seal" : (service.securityState.transportMode == .relayAllowed ? "shield.fill" : "lock"),
-                tint: isUsingProductionRelay ? Color.green : (service.securityState.transportMode == .relayAllowed ? Color.green : Color.orange),
+                systemImage: isUsingProductionRelay ? "checkmark.seal.fill" : (service.securityState.transportMode == .relayAllowed ? "shield.fill" : "lock"),
+                tint: isUsingProductionRelay ? SecureChatDesign.success : (service.securityState.transportMode == .relayAllowed ? SecureChatDesign.success : SecureChatDesign.warning),
                 footer: shortIdentity
             )
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     if isUsingProductionRelay {
-                        PrivateChatStatusPill(title: "Production Relay", systemImage: "globe", tint: .green)
+                        SecureChatStatusPill(title: "Production Relay", systemImage: "globe", tint: SecureChatDesign.success)
                     }
-                    PrivateChatStatusPill(title: service.isRelayAutoPollingActive ? "Auto-Sync aktiv" : "Auto-Sync bereit", systemImage: "arrow.triangle.2.circlepath", tint: service.isRelayAutoPollingActive ? .green : .secondary)
-                    PrivateChatStatusPill(title: service.runtimeSecuritySnapshot.riskLevel.localizedTitle, systemImage: "lock.shield", tint: runtimeTint)
-                    PrivateChatStatusPill(title: service.securityAISnapshot.riskLevel.localizedTitle, systemImage: "brain.head.profile", tint: securityAITint)
+                    SecureChatStatusPill(title: service.isRelayAutoPollingActive ? "Auto-Sync aktiv" : "Auto-Sync bereit", systemImage: "arrow.triangle.2.circlepath", tint: service.isRelayAutoPollingActive ? SecureChatDesign.success : SecureChatDesign.textTertiary)
+                    SecureChatStatusPill(title: service.runtimeSecuritySnapshot.riskLevel.localizedTitle, systemImage: "lock.shield", tint: runtimeTint)
+                    SecureChatStatusPill(title: service.securityAISnapshot.riskLevel.localizedTitle, systemImage: "brain.head.profile", tint: securityAITint)
                     if service.securityState.hideMessagePreviews {
-                        PrivateChatStatusPill(title: "Privacy", systemImage: "eye.slash", tint: .green)
+                        SecureChatStatusPill(title: "Privacy", systemImage: "eye.slash", tint: SecureChatDesign.success)
                     }
                 }
             }
@@ -84,7 +84,7 @@ struct DashboardView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Label("Pairing benötigt zwei Geräte oder zwei Installationen.", systemImage: "qrcode")
                 Label("Der Solo-Test-Chat prüft lokale Speicherung, Composer und Chat-UI ohne Relay.", systemImage: "lock.doc")
-                Label("Production Relay: chatsecure.ddns.net plus RELAY_AUTH_TOKEN.", systemImage: "globe")
+                Label("Production Relay: securechat.team plus RELAY_AUTH_TOKEN.", systemImage: "globe")
             }
             .font(.subheadline)
             .foregroundStyle(.secondary)
@@ -268,7 +268,7 @@ struct DashboardView: View {
 
     private var commandCenterSubtitle: String {
         if isUsingProductionRelay {
-            return "E2E-Verschlüsselung, HTTPS-Relay chatsecure.ddns.net, Relay-Härtung und lokale Runtime-Überwachung in einer professionellen Konsole."
+            return "E2E-Verschlüsselung, HTTPS-Relay securechat.team, Relay-Härtung und lokale Runtime-Überwachung in einer professionellen Konsole."
         }
         return "E2E-Verschlüsselung, Relay-Härtung und lokale Runtime-Überwachung in einer professionellen Konsole."
     }

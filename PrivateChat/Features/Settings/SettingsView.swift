@@ -77,7 +77,7 @@ struct SettingsView: View {
                     }
 
                     LabeledContent("App") {
-                        Text("PrivateChat")
+                        Text("SecureChat")
                     }
 
                     LabeledContent("Identity") {
@@ -506,7 +506,7 @@ struct SettingsView: View {
                         Label("Production Readiness", systemImage: "checkmark.shield")
                     }
 
-                    Label("Production Relay: https://chatsecure.ddns.net", systemImage: "globe")
+                    Label("Production Relay: https://securechat.team", systemImage: "globe")
                     Label("Docker/HTTPS-Relay-Baseline liegt im RelayServer-Ordner", systemImage: "externaldrive")
                     Label("Persistenter Relay-Store: STORE_TYPE=file", systemImage: "externaldrive")
                     Label("Bearer-Token schützt /v1/relay/*", systemImage: "key.horizontal")
@@ -605,7 +605,7 @@ struct SettingsView: View {
     }
 
     private var transportFooter: String {
-        "Production: https://chatsecure.ddns.net mit RELAY_AUTH_TOKEN aus /opt/securechat/.env verwenden. Alte LAN-HTTP-URLs werden blockiert. Auto-Polling startet nur, wenn URL und Token gültig sind."
+        "Production: https://securechat.team mit RELAY_AUTH_TOKEN aus /opt/securechat/.env verwenden. Alte LAN-HTTP-URLs werden blockiert. Auto-Polling startet nur, wenn URL und Token gültig sind."
     }
 
     private var relayProfileStatusText: String {

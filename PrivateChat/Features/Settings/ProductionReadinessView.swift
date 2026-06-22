@@ -63,7 +63,7 @@ struct ProductionReadinessView: View {
             VStack(spacing: 0) {
                 ProductionChecklistRow(title: "Relay URL", value: activeRelayURLText, systemImage: "globe", tint: relayURLTint)
                 Divider().opacity(0.45)
-                ProductionChecklistRow(title: "Profil", value: isUsingChatSecureRelay ? "chatsecure.ddns.net aktiv" : "nicht übernommen", systemImage: "checkmark.shield", tint: isUsingChatSecureRelay ? .green : .orange)
+                ProductionChecklistRow(title: "Profil", value: isUsingChatSecureRelay ? "securechat.team aktiv" : "nicht übernommen", systemImage: "checkmark.shield", tint: isUsingChatSecureRelay ? .green : .orange)
                 Divider().opacity(0.45)
                 ProductionChecklistRow(title: "Token", value: hasRelayToken ? "RELAY_AUTH_TOKEN gesetzt" : "fehlt", systemImage: "key", tint: hasRelayToken ? .green : .orange)
                 Divider().opacity(0.45)
@@ -138,7 +138,7 @@ struct ProductionReadinessView: View {
             VStack(spacing: 0) {
                 ProductionChecklistRow(title: "Container", value: "securechat", systemImage: "archivebox", tint: .green)
                 Divider().opacity(0.45)
-                ProductionChecklistRow(title: "Caddy", value: "chatsecure.ddns.net → securechat:8080", systemImage: "network", tint: .green)
+                ProductionChecklistRow(title: "Caddy", value: "securechat.team → securechat:8080", systemImage: "network", tint: .green)
                 Divider().opacity(0.45)
                 ProductionChecklistRow(title: "Store", value: "STORE_TYPE=file", systemImage: "externaldrive", tint: .green)
                 Divider().opacity(0.45)
@@ -166,9 +166,9 @@ struct ProductionReadinessView: View {
     private var deploymentPanel: some View {
         VStack(alignment: .leading, spacing: 12) {
             PrivateChatSectionHeader("Deployment Commands", subtitle: "Referenz für schnelle Nachprüfung ohne Secrets auszugeben.")
-            commandBlock("curl -i https://chatsecure.ddns.net/health")
-            commandBlock("curl -i https://chatsecure.ddns.net/v1/relay/security/policy")
-            commandBlock("curl -i https://chatsecure.ddns.net/v1/relay/security/policy -H 'Authorization: Bearer <RELAY_AUTH_TOKEN>'")
+            commandBlock("curl -i https://securechat.team/health")
+            commandBlock("curl -i https://securechat.team/v1/relay/security/policy")
+            commandBlock("curl -i https://securechat.team/v1/relay/security/policy -H 'Authorization: Bearer <RELAY_AUTH_TOKEN>'")
         }
         .privateChatGlassCard()
     }
@@ -210,7 +210,7 @@ struct ProductionReadinessView: View {
     private var relayURLReadinessText: String {
         let value = service.securityState.relayConfiguration.baseURLString.trimmingCharacters(in: .whitespacesAndNewlines)
         if value.isEmpty { return "URL fehlt" }
-        if isUsingChatSecureRelay { return "chatsecure.ddns.net" }
+        if isUsingChatSecureRelay { return "securechat.team" }
         if SecureChatProductionProfile.isLocalOrPrivateRelay(value) { return "LAN/Test" }
         if SecureChatProductionProfile.isHTTPSProductionCandidate(value) { return "HTTPS extern" }
         return "nicht production-ready"
@@ -237,9 +237,9 @@ struct ProductionReadinessView: View {
 
     private var productionSubtitle: String {
         if relayEnabled && isUsingChatSecureRelay && hasRelayToken {
-            return "Die App nutzt die öffentliche HTTPS-Relay-URL chatsecure.ddns.net. Der nächste Schritt ist der App-Test mit zwei Geräten."
+            return "Die App nutzt die öffentliche HTTPS-Relay-URL securechat.team. Der nächste Schritt ist der App-Test mit zwei Geräten."
         }
-        return "Nutze das Production-Profil für chatsecure.ddns.net und trage nur RELAY_AUTH_TOKEN ein. RELAY_ADMIN_TOKEN bleibt auf dem Server."
+        return "Nutze das Production-Profil für securechat.team und trage nur RELAY_AUTH_TOKEN ein. RELAY_ADMIN_TOKEN bleibt auf dem Server."
     }
 
     private var productionIcon: String {

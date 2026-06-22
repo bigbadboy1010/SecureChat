@@ -52,7 +52,7 @@ Bitte testen:
 1. Onboarding durchlaufen und Beta-Hinweis bestätigen.
 2. Display-Name im Pairing-Tab ändern und Pairing-Code neu laden.
 3. Dashboard → Solo-Test-Chat anlegen und lokale verschlüsselte Speicherung prüfen.
-4. Security → Transport: Production Relay https://chatsecure.ddns.net aktivieren und RELAY_AUTH_TOKEN eintragen.
+4. Security → Transport: Production Relay https://securechat.team aktivieren und RELAY_AUTH_TOKEN eintragen.
 5. Relay prüfen, Inbox abrufen und Diagnosebericht teilen/kopieren.
 6. Pairing mit zweitem Gerät testen: QR scannen, Safety Number vergleichen, Kontakt verifizieren, Nachricht senden.
 7. Chat-Details → Safety Number vergleichen: Gruppen aktiv bestätigen und Peer verifizieren.
