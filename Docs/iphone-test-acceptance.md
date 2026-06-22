@@ -16,7 +16,7 @@ delivered.
 - iPhone or iPad running iOS 16 or newer.
 - The current TestFlight build of `LoupeControllerApp` /
   `SecureChat`. Invite link:
-  [testflight.apple.com/join/wsJeRw1M](https://testflight.apple.com/join/wsJeRw1M).
+  [testflight.apple.com/join/TEWAWfVb](https://testflight.apple.com/join/TEWAWfVb).
   (Replace the bundle-id once the iOS app is renamed to SecureChat in
   the TestFlight listing — the link stays the same.)
 - A second device (a friend's phone, a Mac running the iOS Simulator,

@@ -108,7 +108,7 @@ source code.
 | Artefact              | Channel                                                  |
 | --------------------- | -------------------------------------------------------- |
 | iOS app               | TestFlight (Public Beta)                                 |
-| iOS source            | GitHub `bigbadboy1010/privatechat` (private while in beta)|
+| iOS source            | GitHub `bigbadboy1010/SecureChat` (public beta)        |
 | Relay source          | same GitHub repo, `RelayServer/` subdir                  |
 | Marketing site        | this repo, `RelayServer/site/` subdir (served by Caddy)  |
 | Docker images         | rebuilt on `main` via `scripts/deploy-relay.sh`          |

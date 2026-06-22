@@ -24,7 +24,7 @@ The SecureChat project ships two independently versioned artefacts.
 
 ### iOS app (TestFlight, bundle id `org.francois.securechat`)
 
-Distributed via [TestFlight](https://testflight.apple.com/join/wsJeRw1M).
+Distributed via [TestFlight](https://testflight.apple.com/join/TEWAWfVb).
 
 | Version          | Supported                |
 | ---------------- | ------------------------ |

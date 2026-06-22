@@ -1,7 +1,7 @@
 # TestFlight & App Store Connect listing copy
 
 > Single source of truth for the user-facing strings shown on
-> [TestFlight](https://testflight.apple.com/join/wsJeRw1M) and
+> [TestFlight](https://testflight.apple.com/join/TEWAWfVb) and
 > (later) the App Store listing for the SecureChat iOS app.
 >
 > Every change to App Name, Subtitle, Description, What's New,
