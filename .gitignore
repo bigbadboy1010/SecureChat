@@ -1,0 +1,48 @@
+# ===== macOS / Xcode / Swift =====
+.DS_Store
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+xcuserdata/
+DerivedData/
+.swiftpm/
+.swift/
+*.xccheckout
+
+# ===== Node / npm =====
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm/
+
+# ===== Relay compiled output =====
+# `dist/` is the tsc output, regenerated on every build. The
+# Dockerfile is multi-stage, so the container builds `dist/` from
+# source on the server. Do not commit it.
+RelayServer/dist/
+
+# ===== Local env files =====
+.env
+.env.local
+.env.*.local
+.env.test
+.env.*.test
+!docs/.env.example
+!RelayServer/.env.example
+
+# ===== Logs =====
+*.log
+logs/
+
+# ===== Backup files =====
+*.swp
+*.bak
+*~
+.AppleDouble
+.LSOverride
+
+# ===== Local tooling caches =====
+.cache/
+.tmp/
