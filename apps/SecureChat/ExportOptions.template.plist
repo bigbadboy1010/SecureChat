@@ -59,7 +59,7 @@
     <string>Production</string>
     <key>provisioningProfiles</key>
     <dict>
-        <key>com.securechat.app</key>
+        <key>org.francois.PrivateChat</key>
         <string>SecureChat App Store</string>
     </dict>
 </dict>

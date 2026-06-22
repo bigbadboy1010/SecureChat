@@ -58,13 +58,23 @@ They are **not** in the iOS build scope.
 | Key                       | Value                                                                                |
 |---------------------------|--------------------------------------------------------------------------------------|
 | Team ID                   | `355NB9T8RJ` (Apple Distribution: Francois Alexandre Marie De Lattre)                |
-| Bundle ID (app)           | `com.securechat.app`                                                                 |
-| Bundle ID (tests)         | `com.securechat.app.tests`                                                           |
+| Bundle ID (app)           | `org.francois.PrivateChat`                                                           |
+| Bundle ID (tests)         | `org.francois.PrivateChatTests`                                                      |
+| Display name (home screen)| `SecureChat`                                                                         |
 | Marketing version         | `0.1.0` (in `MARKETING_VERSION`, set in Xcode Build Settings)                        |
 | Build number              | `CURRENT_PROJECT_VERSION`, auto-incremented by `build-ios-archive.sh`                |
 | Provisioning profile name | `SecureChat App Store` (must exist in App Store Connect; create it if missing)       |
 | `CODE_SIGN_STYLE`         | `Automatic` (Xcode picks the right distribution identity from the team)              |
 | iCloud environment        | `Production` (we don't ship an iCloud-enabled variant)                               |
+
+> **Note (2026-06-22):** the original `com.securechat.app` rename in
+> Sprint 4G was reverted because App Store Connect had the app
+> registered under `org.francois.PrivateChat`. The Xcode bundle
+> identifier in `project.pbxproj` is back to the original
+> `org.francois.PrivateChat`. The home-screen name is still
+> `SecureChat` via `INFOPLIST_KEY_CFBundleDisplayName` /
+> `CFBundleName`, so end users see the brand name even though the
+> bundle identifier is the legacy `org.francois.PrivateChat`.
 
 These settings live in `PrivateChat.xcodeproj/project.pbxproj`.
 Do **not** change the team ID or bundle ID without coordinating
