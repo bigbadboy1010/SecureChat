@@ -22,6 +22,88 @@ public-beta trust regression.
 
 ## Unreleased
 
+### Sprint 6: Privacy Sentinel disclosure + reviewer-findings cleanup (2026-06-22)
+
+Two tracks, both rooted in the public-beta reviewer feedback loop
+and the team's note that the iOS app's on-device Privacy Sentinel
+is a defining feature that the public docs understate.
+
+* **Privacy Sentinel (ADR-004) — new architecture record.**
+  * New ADR at `Docs/ADR-004-security-sentinel.md` is now the
+    canonical spec of the on-device Privacy Sentinel (formerly
+    "Security Sentinel"). It is a rule-based, deterministic,
+    fully local scoring layer (0–100); **not** an ML model,
+    **not** a remote service.
+  * `Docs/CURRENT-ENDPOINTS.md` adds a "On-device Security
+    Sentinel" section that points at the same ADR and the same
+    surfaces in the iOS UI.
+  * `RelayServer/site/index.html` adds a "Privacy Sentinel"
+    feature block before the "Get it" section.
+  * `RelayServer/site/status.html` adds a row to the security
+    posture table for the Sentinel.
+  * `README.md` updates the "Security & Privacy" feature list and
+    the "App Runtime Security" section to call out the Sentinel
+    by name and link to ADR-004.
+  * `Docs/TESTFLIGHT-LISTING-COPY.md` adds a bullet to the
+    App Store description and a "What to Test" item for the
+    Sentinel.
+  * The product narrative now consistently calls it "Privacy
+    Sentinel" in user-facing strings; "Security Sentinel" is kept
+    as the internal Swift symbol to avoid rename-induced test
+    churn.
+
+* **Reviewer-findings cleanup (Sprint 5 P0/P1 hardening).**
+  * `RelayServer/src/routes.ts` — `/health` is now
+    operator-only (requires `X-Securechat-Ops-Token`); public
+    monitors should poll `/healthz`. Default response on missing
+    token is HTTP 401.
+  * `RelayServer/src/config.ts` — production fail-fast against a
+    blocklist of placeholder tokens (e.g. `change-this`,
+    `example`, `placeholder`, `client-token`, `admin-token`).
+    `OPS_TOKEN` is now **required** in production, not optional.
+    `RELAY_AUTH_TOKEN` and `OPS_TOKEN` must be different.
+  * `RelayServer/Dockerfile` — `npm install` replaced with `npm ci`
+    in both stages for reproducible builds. The runtime stage
+    adds a non-root `securechat` user (uid 10001). The
+    `site/` directory is copied with `--chmod=0555` and
+    `--chown=securechat:securechat` so the non-root relay
+    process can traverse it. (Sprint 5 production deploy hit
+    EACCES on `stat /app/site/index.html` because the directory
+    was missing the world-execute bit; this is the fix.)
+  * `RelayServer/docker-compose.yml` — healthcheck now hits
+    `/healthz` (not `/health`), so the local Docker healthcheck
+    no longer requires the ops token.
+  * `RelayServer/site/status.html` — Ed25519-claim corrected
+    from "enforced server-side" to "verified by the receiving
+    client"; the relay validates packet structure, TTL, size,
+    and policy constraints only. The `/health` row in the
+    endpoint table now shows it as operator-only.
+  * `SECURITY.md` — placeholder PGP block replaced with an
+    explicit "not yet available" notice and clear alternative
+    channels (Signal, ProtonMail, throwaway mailbox).
+  * `Docs/PRIVACY_POLICY.md` — updated to point at
+    `relay.securechat.team`, with new sections for self-hosting,
+    TestFlight diagnostics disclosure, and contact mailboxes.
+  * `README.md` — three places corrected to point at
+    `relay.securechat.team` and `securechat.team` instead of the
+    legacy `chatsecure.ddns.net`.
+  * `apps/SecureChat/ExportOptions.template.plist` —
+    `provisioningProfiles` updated to
+    `org.francois.PrivateChat` (matching the bundle identifier
+    that is registered in App Store Connect).
+
+* **Operational fixes discovered during Sprint 5 deploy.**
+  * `/opt/securechat/data/` ownership on the host was
+    `miggu69:miggu69` (mode 0700), which made the file store
+    unreadable for the new non-root `securechat` user. The
+    directory is now `chown 10001:10001`, mode 0755, and the
+    relay reads/writes the file store correctly.
+  * The `docker-compose.yml` image tag was bumped to
+    `securechat-relay:1dd3bba` (matching commit `1dd3bba`) and
+    built with `--no-cache` to make sure the new `dist/` from
+    the Sprint 5 source tree is what's running in the live
+    container.
+
 ### Sprint 4: brand refresh + code-signing + notarization (2026-06-22)
 
 Two large tracks that close the loop on "ready for public beta

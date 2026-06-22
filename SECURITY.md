@@ -56,15 +56,20 @@ public GitHub issue. Include:
 
 ### PGP key for `security@securechat.team`
 
-```
------BEGIN PGP PUBLIC KEY BLOCK-----
+> **Status (2026-06-22): not yet available.** SecureChat does not
+> currently publish a PGP key for `security@securechat.team`. Until
+> the key is generated, please send vulnerability reports in clear
+> text. Once a real key is committed here, this block will be
+> replaced with the actual `-----BEGIN PGP PUBLIC KEY BLOCK-----`
+> fingerprint and a verification link.
 
-[placeholder — generated with gpg --full-gen-key on 22 June 2026,
-exported with gpg --armor --export security@securechat.team. The
-real key is committed to this file as a base64 blob and refreshed
-every 24 months.]
------END PGP PUBLIC KEY BLOCK-----
-```
+For sensitive reports, also include the following with your report:
+
+- A throwaway reply-to address (Signal, ProtonMail, or a fresh
+  mailbox you control).
+- A short "encrypted reply request" so we know whether to send
+  the response encrypted (we will set up PGP for the reply if you
+  include your public key in the report).
 
 If you would rather use the same key in OpenSSL or another tool, the
 ASCII-armoured block above is the canonical export. To verify a

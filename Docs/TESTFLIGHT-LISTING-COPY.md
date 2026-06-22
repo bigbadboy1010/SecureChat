@@ -70,6 +70,10 @@ bodies.
 • Safety Number verification. Compare a 60-digit fingerprint with
   your peer out of band to defend against key substitution.
 • Biometric app lock. Face ID / Touch ID gate on launch.
+• Privacy Sentinel. An on-device, rule-based security scoring layer
+  (0–100) that checks your runtime, app security settings, relay
+  configuration, and peer trust — fully local, no ML model, no
+  telemetry. (See ADR-004 in our GitHub repo.)
 
 The relay is built on Fastify (Node 22) and stores sealed packets
 for at most 24 hours. The protocol is documented at

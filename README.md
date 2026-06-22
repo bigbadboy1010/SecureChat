@@ -38,7 +38,7 @@ The project follows a phased development approach (currently at **Phase 14.6.2**
 - 🚫 **Screenshot/Preview protection** — optional chat-list preview masking
 - ⌨️ **Privacy composer** — reduced keyboard suggestions to minimize system-side leakage
 - 🏃 **Runtime security** — debug/simulator/jailbreak/injection detection with optional relay blocking
-- 🤖 **Security Sentinel** — local AI-powered security scoring (0–100) with actionable recommendations
+- 🤖 **Privacy Sentinel** — on-device security scoring (0–100) with typed findings and recommendations; rule-based, fully local, no telemetry, no ML model (see [ADR-004](Docs/ADR-004-security-sentinel.md))
 - 📋 **Diagnostics reports** — technical summary without chat plaintext, shareable for support
 - 🧹 **Local retention cleanup** — manual purge controls for messages and relay ledger
 
@@ -144,7 +144,7 @@ The project follows a phased development approach (currently at **Phase 14.6.2**
 - Debugger / debug-build / simulator detection
 - Jailbreak / injection indicator checks
 - Optional relay transport blocking on critical runtime risks
-- Local Security Sentinel scoring with concrete recommendations
+- **Privacy Sentinel** — on-device rule-based security scoring (0–100) with typed findings and recommendations; fully local, deterministic, no ML model, no telemetry. See [`Docs/ADR-004-security-sentinel.md`](Docs/ADR-004-security-sentinel.md) for the canonical spec.
 - Privacy composer to reduce iOS keyboard-side data exposure
 
 ### Privacy
@@ -180,7 +180,7 @@ The project follows a phased development approach (currently at **Phase 14.6.2**
 
 4. Configure signing:
    - Select your Team in Signing & Capabilities
-   - Bundle ID: `org.francois.PrivateChat` (or your own)
+   - Bundle ID: `org.francois.PrivateChat` (the team's registered identifier; for a private fork, use your own)
 
 5. Build and run on iOS Simulator or physical device
 
@@ -206,7 +206,7 @@ See [`RelayServer/README_PRODUCTION.md`](RelayServer/README_PRODUCTION.md) for:
 - Hardened Docker controls
 - Admin API usage
 
-Production relay: `https://chatsecure.ddns.net`
+Production relay: `https://relay.securechat.team` (marketing site at `https://securechat.team`)
 
 ---
 
@@ -391,7 +391,8 @@ Run existing tests:
 ## 🔗 Links
 
 - **Repository:** https://github.com/bigbadboy1010/SecureChat
-- **Production Relay:** https://chatsecure.ddns.net
+- **Marketing site:** https://securechat.team
+- **Production Relay:** https://relay.securechat.team
 - **Relay Docs:** [`RelayServer/README_PRODUCTION.md`](RelayServer/README_PRODUCTION.md)
 
 ---

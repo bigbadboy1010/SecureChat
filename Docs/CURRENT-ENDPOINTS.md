@@ -152,6 +152,37 @@ on every `main` deploy via `scripts/deploy-relay.sh`; the image tag
 is `node:22-alpine` and the build context is the `RelayServer/`
 subdir of this repo. There is no separate "production" image.
 
+## On-device Security Sentinel
+
+The iOS app embeds a **Security Sentinel** (`SecurityAISentinel`
+in `PrivateChat/Core/Security/SecurityAISentinel.swift`). It is a
+local, deterministic, rule-based assessment layer that scores the
+current device posture from 0 to 100 and surfaces a list of
+findings with recommendations. It is **not** a machine-learning
+model, **not** a remote service, and **not** a substitute for an
+external security audit. It is fully inspectable in the source
+tree and produces no telemetry.
+
+| What the Sentinel looks at | What it produces |
+|---------------------------|------------------|
+| Runtime integrity (Debugger / Jailbreak / Injection) | Severity-ranked findings |
+| App security settings (biometric, preview, keyboard) | Findings + recommendations |
+| Relay configuration (HTTPS, token, production profile) | Findings + recommendations |
+| Relay connectivity (healthy / degraded / paused) | Findings + recommendations |
+| Trusted peer set (verified vs. unverified) | Findings + recommendations |
+| Local identity (length, plausibility) | Findings + recommendations |
+
+| Surface | Where it appears in the app |
+|---------|-----------------------------|
+| Dashboard | `Features/Chat/DashboardView.swift` — score + risk-level card |
+| Detail view | `Features/Settings/SecuritySentinelView.swift` — full findings list |
+| Production readiness | `Features/Settings/ProductionReadinessView.swift` — readiness check |
+| Settings entry | `Features/Settings/SettingsView.swift` — menu link to the detail view |
+
+The full spec is `Docs/ADR-004-security-sentinel.md`. Drift
+between that ADR and the running iOS app is a public-beta trust
+regression (the same drift rule that applies to this file).
+
 ## How to keep this in sync
 
 When you change a public endpoint:
