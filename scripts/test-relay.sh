@@ -38,12 +38,32 @@ expect_status() {
   local label="$1"
   local expected="$2"
   local actual="$3"
-  if [[ "$expected" == "$actual" ]]; then
-    echo "  PASS  $label  (got $actual)"
-    PASS=$((PASS + 1))
+  # 'expected' may be a single status code (e.g. "200") or a pipe-
+  # separated set (e.g. "401|503" — for the /healthz/internal case
+  # where 401 means "bad token" and 503 means "operator token not
+  # configured"). We do an exact match against each alternative.
+  if [[ "$expected" == *"|"* ]]; then
+    local alt
+    local matched=0
+    IFS='|' read -ra alts <<< "$expected"
+    for alt in "${alts[@]}"; do
+      if [[ "$alt" == "$actual" ]]; then matched=1; break; fi
+    done
+    if [[ $matched -eq 1 ]]; then
+      echo "  PASS  $label  (got $actual, one of $expected)"
+      PASS=$((PASS + 1))
+    else
+      echo "  FAIL  $label  (expected one of [$expected], got $actual)"
+      FAIL=$((FAIL + 1))
+    fi
   else
-    echo "  FAIL  $label  (expected $expected, got $actual)"
-    FAIL=$((FAIL + 1))
+    if [[ "$expected" == "$actual" ]]; then
+      echo "  PASS  $label  (got $actual)"
+      PASS=$((PASS + 1))
+    else
+      echo "  FAIL  $label  (expected $expected, got $actual)"
+      FAIL=$((FAIL + 1))
+    fi
   fi
 }
 
