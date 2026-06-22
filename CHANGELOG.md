@@ -22,6 +22,53 @@ public-beta trust regression.
 
 ## Unreleased
 
+### Sprint 3: link consistency + repo public + test-script polish (2026-06-22)
+
+A release-readiness pass that cleaned up three pieces of drift
+that were visible the moment SecureChat moved from "private
+project on a developer's machine" to "public repo with a public
+beta".
+
+* **TestFlight invite link**: the four pages that linked to
+  TestFlight (Docs/TESTFLIGHT-LISTING-COPY.md,
+  Docs/iphone-test-acceptance.md, RelayServer/site/index.html,
+  SECURITY.md) were pointing at `/join/wsJeRw1M`, which was an
+  earlier internal build. Updated to `/join/TEWAWfVb`, the live
+  public-beta link.
+* **GitHub repository name**: 27 references across 8 files
+  (Docs/CURRENT-ENDPOINTS.md and 7 site pages) pointed at
+  `bigbadboy1010/privatechat`, an earlier repository name.
+  Updated to `bigbadboy1010/SecureChat`. CURRENT-ENDPOINTS.md
+  also moved from "(private while in beta)" to "(public beta)".
+* **Self-host guide**: the `cd privatechat/RelayServer` step was
+  telling the user to `cd` into a non-existent directory.
+  Updated to `cd SecureChat/RelayServer` to match the actual
+  repository name.
+* **Repository visibility**: `bigbadboy1010/SecureChat` was
+  flipped from `private` to `public` via
+  `gh repo edit --visibility public`. Description set to
+  "Privacy-first E2E-encrypted iOS messenger. Relay at
+  https://securechat.team. TestFlight
+  https://testflight.apple.com/join/TEWAWfVb." Homepage set to
+  https://securechat.team.
+* **test-relay.sh `expect_status` bug**: the helper did a literal
+  string comparison, so `expect_status "...401|503" "401"`
+  failed because `"401|503" != "401"`. The helper now splits on
+  `|` and matches against each alternative. The
+  `/healthz/internal without token` assertion was therefore
+  always failing on a healthy server before this fix.
+
+Verified (live, `https://securechat.team`, container
+`securechat-relay:1fd2f19`):
+
+* `bash scripts/test-relay.sh --host securechat.team --full`:
+  19/19 PASS, RC=0.
+* `gh api repos/bigbadboy1010/SecureChat`: `private: false`,
+  `html_url: https://github.com/bigbadboy1010/SecureChat`.
+* `curl https://securechat.team/` body contains
+  `https://testflight.apple.com/join/TEWAWfVb` and
+  `github.com/bigbadboy1010/SecureChat`.
+
 ### Sprint 2: site serving, Dockerfile hardening, deploy-script polish (2026-06-22)
 
 Three follow-up fixes that the public-beta release (Sprint 1) made
