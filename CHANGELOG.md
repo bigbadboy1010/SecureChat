@@ -22,9 +22,100 @@ public-beta trust regression.
 
 ## Unreleased
 
-### Sprint 9: Double Ratchet round-trip (ADR-007 resolved) + X3DH refactor (2026-06-23)
+### Sprint 9B: v2 envelope transport (RatchetChannel + persistence) (2026-06-23)
 
-**Sprint 9 resolves ADR-007.** All 7
+Sprint 9B wires the v2 Double-Ratchet library
+(Sprint 9A) into a **reusable transport**
+that the `ConversationService` can route
+through. The wire envelope, the on-device
+store, and the high-level channel are all in
+place; the conversation routing is the
+remaining Sprint 9C step.
+
+**New code:**
+
+* `PrivateChat/Core/Crypto/DoubleRatchetPersistence.swift`
+  (new, 7.1 KB)
+  - `PersistedRatchetSession` (Codable) — the
+    X3DH initial-bundle material persisted per
+    `peerID`. Carries: the symmetric 32-byte
+    root key, the local long-term key-agreement
+    private key (for session rebuild after app
+    relaunch), the remote's pre-exchanged
+    long-term public key, both
+    `PairingPayload.createdAt` timestamps, and
+    a `sessionID` derived from the root key.
+  - `DoubleRatchetSessionFactory.makeSession(from:)`
+    rebuilds a `DoubleRatchetSession` from a
+    `PersistedRatchetSession`.
+  - `DoubleRatchetSessionFactory.makePersisted(...)`
+    derives the symmetric root key from the
+    X3DH agreement and packages it for storage.
+
+* `PrivateChat/Core/Services/DoubleRatchetStore.swift`
+  (new, 4.0 KB)
+  - `DoubleRatchetStoring` protocol with
+    `save`, `load(peerID:)`, `delete(peerID:)`,
+    `listPeerIDs`.
+  - `InMemoryDoubleRatchetStore` (tests,
+    previews).
+  - `KeychainDoubleRatchetStore` (production,
+    uses `KeychainStoring`). Keychain account
+    is `ratchet.<peerID>`.
+  - `DoubleRatchetStore.defaultEncoder/Decoder`
+    for ISO-8601 dates on the JSON wire.
+
+* `PrivateChat/Core/Services/RatchetChannel.swift`
+  (new, 5.5 KB)
+  - `RatchetChannelEnvelope` (Codable) — the
+    outer v2 wire envelope. Carries
+    `{ v: 2, peerID, ratchet: WireMessage }`.
+    The `peerID` field is the **sender's**
+    local-identity peer ID, so the receiver
+    can route to the right inbound channel.
+  - `RatchetChannel` — high-level
+    encrypt/decrypt with persistence
+    (`register(...)` after pairing,
+    `open(peerID:store:)` on app launch).
+  - `ChannelError.peerMismatch` /
+    `.sessionMismatch`.
+
+* `Tests/PrivateChatTests/RatchetChannelTests.swift`
+  (new, 5.5 KB) — 7 tests:
+  - `testRegisterPersistsX3DHBundle`
+  - `testSingleMessageRoundTrip`
+  - `testMultiMessageRoundTrip`
+  - `testEnvelopeIsJSONEncodable`
+  - `testPeerMismatchRejected`
+  - `testOpenReusesPersistedSession`
+  - `testOpenReturnsNilWhenNoSession`
+
+**Result:** 8 iOS test suites pass (was 7),
+0 failures, 0 XCTSkip. New test count: 7
+RatchetChannel tests, all green.
+
+**Persistence scope:** the store holds only
+**initial-bundle** material. After the first
+message is sent, the live ratchet state
+(rotated DH ratchet keypair, in-flight chain
+keys, skipped-message window) is not yet
+persisted. Sprint 9C will route the
+`ConversationService` through `RatchetChannel`
+and add a Privacy Sentinel "session still on
+v1" finding; Sprint 10 will add live-state
+persistence via a `DoubleRatchetSession.State`
+Codable export.
+
+**Public-beta envelope:** unchanged. The
+v1 Curve25519 envelope (ADR-002) is still the
+live transport on `securechat.team`. The
+v2 envelope is **library-complete**,
+**test-complete**, and **ready for
+opt-in** in Sprint 9C.
+
+### Sprint 9A: Double Ratchet round-trip (ADR-007 resolved) + X3DH refactor (2026-06-23)
+
+**Sprint 9A resolves ADR-007.** All 7
 `DoubleRatchetSessionTests` now pass; 0 XCTSkip.
 The AES-GCM `authenticationFailure` was traced to
 a counter / kdfCK double-call on the receive
