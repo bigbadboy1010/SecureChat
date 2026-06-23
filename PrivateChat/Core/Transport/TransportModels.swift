@@ -107,6 +107,19 @@ struct RelayStatsResponse: Decodable, Equatable {
     let storedPackets: Int
     let activeRecipients: Int
     let acknowledgedPacketTombstones: Int
+    /// Sprint 9C / 10: cumulative count of
+    /// inbound `POST /v1/relay/messages` requests
+    /// that used the v1 (Curve25519 + AES-GCM)
+    /// envelope. Optional for backwards
+    /// compatibility with pre-9C relay builds
+    /// that did not emit the counter.
+    let v1EnvelopeRequests: Int?
+    /// Sprint 9C / 10: cumulative count of
+    /// inbound `POST /v1/relay/messages` requests
+    /// that used the v2 (Double Ratchet)
+    /// envelope. Optional for backwards
+    /// compatibility with pre-9C relay builds.
+    let v2EnvelopeRequests: Int?
 }
 
 struct RelayPurgeResponse: Decodable, Equatable {

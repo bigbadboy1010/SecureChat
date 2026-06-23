@@ -22,6 +22,90 @@ public-beta trust regression.
 
 ## Unreleased
 
+### Sprint 11A: ConversationService integration tests for the v2 inbound path (2026-06-23)
+
+Sprint 11A adds the first
+`ConversationService`-level integration
+tests. The tests drive
+`syncRelayInbox()` with a pre-seeded
+`MockTransportCoordinator` inbox and assert on
+the resulting state (conversations, relay
+packet ledger, v2 envelope emission). The
+tests are scoped to the **decision tree** of
+`processInboundPacket` / `processInboundV2Packet`
+rather than a full happy-path round-trip,
+because the latter would require the receiver
+side to share the local identity's Curve25519
+keypair with the sender (intercepting the
+production keychain lookup). The full v2
+round-trip across an app relaunch is already
+covered by
+`RatchetChannelTests.testMultiMessageRoundTripAcrossRelaunch`.
+
+**iOS (3 files modified, +310 lines; 1 new test
+file, 3 new tests):**
+
+* `PrivateChat/Core/Transport/TransportModels.swift`
+  - `RelayStatsResponse` now decodes
+    `v1EnvelopeRequests` and
+    `v2EnvelopeRequests` (both optional). The
+    relay has been emitting these fields
+    since Sprint 9C (`4844f02`) but the iOS
+    decoder silently dropped them. Public-
+    beta testers who already installed a
+    TestFlight build could not see the
+    counter in the iOS dashboard; after
+    Sprint 11A the counter round-trips
+    end-to-end. The fields are optional for
+    backwards compatibility with pre-9C
+    relay builds that did not emit them.
+
+* `Tests/PrivateChatTests/TestSupport.swift`
+  - 6 new mocks: `MockMessageStore`,
+    `MockDraftStore`, `MockPeerTrustStore`,
+    `MockSecuritySettingsStore`,
+    `MockRelayPacketLedgerStore`,
+    `MockIdentityManager`, plus a
+    `StubCryptoService` (real `AES.GCM`,
+    minimal `sign`/`verify`) and a
+    `MockTransportCoordinator` that captures
+    sent packets and returns a pre-seeded
+    inbox on `fetchRelayInbox(...)`. The
+    mocks are reused by future
+    `ConversationServiceTests` as the
+    Service's dependency surface grows.
+
+* `Tests/PrivateChatTests/ConversationServiceTests.swift`
+  (new, 240 lines)
+  - 3 tests covering the v2 inbound decision
+    tree:
+    - `testProcessInboundV2PacketRejectsUnsupportedVersion`
+      -- a v2 packet with
+      `protocolVersion: 99` is rejected by
+      `processInboundPacket` and never
+      reaches the v2 branch.
+    - `testProcessInboundV2PacketRejectsSenderMismatch`
+      -- a v2 packet whose inner
+      `RatchetChannelEnvelope.peerID` does not
+      match the routing expectation is
+      rejected by
+      `RatchetEnvelopeRouter.tryDecodeV2(...)`
+      and surfaces as a "session still on v1"
+      observation rather than a delivered
+      message.
+    - `testProcessInboundV2PacketRejectsSelfSent`
+      -- a v2 packet where `senderID ==
+      localIdentity.id` is rejected by
+      `processInboundPacket` because the
+      service refuses to accept packets from
+      itself.
+
+**Result:** 11 iOS test suites, 0 failures, 0
+XCTSkip (was 10). Sprint 11A closes the
+remaining test gap on the v2 inbound path;
+the iOS test count rises to 34 passing
+assertions across 11 suites.
+
 ### Sprint 10B: live ratchet state survives an app relaunch (2026-06-23)
 
 Sprint 10B closes the last Sprint-9 gap: a
