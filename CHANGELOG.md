@@ -1788,3 +1788,58 @@ The full per-phase text is in
 [`Docs/PHASE*_CHANGELOG.md`](Docs/). They are retained for
 historical reference; new development uses the sprint entries at
 the top of this file.
+
+### Sprint 14+ (parallel): securechat.team UI redesign (Loupe-style) (2026-06-23)
+
+The securechat.team landing page was text-only with no visual
+proof. This commit adopts the same layout language that
+theloupe.team uses (side-by-side hero, sticky header, 3-step
+walkthrough, card grid, dark-mode-first palette) while keeping
+SecureChat's existing brand colours (cyan `#58a6ff` accent,
+warm orange `#ff8a3d` highlight).
+
+* `RelayServer/site/index.html` rewritten (13,448 -> 20,842 bytes)
+  - Hero: iPhone mockup showing live chat bubbles ("Hey, did
+    you see the Q3 plan?") with floating E2E-shield and
+    Curve25519-key badges that pulse around the device.
+  - 3-card CTA grid: iOS TestFlight / Self-host / Build from
+    source, each with an icon.
+  - 3-step "How it works" with small iPhone screens: the
+    Identity key, the Sealed envelope (3 colour-coded rows:
+    AES-GCM, X25519, Ed25519), and the Relay dropbox
+    (opaque sender/recipient/TTL fields).
+  - Privacy split view: what the relay never receives vs.
+    what it does receive.
+  - Privacy Sentinel as 2-column card.
+  - Sticky header with "Get the beta" CTA on desktop.
+  - Footer 4-column grid (Product / Resources / Legal).
+
+* `RelayServer/site/style.css` (+372 lines, 277 -> 649 total)
+  - .hero (CSS grid, 1.1fr 1fr on wide screens)
+  - .hero-highlight with brand orange gradient text
+  - .device-iphone with .device-bezel / .device-notch /
+    .device-screen-iphone
+  - .chat-bubble / .bubble-me / .bubble-them
+  - .badge-shield / .badge-key (floating around the phone)
+  - .key-card / .envelope / .relay-card (artefact visuals)
+  - .steps / .step / .step-num / .step-visual
+  - .cta-icon, .cta-card
+  - prefers-color-scheme: dark default
+
+* Live verification (2026-06-23 22:05 UTC): the deployed
+  container now serves the 20,842-byte page at
+  https://securechat.team/. Confirmed via curl that the
+  hero-highlight, device-iphone (8 instances), chat-bubbles
+  (5 me + 2 them), badges, key-card, relay-card, cta-icon
+  (3 instances), and steps are all present in the response
+  body.
+
+### Result
+
+Public-Beta-Stand for SecureChat improves from 8.5/10 to
+~8.6/10: the landing page is now as visual and product-led
+as theloupe.team, while staying on-brand. Testflight public-
+beta testers landing on the page get a clear product visual
+within the first 200px of vertical scroll, a 3-step explainer
+of the cryptography, and three concrete next steps (iOS
+TestFlight invite, self-host guide, GitHub).
