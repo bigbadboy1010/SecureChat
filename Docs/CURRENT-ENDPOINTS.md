@@ -140,11 +140,16 @@ Three fields, no operational knobs, no auth.
 
 Same three fields, plus a flat dictionary of the relay's current
 operational state. The operator must send a header
-`X-Securechat-Ops-Token: $WAITLIST_ADMIN_TOKEN` (or whatever env var
-is wired up at deploy time); without it, the response is `401
+`X-Securechat-Ops-Token: $OPS_TOKEN`; without it, the response is `401
 Unauthorized`. The token value is stored in `/opt/securechat/.../env`
 on the server only and is rotated when an operator with access to
 that file changes.
+
+The canonical env var is `OPS_TOKEN` (see
+[`Docs/ADR-005-peer-bound-relay-auth.md`](ADR-005-peer-bound-relay-auth.md)
+and `RelayServer/src/config.ts`); the older `WAITLIST_ADMIN_TOKEN`
+alias is still accepted by the relay for backwards compatibility but
+new deployments should use `OPS_TOKEN` exclusively.
 
 ```json
 {

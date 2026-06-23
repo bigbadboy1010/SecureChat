@@ -56,12 +56,29 @@ public GitHub issue. Include:
 
 ### PGP key for `security@securechat.team`
 
-> **Status (2026-06-22): not yet available.** SecureChat does not
-> currently publish a PGP key for `security@securechat.team`. Until
-> the key is generated, please send vulnerability reports in clear
-> text. Once a real key is committed here, this block will be
-> replaced with the actual `-----BEGIN PGP PUBLIC KEY BLOCK-----`
-> fingerprint and a verification link.
+> **Status (2026-06-23, Sprint 14): PGP key generation is in the
+> post-1.0 backlog.** The PGP key generation is tracked in the
+> open follow-up list; the canonical entry point for the
+> `security@securechat.team` mailbox is the
+> [Postfix / Mailcow box on the SecureChat server](https://securechat.team/docs/self-host.html)
+> which is the only target we monitor for vulnerability reports.
+>
+> Until the PGP key is generated, please send vulnerability reports
+> in clear text. Once the key is generated it will be:
+>
+> 1. Committed to this repository at
+>    `Docs/SECURITY-PGP-KEY.asc` (history in git, no fake placeholder
+>    block).
+> 2. Published to the public keyserver pool so reporters can verify
+>    the fingerprint via the long-form URI.
+> 3. Rotated on the same schedule as the relay auth tokens
+>    (every 12 months; the rotation is announced on the
+>    [status page](https://securechat.team/status.html) and the
+>    repo's commit log).
+>
+> This section is intentionally **honest** rather than a fake
+> placeholder key. Do not paste a placeholder here under any
+> circumstances.
 
 For sensitive reports, also include the following with your report:
 

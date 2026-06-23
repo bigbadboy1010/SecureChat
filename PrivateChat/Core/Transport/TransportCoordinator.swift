@@ -15,11 +15,15 @@ final class TransportCoordinator: TransportCoordinating {
 
     init(
         localTransport: MessageTransport = LocalOnlyTransport(),
-        relayTransportFactory: @escaping (RelayConfiguration) -> RelayMessageTransporting = { RelayTransport(configuration: $0) }
+        signingContext: PeerBoundSigningContext? = nil,
+        relayTransportFactory: @escaping (RelayConfiguration) -> RelayMessageTransporting = { RelayTransport(configuration: $0, signingContext: nil) }
     ) {
         self.localTransport = localTransport
+        self.signingContext = signingContext
         self.relayTransportFactory = relayTransportFactory
     }
+
+    private let signingContext: PeerBoundSigningContext?
 
     func send(_ packet: OutboundTransportPacket, mode: TransportMode, relayConfiguration: RelayConfiguration) async throws {
         switch mode {

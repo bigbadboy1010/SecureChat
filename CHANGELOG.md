@@ -22,10 +22,208 @@ public-beta trust regression.
 
 ## Unreleased
 
-### Sprint 13: docs sync (CURRENT-ENDPOINTS.md) + ADR-008 (2-DH X3DH deferred to post-1.0) (2026-06-23)
+### Sprint 15 + 16: peer-bound request signing (iOS + relay, opt-in) (2026-06-23)
 
-Sprint 13 closes two small-but-important
-loose ends:
+Sprint 15 + 16 wire the relay's peer-bound
+request signing layer (ADR-005) end-to-end
+on the iOS side, add the
+`RELAY_REQUIRE_PEER_AUTH` opt-in flag on
+the relay side, and enforce the canonical
+sender/recipient binding on the three
+client routes that need it (`POST`,
+`GET`, `DELETE`).
+
+**iOS (4 files modified, 3 new, ~+650
+lines):**
+
+* `PrivateChat/Core/Transport/RequestSigner.swift` (new)
+  - The pure (no I/O, no UI) helper that
+    builds the canonical-string input per
+    `Docs/RELAY_API_CONTRACT.md` §6 and
+    signs it with the peer's long-term
+    Ed25519 signing key.
+  - `canonicalString(...)`, `canonicalQueryString(...)`,
+    `sign(...)`, `sha256Hex(...)`,
+    `makeNonce()`, `currentTimestamp()`.
+  - All public, all sendable across the
+    test boundary, all used by the
+    `RelayTransport` on every outgoing
+    request.
+
+* `PrivateChat/Core/Transport/PeerBoundSigningContext.swift` (new)
+  - Tiny protocol the transport uses to
+    look up the peer's long-form public
+    peer ID and the Ed25519 signing
+    private key. Decouples the
+    `RelayTransport` from the broader
+    `IdentityManager` stack — only this
+    two-method protocol is needed.
+
+* `PrivateChat/Core/Models/ChatModels.swift`
+  - `RelayConfiguration` is left
+    `Codable, Equatable` (the signing
+    context is a class-typed protocol, not
+    a value, so it does not belong in the
+    persisted config). The transport
+    receives the context via a separate
+    init parameter.
+
+* `PrivateChat/Core/Transport/RelayTransport.swift`
+  - `init(configuration:signingContext:urlSession:)` —
+    the signing context is wired in at app
+    start.
+  - `makeRequest(path:method:queryItems:body:)` —
+    produces a `URLRequest` with the four
+    peer-bound headers attached, when the
+    context is available. The
+    canonical-string input matches the
+    relay's `peerAuth.ts` `canonical-string`
+    helper byte for byte.
+  - `applyDefaultHeaders(...)` writes
+    `X-Securechat-Peer-ID`,
+    `X-Securechat-Timestamp`,
+    `X-Securechat-Nonce`,
+    `X-Securechat-Signature` when the
+    `SignedHeaders` value is present;
+    when it is `nil` the request goes
+    out unsigned (legacy mode, accepted
+    in development, counted in
+    `unsignedRequests`).
+
+* `PrivateChat/Core/Transport/TransportCoordinator.swift`
+  - Accepts an optional
+    `PeerBoundSigningContext?` and passes
+    it into the per-config
+    `RelayTransport` factory closure so
+    every request through the
+    coordinator gets the headers.
+
+* `PrivateChat/Core/Security/IdentityManager.swift`
+  - Conforms to `PeerBoundSigningContext`
+    with two tiny methods:
+    `currentPeerID() -> String?` and
+    `currentSigningPrivateKey() ->
+    Curve25519.Signing.PrivateKey`. Both
+    read the existing keychain-resident
+    `LocalIdentity`; the private-key
+    access has a non-fatal fallback so a
+    corrupt keychain does not crash the
+    transport — the relay will reject the
+    signature and the request will fail
+    with 401/403, which the transport
+    surfaces as a normal network error.
+
+* `Tests/PrivateChatTests/RequestSignerTests.swift` (new, 9 tests, 0 XCTSkip)
+  - `testCanonicalStringHasSevenLines`
+    — the canonical string is
+    `<METHOD>\n<path>\n<query>\n<body-sha256>\n<ts>\n<nonce>\n<peer-id>`
+    with no trailing newline.
+  - `testMethodIsUppercased` —
+    `"delete"` is canonicalized to
+    `"DELETE"`.
+  - `testEmptyBodyHashesToSHA256Empty` —
+    SHA-256 of the empty string is
+    `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
+  - `testCanonicalQueryStringSortsByName` —
+    `["z=1", "a=2"]` → `"a=2&z=1"`.
+  - `testCanonicalQueryStringSortsByValueWhenNameEqual` —
+    `["tag=z", "tag=a"]` → `"tag=a&tag=z"`.
+  - `testCanonicalQueryStringPercentEncodesValues` —
+    `"hello world"` → `"hello%20world"`.
+  - `testCanonicalQueryStringNilValueTreatedAsEmpty` —
+    `flag=nil` → `"flag="`.
+  - `testSignProducesVerifiableSignature` —
+    round-trip: the produced signature
+    verifies under the peer's public key
+    over the canonical string.
+  - `testSignedHeadersDifferAcrossCalls` —
+    CryptoKit Ed25519 is non-deterministic
+    (each call to
+    `signingKey.signature(for:)` uses a
+    fresh random nonce); the relay's
+    nonce cache prevents replay.
+  - `testSignedHeadersDifferForDifferentNonces`
+    — a fresh `nonce` produces a
+    different signature.
+  - `testMakeNonceIs64HexChars` /
+    `testCurrentTimestampIsTenDigits` —
+    format checks.
+
+**Relay (3 files modified):**
+
+* `RelayServer/src/config.ts`
+  - `RELAY_REQUIRE_PEER_AUTH` env-var
+    parsed as optional boolean,
+    defaulting to `false`. New
+    `RelayConfig.requirePeerAuth` field
+    on the config interface and on the
+    return value of `loadConfig(...)`.
+
+* `RelayServer/src/routes.ts`
+  - The pre-handler hook now rejects
+    unsigned requests with `401
+    unsigned_request_required` when
+    `config.requirePeerAuth` is `true`.
+    When the flag is `false` (the
+    default) unsigned requests are
+    accepted and counted in
+    `unsignedRequests` so the operator
+    can monitor the migration progress.
+  - `POST /v1/relay/messages` enforces
+    `signer == packet.senderID` when the
+    request was peer-signed (returns
+    `403 signer_not_sender` otherwise).
+  - `GET /v1/relay/messages` enforces
+    `signer == query.recipientID` when
+    the request was peer-signed (returns
+    `403 signer_not_recipient`
+    otherwise).
+  - `DELETE /v1/relay/messages/:id` and
+    `POST /v1/relay/messages/:id/ack`
+    already enforced
+    `signer == packet.recipientID` since
+    Sprint 7; the existing check is
+    kept as-is.
+
+**Result:**
+- 12 iOS test suites, 0 failures, 0
+  XCTSkip (the new `RequestSignerTests`
+  is the 12th suite).
+- Relay `npm run build` is clean.
+- Live deploy on
+  `securechat-relay:4844f02` re-built
+  and restarted; `test-relay.sh
+  --host securechat.team --full` is
+  18/18 PASS.
+- Default posture: `RELAY_REQUIRE_PEER_AUTH=false`,
+  so the pre-Sprint-15 iOS TestFlight
+  builds (currently in beta-tester
+  hands) keep working unchanged. The
+  peer-bound headers are *sent* by the
+  new Sprint 15 iOS build and *verified*
+  by the relay; the signed/unsigned
+  counter split is observable in
+  `/v1/relay/stats` for the operator to
+  decide when to flip the flag to
+  `true`.
+- Migration plan to flip
+  `RELAY_REQUIRE_PEER_AUTH=true` on
+  the public production relay lives
+  in the relay's README + this CHANGELOG;
+  it is **not** in scope for the Sprint
+  16 cutover.
+
+### Sprint 14: iOS RelayTransport modernization + docs + privacy (2026-06-23)
+
+Sprint 14 closes the P0 findings of the
+external review (Relay-Health-Migration,
+iOS-Transport-Header-Modernization,
+HTTP-In-Release block, public
+TestFlight-Diagnostik disclosure,
+endpoints-table /healthz sync) and the
+P1 API-Contract rewrite.
+
+### Sprint 13: docs sync (CURRENT-ENDPOINTS.md) + ADR-008 (2-DH X3DH deferred to post-1.0) (2026-06-23)
 
 1. **Docs sync (Sprint 13A):** the
    `Docs/CURRENT-ENDPOINTS.md` source-of-truth

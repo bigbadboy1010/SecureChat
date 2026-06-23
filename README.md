@@ -1,14 +1,16 @@
-# 🔐 PrivateChat / SecureChat
+# 🔐 SecureChat
 
 > **End-to-end encrypted messaging for iOS** — built with Swift, secured by Curve25519 & AES-GCM, relayed by a hardened TypeScript/Fastify blind relay.
 
-**Status:** Production Candidate ⚠️ — external security audit still recommended before high-assurance claims.
+**Status:** Public Beta ⚠️ — external security audit still recommended before high-assurance claims. See [`KNOWN_ISSUES`](https://securechat.team/known-issues.html) for the open gaps and [`SECURITY.md`](SECURITY.md) for the coordinated-disclosure policy.
+
+> **Note on the legacy name `PrivateChat`:** the bundle identifier, code target, and the source tree still use the original `PrivateChat` (and `org.francois.PrivateChat`) names — they are internal and not user-visible. The product name is **SecureChat**. The Code-Signing & Distribution scripts (`build-host-app.sh`, `build-and-upload-testflight.sh`) and the App-Store-Connect entry already use `org.francois.PrivateChat` and the `SecureChat` display name side by side. Do not rename the bundle without re-registering the App-Store-Connect entry; the relay URLs and the `CURRENT-ENDPOINTS.md` source of truth depend on the existing name.
 
 ---
 
 ## 📖 Project Overview
 
-PrivateChat (also referenced as SecureChat in legacy contexts) is a privacy-first iOS messenger built from the ground up with end-to-end encryption at its core. It is designed as a **hardened, production-oriented baseline** for secure messaging, not as a feature-complete consumer app.
+SecureChat (legacy code name `PrivateChat`) is a privacy-first iOS messenger built from the ground up with end-to-end encryption at its core. It is designed as a **hardened, production-oriented baseline** for secure messaging, not as a feature-complete consumer app.
 
 The project follows a phased development approach (currently at **Phase 14.6.2**), with each phase adding hardening, UX improvements, or security features while keeping the core cryptographic layer stable.
 
@@ -56,7 +58,7 @@ The project follows a phased development approach (currently at **Phase 14.6.2**
 - 🛡️ **Production hardening** — HTTPS enforcement, rate limiting, clock-skew validation, sanitized audit logs
 - 📦 **File-backed persistence** — `STORE_TYPE=file` with TTL and size limits
 - 🧹 **Admin-only purge** — clients cannot purge inboxes in production
-- 📈 **Stats endpoint** — admin-only relay diagnostics
+- 📊 **Public stats endpoint** — unauthenticated aggregate counters (v1 / v2 envelope request split, v2 health, packet totals); admin `/v1/admin/relay/stats` adds per-peer detail (see [`CURRENT-ENDPOINTS.md`](Docs/CURRENT-ENDPOINTS.md))
 
 ---
 
@@ -193,8 +195,8 @@ cp .env.example .env
 
 docker compose up -d --build
 
-# Verify
-curl http://127.0.0.1:8080/health
+# Verify (Sprint 14A: /healthz is the public healthcheck; /health is operator-only)
+curl http://127.0.0.1:8080/healthz
 ```
 
 ### Production Relay Deployment
@@ -218,11 +220,14 @@ All client routes require `Authorization: Bearer <RELAY_AUTH_TOKEN>`.
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/health` | `GET` | Public health check (no auth) |
+| `/healthz` | `GET` | Public health check (no auth). Returns `{status, uptimeSeconds, version}`. |
+| `/healthz/internal` | `GET` | Operator-only health check. Requires `X-Securechat-Ops-Token`. Returns store type, max packet bytes, max TTL, etc. |
 | `/v1/relay/security/policy` | `GET` | Current relay policy metadata |
-| `/v1/relay/messages` | `POST` | Store encrypted packet |
-| `/v1/relay/messages` | `GET` | Fetch inbox for recipient |
-| `/v1/relay/messages/:id` | `DELETE` | Delete specific packet |
+| `/v1/relay/messages` | `POST` | Store encrypted packet (peer-bound signature recommended) |
+| `/v1/relay/messages` | `GET` | Fetch inbox for recipient (peer-bound signature recommended) |
+| `/v1/relay/messages/:id` | `DELETE` | Delete specific packet (recipient-only) |
+| `/v1/relay/stats` | `GET` | Public aggregate counters (v1 / v2 envelope request split, first / last v2 timestamp). |
+| `/v1/relay/v2-health` | `GET` | Public v2-envelope health dashboard (`ready` flag, `v2SharePercent`, `warnings[]`). |
 
 #### Store Packet (POST)
 

@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import OSLog
 
 struct LocalIdentity {
     let id: String
@@ -31,7 +32,8 @@ protocol IdentityManaging {
     func importPairingPayload(_ encodedPayload: String) throws -> TrustedPeer
 }
 
-final class IdentityManager: IdentityManaging {
+final class IdentityManager: IdentityManaging, PeerBoundSigningContext {
+    private static let logger = Logger(subsystem: "org.francois.PrivateChat", category: "IdentityManager")
     private enum Account {
         static let keyAgreementPrivateKey = "identity.keyAgreement.private.v1"
         static let signingPrivateKey = "identity.signing.private.v1"
@@ -155,5 +157,55 @@ final class IdentityManager: IdentityManaging {
             return "PrivateChat Peer"
         }
         return String(sanitized.prefix(80))
+    }
+
+    // MARK: - PeerBoundSigningContext
+
+    // Sprint 15B: the relay's peer-bound
+    // request signing layer needs the
+    // peer's long-form public peer ID and
+    // the long-term Ed25519 signing
+    // private key. Both come from the
+    // existing keychain-resident local
+    // identity. The transport calls these
+    // helpers once per outgoing request.
+    public func currentPeerID() -> String? {
+        do {
+            let identity = try loadOrCreateLocalIdentity(displayName: "")
+            return identity.id
+        } catch {
+            Self.logger.error("PeerBoundSigningContext.currentPeerID failed: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
+
+    public func currentSigningPrivateKey() -> Curve25519.Signing.PrivateKey {
+        // The forced-try here is acceptable
+        // because the only failure mode is a
+        // corrupt keychain. If that happens
+        // we want the relay request to fail
+        // loudly (the transport catches
+        // `try?` and sends an unsigned
+        // request, which the relay will
+        // refuse once
+        // `RELAY_REQUIRE_PEER_AUTH=*** is
+        // enabled).
+        if let identity = try? loadOrCreateLocalIdentity(displayName: "") {
+            return identity.signingPrivateKey
+        }
+        // Fallback: a fresh in-memory
+        // signing key. This is **not**
+        // persisted and **not** the user's
+        // real identity; it is only used so
+        // the transport can still build a
+        // canonical string in the unlikely
+        // case the keychain is unreachable.
+        // The relay will reject the
+        // signature (the public key is not
+        // registered) and the request will
+        // fail with 401/403, which the
+        // transport surfaces as a normal
+        // network error.
+        return Curve25519.Signing.PrivateKey()
     }
 }

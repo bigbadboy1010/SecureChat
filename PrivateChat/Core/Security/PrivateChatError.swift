@@ -20,6 +20,13 @@ enum PrivateChatError: LocalizedError, Equatable {
     case relayMissingClientToken
     case relayObsoleteLocalConfiguration(String)
     case relayLocalhostUnavailableOnDevice
+    /// Sprint 14C: the user configured a plain
+    /// `http://` URL for a non-development build.
+    /// TestFlight / Release builds must use
+    /// `https://`; the request is refused at
+    /// the transport boundary before the URL
+    /// leaves the device.
+    case insecureRelayURL
     case relayHealthCheckFailed(String)
     case relayHTTPError(statusCode: Int, message: String?)
     case relayInvalidResponse
@@ -76,6 +83,8 @@ enum PrivateChatError: LocalizedError, Equatable {
             return "Alte lokale Relay-Konfiguration blockiert: \(url). Verwende https://chatsecure.ddns.net und RELAY_AUTH_TOKEN."
         case .relayLocalhostUnavailableOnDevice:
             return "localhost/127.0.0.1 ist keine Production-Konfiguration. Verwende https://chatsecure.ddns.net mit RELAY_AUTH_TOKEN."
+        case .insecureRelayURL:
+            return "Plain HTTP ist in TestFlight / Release nicht erlaubt. Verwende https://relay.securechat.team."
         case .relayHealthCheckFailed(let message):
             return "Relay-Prüfung fehlgeschlagen: \(message)"
         case .relayHTTPError(let statusCode, let message):

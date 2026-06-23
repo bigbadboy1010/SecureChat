@@ -5,12 +5,18 @@ final class RelayTransport: RelayMessageTransporting {
     private static let logger = Logger(subsystem: "org.francois.PrivateChat", category: "RelayTransport")
 
     private let configuration: RelayConfiguration
+    private let signingContext: PeerBoundSigningContext?
     private let urlSession: URLSession
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
-    init(configuration: RelayConfiguration, urlSession: URLSession? = nil) {
+    init(
+        configuration: RelayConfiguration,
+        signingContext: PeerBoundSigningContext? = nil,
+        urlSession: URLSession? = nil
+    ) {
         self.configuration = configuration
+        self.signingContext = signingContext
         self.urlSession = urlSession ?? RelayTransport.makeDefaultURLSession()
         self.encoder = DateCoding.makeEncoder()
         self.decoder = DateCoding.makeDecoder()
@@ -86,8 +92,13 @@ final class RelayTransport: RelayMessageTransporting {
         return response.deleted
     }
 
+    /// Sprint 14A: `/health` is operator-only on
+    /// the new relay. The public healthcheck is
+    /// `/healthz` (see CURRENT-ENDPOINTS.md and
+    /// ADR-005). Calling `/health` here would
+    /// 401 in production with no ops token.
     func checkHealth() async throws -> RelayHealthStatus {
-        var request = try makeRequest(path: "/health")
+        var request = try makeRequest(path: "/healthz")
         request.httpMethod = "GET"
 
         let data = try await perform(request)
@@ -127,22 +138,110 @@ final class RelayTransport: RelayMessageTransporting {
         return URLSession(configuration: configuration)
     }
 
-    private func makeRequest(path: String) throws -> URLRequest {
+    private func makeRequest(
+        path: String,
+        method: String = "GET",
+        queryItems: [URLQueryItem] = [],
+        body: Data? = nil
+    ) throws -> URLRequest {
         let baseURL = try validatedBaseURL()
-        guard let endpointURL = URL(string: path, relativeTo: baseURL)?.absoluteURL else {
+        let pathWithQuery: String
+        if queryItems.isEmpty {
+            pathWithQuery = path
+        } else {
+            // URLComponents is used here to
+            // build the wire path + canonical
+            // query string in two consistent
+            // steps. The URL string is what
+            // the server will see; the
+            // `percentEncodedQuery` is what the
+            // relay's `canonicalQueryString`
+            // helper produces.
+            var components = URLComponents()
+            components.path = path
+            components.queryItems = queryItems
+            pathWithQuery = components.url?.absoluteString ?? path
+        }
+        guard let endpointURL = URL(string: pathWithQuery, relativeTo: baseURL)?.absoluteURL else {
             throw PrivateChatError.invalidRelayURL
         }
         var request = URLRequest(url: endpointURL)
+        request.httpMethod = method.uppercased()
         request.timeoutInterval = 8
-        applyDefaultHeaders(to: &request)
+        if let body = body {
+            request.httpBody = body
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
+        // Sprint 15B: build the four
+        // peer-bound headers from the same
+        // `method`, `path`, `query`, `body`
+        // that we send on the wire. The
+        // canonical query string is the
+        // percent-encoded, sorted, name-value
+        // pair string that the relay's
+        // `canonical-query-string` helper
+        // produces. The signature is over
+        // the assembled canonical string and
+        // is verified server-side.
+        let signedHeaders: RequestSigner.SignedHeaders? = self.signingContext.flatMap { context in
+            let peerID = context.currentPeerID()
+            guard let peerID = peerID, peerID.isEmpty == false else {
+                return nil
+            }
+            return RequestSigner.sign(
+                method: method,
+                path: path,
+                queryStringCanonicalized: RequestSigner.canonicalQueryString(
+                    from: queryItems
+                ),
+                body: body,
+                timestamp: RequestSigner.currentTimestamp(),
+                nonce: RequestSigner.makeNonce(),
+                peerID: peerID,
+                signingKey: context.currentSigningPrivateKey()
+            )
+        }
+        applyDefaultHeaders(to: &request, signedHeaders: signedHeaders)
         return request
     }
 
-    private func applyDefaultHeaders(to request: inout URLRequest) {
+    private func applyDefaultHeaders(
+        to request: inout URLRequest,
+        signedHeaders: RequestSigner.SignedHeaders? = nil
+    ) {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("PrivateChat-iOS", forHTTPHeaderField: "X-PrivateChat-Client")
+        // Sprint 14B: the legacy
+        // `X-PrivateChat-Client` header is replaced
+        // with the canonical
+        // `X-SecureChat-Client` so the relay's
+        // peer-bound-auth and stats counters can
+        // group requests by app version. The value
+        // still follows the "<app>-<platform>"
+        // shape so existing log parsers do not
+        // break.
+        request.setValue("SecureChat-iOS", forHTTPHeaderField: "X-SecureChat-Client")
         if let registrationToken = configuration.registrationToken, registrationToken.isEmpty == false {
             request.setValue("Bearer \(registrationToken)", forHTTPHeaderField: "Authorization")
+        }
+        // Sprint 15B (Phase 2): peer-bound
+        // request signing. When the
+        // `RelayConfiguration` carries an
+        // `IdentityManager` (it does in every
+        // public-beta build), every request to
+        // the `/v1/relay/*` surface carries
+        // the four canonical peer-bound
+        // headers. The relay will accept
+        // unsigned requests in development
+        // (counted in the `unsignedRequests`
+        // counter) and refuse them in
+        // production once
+        // `RELAY_REQUIRE_PEER_AUTH=*** is
+        // enabled.
+        if let headers = signedHeaders {
+            request.setValue(headers.peerID, forHTTPHeaderField: "X-Securechat-Peer-ID")
+            request.setValue(headers.timestamp, forHTTPHeaderField: "X-Securechat-Timestamp")
+            request.setValue(headers.nonce, forHTTPHeaderField: "X-Securechat-Nonce")
+            request.setValue(headers.signature, forHTTPHeaderField: "X-Securechat-Signature")
         }
     }
 
@@ -153,7 +252,33 @@ final class RelayTransport: RelayMessageTransporting {
         guard let baseURL = normalizedBaseURL() else {
             throw PrivateChatError.relayNotConfigured
         }
-        guard let scheme = baseURL.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+        guard let scheme = baseURL.scheme?.lowercased() else {
+            throw PrivateChatError.invalidRelayURL
+        }
+        // Sprint 14C: plain HTTP is forbidden in
+        // any non-development build. Dev builds
+        // (Xcode debug or simulator) still allow
+        // http://localhost.* so local development
+        // keeps working. In TestFlight / Release
+        // the user agent is `SecureChat-iOS` and
+        // the build is non-debug, so the `http`
+        // case throws `insecureRelayURL` and the
+        // request never leaves the device.
+        #if DEBUG
+        let isDebug = true
+        #else
+        let isDebug = false
+        #endif
+        if scheme == "http" {
+            let isLocalhost = (baseURL.host?.lowercased() ?? "").contains("localhost") ||
+                baseURL.host == "127.0.0.1" ||
+                baseURL.host == "::1"
+            if isDebug && isLocalhost {
+                // local dev only
+            } else {
+                throw PrivateChatError.insecureRelayURL
+            }
+        } else if scheme != "https" {
             throw PrivateChatError.invalidRelayURL
         }
         guard let host = baseURL.host?.lowercased(), host.isEmpty == false else {

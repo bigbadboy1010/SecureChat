@@ -245,6 +245,20 @@ struct RelayConfiguration: Codable, Equatable {
     var autoPurgeRelayInboxAfterSuccessfulSync: Bool
     var verboseRelayLogging: Bool
 
+    // Sprint 15B (Phase 2): the peer-bound
+    // request signing layer is **not**
+    // part of the persisted relay
+    // configuration. The transport
+    // receives a separate
+    // `PeerBoundSigningContext?` via the
+    // public initializer and uses it to
+    // build the per-request canonical
+    // string. This keeps
+    // `RelayConfiguration` value-typed
+    // and `Codable, Equatable` while
+    // still giving the transport a path
+    // to the peer's signing key.
+
     var normalizedBaseURLString: String {
         SecureChatProductionProfile.normalizeRelayBaseURL(baseURLString)
     }
