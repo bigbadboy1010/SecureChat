@@ -22,6 +22,83 @@ public-beta trust regression.
 
 ## Unreleased
 
+### Sprint 11B: 2-DH X3DH attempt + revert (2026-06-23)
+
+Sprint 11B started as an upgrade to the **2-DH
+X3DH** form (adding
+`DH(local_KA_priv, remote_signingPub_as_X25519)`
+to the existing single-DH agreement, to bind
+the root key to the remote's identity and
+detect MITM attempts that swap the signing
+key in transit). It ended as a **pragmatic
+revert to the pre-11B single-DH form** with
+a detailed explanation of why, documented
+directly in the `X3DHAgreement.swift`
+header-comment.
+
+**Why the revert:** the proper 2-DH form
+needs the Ed25519 → X25519 birational map,
+which Apple CryptoKit does not expose. The
+1.5-DH fallback (HMAC-SHA256 over the remote
+signing public key, mixed into the HKDF info
+string) broke the symmetry invariant: Alice
+hashes Bob's signing key, Bob hashes Alice's
+signing key, so the two `info` strings
+differ and the two `rootKey`s are no longer
+equal. The `DoubleRatchetSessionTests` and
+`RatchetChannelTests` caught this with hard
+`XCTAssertEqual(aliceRoot, bobRoot, ...)` and
+`XCTAssertEqual(aliceSessionID, bobSessionID,
+...)` assertions.
+
+**What Sprint 11B actually delivers:** the
+single-DH form is restored unchanged, and
+the file header now documents:
+
+* why full 2-DH X3DH is not possible in
+  Apple CryptoKit (no birational map),
+* why the 1.5-DH fallback breaks symmetry,
+* how the v1 envelope **signing** (Sprint 7)
+  recovers the identity-commitment / MITM-
+  detection property: every v1 outbound
+  packet carries an Ed25519 signature of the
+  `sealedPayload`; a MITM who swaps the
+  signing key in transit fails the v1
+  signature verification and is rejected by
+  `processInboundPacket(...)` before the v2
+  path is reached.
+
+**iOS (1 file modified, +52/-32 lines, net
++20):**
+
+* `PrivateChat/Core/Crypto/X3DHAgreement.swift`
+  - Doc-Comment updated to describe the
+    Sprint 11B attempt + revert and the v1
+    signing-based identity-commitment
+    fallback.
+  - `deriveRootKey(...)` body restored to the
+    pre-11B single-DH form.
+  - The pre-11B `Curve25519.Signing.PublicKey
+    -> Curve25519.KeyAgreement.PublicKey`
+    birational-map extension is kept as
+    `private` (still useful for future
+    research, but not used in the
+    production path).
+
+**Result:** 11 iOS test suites, 0 failures, 0
+XCTSkip (unchanged from Sprint 11A). Sprint
+11B is a **negative result** with a clear
+write-up; the next attempt to upgrade X3DH
+should be preceded by either adopting a
+third-party CryptoKit-extension that exposes
+the birational map, or by switching to a
+different keypair (e.g. both peers run
+Curve25519.KeyAgreement only, with the
+signing identity derived as a side-channel
+HMAC). Both options are out of scope for the
+current Public-Beta track and belong to a
+post-1.0 crypto-refresh.
+
 ### Sprint 11A: ConversationService integration tests for the v2 inbound path (2026-06-23)
 
 Sprint 11A adds the first
