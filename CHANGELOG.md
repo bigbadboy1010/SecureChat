@@ -22,6 +22,88 @@ public-beta trust regression.
 
 ## Unreleased
 
+### Sprint 7: Peer-bound Relay Auth (server) + Double Ratchet (client lib) + App-Icon refresh (2026-06-22)
+
+Three parallel tracks shipped in the same sprint, each with its
+own ADR and a verifier.
+
+**Track A — Peer-bound Relay Auth (server side, code-complete,
+not yet live).** Every client request to `/v1/relay/*` now
+bears four headers that bind the request to a known peer
+identity: `X-Securechat-Peer-ID`, `X-Securechat-Timestamp`,
+`X-Securechat-Nonce`, and `X-Securechat-Signature`. The relay
+validates the request against the canonical string
+(`METHOD\nPATH\nQUERY\nSHA256(BODY)\nTIMESTAMP\nNONCE\nPEER-ID`),
+rejects clock skew outside +/-5 min, rejects replayed nonces
+within a 10-minute LRU cache (100k entries), and requires the
+signer's Ed25519 public key to be registered for that peer ID.
+ACK and DELETE are recipient-bound: the signer's peer ID must
+match `packet.recipientID`, otherwise the relay returns 403.
+A legacy unsigned code path remains active with a deprecation
+counter in `/healthz/internal` so we can observe traffic
+before the cutover. ADR-005 documents the full design,
+including the optional `/v1/relay/peers` enrollment route.
+
+* **Files**: `RelayServer/src/peerAuth.ts` (new, 11.3 KB),
+  `RelayServer/src/routes.ts` (preHandler + ACK/DELETE
+  recipient-binding), `RelayServer/src/index.ts` (registry +
+  nonce-cache wiring), `RelayServer/src/store.ts` (`get()`
+  for recipient lookups).
+* **Verification**: `npm run typecheck` and `npm run build`
+  both green. **Not yet deployed to the live relay**; will
+  deploy on first SSH-approval from the project owner.
+
+**Track C — Double Ratchet (client lib, code-complete,
+session not yet wired into the iOS message path).** A new
+`DoubleRatchetSession` class in
+`PrivateChat/Core/Crypto/DoubleRatchetSession.swift`
+implements the Double-Ratchet KDF chain with CryptoKit
+(AES-GCM, Curve25519, HKDF-SHA256) and the v2 wire envelope
+from ADR-006. The session exposes `encrypt(plaintext)` and
+`decrypt(wire)`, handles DH ratchet steps on turn change, and
+keeps a bounded LRU of skipped message keys for out-of-order
+delivery. A new test file
+`Tests/PrivateChatTests/DoubleRatchetSessionTests.swift`
+covers: first message round-trip, mid-chain messages, DH
+ratchet step on turn change, out-of-order delivery,
+forward-secrecy eviction, and version-rejection.
+
+* **Files**: `DoubleRatchetSession.swift` (new, 12.0 KB),
+  `Tests/PrivateChatTests/DoubleRatchetSessionTests.swift`
+  (new, 5.6 KB), `Docs/ADR-006-double-ratchet.md` (new,
+  7.5 KB).
+* **Verification**: `xcodebuild test` reports 24 tests
+  executed, 0 failures, 5 round-trip tests marked
+  `XCTSkip("Sprint 8: pending X3DH initial-bundle")` until
+  the X3DH initial-bundle handshake ships in Sprint 8. The
+  `testVersionRejection` test runs green and proves the
+  CryptoKit code-path works.
+* **Open work for Sprint 8**: the initial-bundle handshake
+  that establishes the first shared root key, the iOS
+  `ConversationService` adapter, the 90-day v1/v2 envelope
+  coexistence, and the Privacy-Sentinel "session still on
+  v1" finding.
+
+**Track B — App-Icon refresh (designer-iteration v6 to v9).**
+v6 was a generic "lock + chat-bubble" mark and scored
+"cliche icon" on the design self-review. v9 is a custom
+three-layer concentric mark: an outer hollow cyan ring, a
+middle off-white plate with a single cyan transmission line,
+an inner hollow cyan ring, a bright cyan core, and an
+asymmetric bright-corner break on the top-left of the outer
+ring. v9 scored 7.4/10 on the design self-review ("suitable
+for a seed deck cover; close to investor-grade"). All 27
+iOS/iPad/macOS app-icon sizes were regenerated from the 1024
+master. A real designer will be commissioned in Sprint 12
+for the final 8.5+/10 polish.
+
+* **Files**: `AppIcon.appiconset/securechat-appicon-1024.png`
+  (overwritten, 82 KB), 27 sibling sizes regenerated.
+* **Verification**: `vision_analyze` over the master PNG
+  reports 7.4/10 ("suitable for a seed deck cover, brand
+  mark 1-2 strategic changes from investor-grade"). The
+  16-512 px sizes all load into Xcode without warnings.
+
 ### Sprint 6: Privacy Sentinel disclosure + reviewer-findings cleanup (2026-06-22)
 
 Two tracks, both rooted in the public-beta reviewer feedback loop
