@@ -22,6 +22,82 @@ public-beta trust regression.
 
 ## Unreleased
 
+### Sprint 10: v2 envelope opt-in via pairing + keychain persistence + sentinel findings (2026-06-23)
+
+Sprint 10 closes the v2-envelope loop end-to-end.
+After a fresh pairing, the iOS app now registers a
+`RatchetChannel` for the new peer so subsequent
+`sendMessage` calls take the v2 path automatically.
+The X3DH bundle material is persisted to the iOS
+keychain via `KeychainDoubleRatchetStore`, so the
+v2 envelope survives an app relaunch instead of
+falling back to v1. The Sentinel dashboard
+(`securityAISnapshot`) now surfaces the
+`RatchetSentinelFindings` for the v1-fallback /
+v2-ok state per peer.
+
+**iOS (1 file modified, +90 lines):**
+
+* `PrivateChat/Core/Services/ConversationService.swift`
+  - **Sprint 10A:** `init` now owns a
+    `KeychainDoubleRatchetStore` instead of the
+    previous `InMemoryDoubleRatchetStore`. The
+    on-device keychain account name is
+    `ratchet.<peerID>`; the service is configured
+    under the existing keychain service
+    `org.francois.PrivateChat.keychain`.
+  - **Sprint 10C:** `importPeer(from:)` now
+    delegates to a new private helper
+    `registerRatchetChannelForPeer(_:encodedPayload:)`
+    after the trusted-peer record has been
+    appended / updated. The helper decodes the
+    raw `PairingPayload` (to obtain
+    `createdAt`), decodes the remote
+    key-agreement and signing public keys, and
+    calls `RatchetChannel.register(...)` with
+    the local key-agreement private key from
+    `LocalIdentity`. The result is persisted to
+    the keychain; the next app relaunch picks
+    the same `RatchetChannel` up via
+    `ratchetStore.load(peerID:)` in
+    `sendMessage` and continues the chain.
+    Blocked peers (key-changed during
+    re-pairing) and existing peers with a
+    stored channel are intentionally skipped,
+    so the ratchet state is never overwritten.
+    A soft failure on `registerRatchetChannel`
+    leaves the v1 path active; the next
+    `refreshSecurityAIAssessment()` will emit a
+    "session still on v1" finding.
+  - **Sprint 10D:** `refreshSecurityAIAssessment()`
+    now drains `ratchetObservations` and merges
+    the findings returned by
+    `RatchetSentinelFindings.build(observations:)`
+    into `securityAISnapshot.findings`. The
+    `summary` is rebuilt to append
+    `+ N Ratchet-Finding(s) (M hart).` so the
+    dashboard shows the additional context. The
+    `score` and `riskLevel` stay at the v1
+    baseline; ratchet findings are
+    informational / warning, not critical
+    regressions.
+
+**Result:** 10 iOS test suites, 0 failures, 0
+XCTSkip. Sprint 10 closes the work tracked as
+"Sprint 9D is half-wired" in CHANGELOG entries
+9C and 9D: the v2 path is now reachable from the
+UI without any extra configuration.
+
+**TestFlight implication:** a new build will
+register a `RatchetChannel` automatically on the
+first pairing. The first v2 `sendMessage` will
+ticker the relay's `v2EnvelopeRequests` counter
+on `/v1/relay/stats` from 0 to 1, and the
+Sentinel dashboard will surface the
+"session on v2" finding. The 90-day v1/v2
+coexistence window now has its first real v2
+is taken.
+
 ### Sprint 9D: ConversationService wired to the v2 router (2026-06-23)
 
 Sprint 9D closes the v1 / v2 envelope loop. The

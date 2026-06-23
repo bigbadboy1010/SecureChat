@@ -109,14 +109,16 @@ final class ConversationService: ObservableObject {
         self.relayPacketLedger = .empty
         self.conversations = []
         self.trustedPeers = []
-        // Sprint 9D: own a fresh in-memory ratchet
-        // store. The KeychainDoubleRatchetStore
-        // wiring is a Sprint 10 follow-up; for
-        // now, no v2 envelopes survive an app
-        // relaunch. Production testers can opt in
-        // to a fresh v2 channel for a single
-        // session.
-        let ratchetStore = InMemoryDoubleRatchetStore()
+        // Sprint 10A: own a Keychain-backed
+        // Double Ratchet store so the v2 envelope
+        // state survives an app relaunch. The
+        // first call to register/open a
+        // RatchetChannel will hit the keychain
+        // (account: "ratchet.<peerID>"); subsequent
+        // app launches will pick the same session
+        // up and continue the chain instead of
+        // falling back to v1.
+        let ratchetStore: DoubleRatchetStoring = KeychainDoubleRatchetStore()
         self.ratchetStore = ratchetStore
         self.ratchetRouter = RatchetEnvelopeRouter(
             store: ratchetStore,
@@ -594,8 +596,103 @@ final class ConversationService: ObservableObject {
                 lastErrorMessage = nil
             }
             try peerTrustStore.savePeers(trustedPeers)
+
+            // Sprint 10C: opt the new peer into the
+            // v2 (Double Ratchet) envelope by
+            // registering a fresh RatchetChannel.
+            // The X3DH bundle material is built
+            // from the local + remote key-agreement
+            // keys and the PairingPayload.createdAt
+            // timestamps; it is persisted to the
+            // Keychain via the
+            // KeychainDoubleRatchetStore, so the
+            // next app relaunch picks the same
+            // session up.
+            //
+            // A pairing whose signing key matches a
+            // key-changed / blocked event is
+            // intentionally NOT registered, so the
+            // blocked peer does not accidentally
+            // end up with a v2 envelope.
+            registerRatchetChannelForPeer(peer, encodedPayload: encodedPayload)
         } catch {
             lastErrorMessage = error.localizedDescription
+        }
+    }
+
+    /// Sprint 10C: build and persist a
+    /// RatchetChannel for a newly-imported peer.
+    /// The X3DH bundle material needs both the
+    /// raw PairingPayload (for `createdAt`) and
+    /// the local key-agreement private key, so
+    /// we decode the payload ourselves before
+    /// handing off to `RatchetChannel.register`.
+    private func registerRatchetChannelForPeer(
+        _ peer: TrustedPeer,
+        encodedPayload: String
+    ) {
+        // Skip v2 registration for blocked peers
+        // (key-changed during re-pairing).
+        guard peer.trustState != .blocked else {
+            return
+        }
+        // Skip if a channel already exists for
+        // this peer (re-import of an existing
+        // peer must not overwrite the ratchet
+        // state and lose the message chain).
+        if (try? ratchetStore.load(peerID: peer.id)) != nil {
+            return
+        }
+        do {
+            let normalized = encodedPayload
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: "securechat://", with: "")
+            guard let payloadData = Base64URL.decode(normalized) else {
+                return
+            }
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            guard let payload = try? decoder.decode(
+                PairingPayload.self, from: payloadData
+            ) else {
+                return
+            }
+            guard let remoteKAPubData = Data(
+                base64Encoded: peer.keyAgreementPublicKeyBase64
+            ),
+                  let remoteSigningPubData = Data(
+                base64Encoded: peer.signingPublicKeyBase64
+            ) else {
+                return
+            }
+            let remoteKAPub = try Curve25519.KeyAgreement.PublicKey(
+                rawRepresentation: remoteKAPubData
+            )
+            // The remote signing public key is
+            // not used for ECDH in the current
+            // X3DH single-DH variant; we still
+            // pass it so the call signature is
+            // future-proof when Sprint 11 adds
+            // the 2-DH variant.
+            let remoteSigningPub = try Curve25519.Signing.PublicKey(
+                rawRepresentation: remoteSigningPubData
+            )
+            let localKAPriv = localIdentity.keyAgreementPrivateKey
+            try RatchetChannel.register(
+                peerID: peer.id,
+                localKeyAgreementPrivateKey: localKAPriv,
+                remoteKeyAgreementPublicKey: remoteKAPub,
+                remoteSigningPublicKey: remoteSigningPub,
+                localPayloadCreatedAt: payload.createdAt,
+                remotePayloadCreatedAt: payload.createdAt,
+                store: ratchetStore
+            )
+        } catch {
+            // Soft failure: the v1 path still
+            // works for this peer; the user will
+            // see a "session still on v1" finding
+            // in the Sentinel until the next
+            // successful re-pairing.
         }
     }
 
@@ -881,7 +978,7 @@ final class ConversationService: ObservableObject {
     }
 
     func refreshSecurityAIAssessment() {
-        securityAISnapshot = SecurityAISentinel.assess(
+        var snapshot = SecurityAISentinel.assess(
             securityState: securityState,
             runtimeSnapshot: runtimeSecuritySnapshot,
             relayConnectivityStatus: relayConnectivityStatus,
@@ -890,6 +987,42 @@ final class ConversationService: ObservableObject {
             relayStats: lastRelayStatsSnapshot,
             localIdentityID: localIdentity.id
         )
+        // Sprint 10D: merge the v1 / v2 envelope
+        // findings from the ratchet router into the
+        // Sentinel snapshot. The router has been
+        // collecting observations every time
+        // sendMessage or processInboundPacket
+        // produced an envelope; the
+        // RatchetSentinelFindings builder collapses
+        // them into a single "session still on v1"
+        // warning or a "session on v2" info finding.
+        // The list is drained so each refresh
+        // re-evaluates from the latest state.
+        let ratchetFindings = RatchetSentinelFindings.build(
+            observations: ratchetObservations
+        )
+        ratchetObservations.removeAll(keepingCapacity: true)
+        if !ratchetFindings.isEmpty {
+            // Rebuild the summary string so it
+            // reflects the merged findings. The
+            // score and riskLevel stay at the
+            // v1-assessment values because the
+            // ratchet findings are informational
+            // / warning, not critical security
+            // regressions.
+            let mergedFindings = snapshot.findings + ratchetFindings
+            let hardCount = mergedFindings.filter {
+                $0.severity == .critical || $0.severity == .high
+            }.count
+            snapshot = SecurityAISnapshot(
+                score: snapshot.score,
+                riskLevel: snapshot.riskLevel,
+                summary: "\(snapshot.summary) + \(ratchetFindings.count) Ratchet-Finding(s) (\(hardCount) hart).",
+                findings: mergedFindings,
+                generatedAt: snapshot.generatedAt
+            )
+        }
+        securityAISnapshot = snapshot
     }
 
 
