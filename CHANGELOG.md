@@ -22,6 +22,136 @@ public-beta trust regression.
 
 ## Unreleased
 
+### Sprint 10B: live ratchet state survives an app relaunch (2026-06-23)
+
+Sprint 10B closes the last Sprint-9 gap: a
+Double-Ratchet conversation that has progressed
+past the initial-bundle phase now survives an
+app relaunch. After every `RatchetChannel.send(...)`
+/ `RatchetChannel.receive(...)` call, the live
+state (root key, send / recv chain keys, send /
+recv counters, the current DH ratchet keypair,
+the remote ratchet public key, the
+`previousSendChainLength`, and the
+skipped-message-key window) is snapshotted into
+the on-device keychain alongside the existing
+X3DH bundle material. On the next launch the
+`ConversationService` opens the channel via
+`RatchetChannel.open(...)`; the rebuilt session
+is restored to the exact chain position the
+previous instance had reached, so no message is
+re-encrypted and no counter regresses.
+
+**iOS (3 files modified, +130 lines; 1 test file
+modified, +98 lines / 3 new tests):**
+
+* `PrivateChat/Core/Crypto/DoubleRatchetSession.swift`
+  - State variables (`sessionID`, `rootKey`,
+    `sendChainKey`, `recvChainKey`,
+    `sendCounter`, `recvCounter`,
+    `dhRatchetKeyPair`, `remoteRatchetPK`,
+    `previousSendChainLength`,
+    `skippedMessageKeys`, `maxSkippedKeys`)
+    demoted from `private` to internal so the
+    persistence layer in the same module can
+    read / write them. The class remains
+    **not** thread-safe (Sprint 9A contract);
+    callers serialise access through
+    `RatchetChannel` and `ConversationService`.
+  - New `public struct LiveState: Codable,
+    Equatable` carrying the snapshotted state.
+    Inner `SkippedKey` struct holds a 32-byte
+    chain key + a counter.
+  - New `public func exportLiveState() ->
+    LiveState` reads every internal field and
+    serialises the symmetric keys as raw
+    `Data`.
+  - New `public func restoreLiveState(_:)`
+    reverses the export: it rebuilds the
+    `SymmetricKey` / `Curve25519.KeyAgreement.*Key`
+    values from the raw bytes and installs
+    them so the next `encrypt` / `decrypt`
+    call continues the chain exactly where
+    the previous one left off.
+
+* `PrivateChat/Core/Crypto/DoubleRatchetPersistence.swift`
+  - `PersistedRatchetSession` gets two new
+    fields:
+    - `isSealed: Bool` is now meaningful:
+      `false` immediately after
+      `DoubleRatchetSessionFactory.makePersisted(...)`
+      (initial bundle only), `true` after the
+      first `persistLiveState()` call.
+    - `liveState: DoubleRatchetSession.LiveState?`
+      holds the live ratchet snapshot (nil
+      when the session has only been
+      registered and never used).
+  - `DoubleRatchetSessionFactory.makeSession(from:)`
+      now calls `restoreLiveState(_:)` on the
+      freshly built session when the persisted
+      blob carries a `liveState`. A session
+      without a `liveState` is built with the
+      original initial-bundle behaviour.
+
+* `PrivateChat/Core/Services/RatchetChannel.swift`
+  - New `private var
+    persistedTemplate: PersistedRatchetSession`
+    field holds the initial-bundle material
+    so `persistLiveState()` can rebuild a
+    refreshed `PersistedRatchetSession` after
+    every state change.
+  - `send(...)` and `receive(...)` call a new
+    `persistLiveState()` after the encrypt /
+    decrypt. The helper snapshots
+    `session.exportLiveState()`, builds a
+    `PersistedRatchetSession` with `isSealed
+    = true` and `liveState` set, and writes
+    it back to the store via
+    `store.save(...)`. Store-write errors are
+    swallowed: the on-device store failure
+    must not abort an in-flight send /
+    receive; the next call will trigger
+    another save attempt.
+
+* `Tests/PrivateChatTests/RatchetChannelTests.swift`
+  - 3 new tests:
+    - `testLiveStatePersistedAfterSend` —
+      verifies the persisted `LiveState` is
+      sealed, has `sendCounter == 1`, has a
+      `sendChainKey`, and matches the
+      envelope counter.
+    - `testMultiMessageRoundTripAcrossRelaunch`
+      — sends three Alice -> Bob messages,
+      then **simulates an app relaunch** by
+      dropping the in-memory channels and
+      re-opening them from the same on-device
+      stores; the rebuilt channels must
+      continue the chain (Bob -> Alice,
+      Alice -> Bob) without any counter
+      regression.
+    - `testPersistedDHKeyMatchesInMemoryKey` —
+      verifies the persisted DH ratchet
+      private key is 32 bytes, the send
+      counter is 1, and the skipped-key
+      window is empty.
+
+**Result:** 10 iOS test suites, 0 failures, 0
+XCTSkip. The Sprint 10B work closes the
+"Sprint 10B pending: live-state persistence"
+entry from Sprint 10's CHANGELOG: a
+conversation that survives a relaunch is now
+the default behaviour, not a follow-up.
+
+**TestFlight implication:** public-beta
+testers who pair, send several messages, kill
+the app, and re-open it will see the v2 chain
+**continue** at the exact counter position,
+not reset. The Privacy Sentinel will surface a
+"session on v2" finding instead of the
+fallback "session still on v1" finding that
+Sprint 10A would otherwise produce after a
+relaunch.
+
 ### Sprint 10: v2 envelope opt-in via pairing + keychain persistence + sentinel findings (2026-06-23)
 
 Sprint 10 closes the v2-envelope loop end-to-end.

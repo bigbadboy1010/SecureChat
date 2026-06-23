@@ -67,11 +67,20 @@ public struct PersistedRatchetSession: Codable, Equatable {
     public let localPayloadCreatedAt: Date
     /// Remote `PairingPayload.createdAt`.
     public let remotePayloadCreatedAt: Date
-    /// `false` until the session is sealed on the
-    /// relay (see Sprint 9C). Currently always
-    /// `false` because the on-device store only
-    /// holds initial-bundle material.
+    /// `true` once `liveState` is set (Sprint
+    /// 10B). Until then the persisted session is
+    /// just the initial-bundle material and a
+    /// restored session has not been used for
+    /// any encrypt/decrypt call.
     public let isSealed: Bool
+    /// Sprint 10B: the live ratchet state
+    /// (chain keys, counters, current DH ratchet
+    /// keypair, skipped-message window). `nil`
+    /// for sessions that have only been
+    /// registered and never used; set after
+    /// the first `RatchetChannel.send(...)` /
+    /// `RatchetChannel.receive(...)` call.
+    public let liveState: DoubleRatchetSession.LiveState?
 
     public init(
         peerID: String,
@@ -81,7 +90,8 @@ public struct PersistedRatchetSession: Codable, Equatable {
         remoteInitialRatchetPublicKey: Data,
         localPayloadCreatedAt: Date,
         remotePayloadCreatedAt: Date,
-        isSealed: Bool = false
+        isSealed: Bool = false,
+        liveState: DoubleRatchetSession.LiveState? = nil
     ) {
         self.peerID = peerID
         self.sessionID = sessionID
@@ -91,6 +101,7 @@ public struct PersistedRatchetSession: Codable, Equatable {
         self.localPayloadCreatedAt = localPayloadCreatedAt
         self.remotePayloadCreatedAt = remotePayloadCreatedAt
         self.isSealed = isSealed
+        self.liveState = liveState
     }
 }
 
@@ -108,6 +119,14 @@ public enum DoubleRatchetSessionFactory {
     /// message of the conversation. After that, the
     /// caller is responsible for the live state
     /// (ratchet rotation, chain-key step, etc.).
+    ///
+    /// Sprint 10B: if the persisted session carries
+    /// a `liveState`, it is restored here so the
+    /// caller gets back the exact state the
+    /// session had at the last `exportLiveState()`
+    /// call. A session that has never been used
+    /// (no `liveState`) is built with a clean
+    /// initial-bundle state.
     public static func makeSession(
         from persisted: PersistedRatchetSession
     ) throws -> DoubleRatchetSession {
@@ -121,12 +140,16 @@ public enum DoubleRatchetSessionFactory {
         ) else {
             throw PersistenceError.invalidKeyMaterial
         }
-        return DoubleRatchetSession(
+        let session = DoubleRatchetSession(
             sessionID: persisted.sessionID,
             rootKey: persisted.rootKey,
             initialRatchetPrivateKey: localPriv,
             initialRemoteRatchetPublicKey: remotePub
         )
+        if let live = persisted.liveState {
+            try session.restoreLiveState(live)
+        }
+        return session
     }
 
     /// Build a `PersistedRatchetSession` from the

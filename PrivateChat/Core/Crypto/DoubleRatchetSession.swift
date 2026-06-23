@@ -54,17 +54,17 @@ public final class DoubleRatchetSession {
 
     // MARK: - State
 
-    private let sessionID: String
-    private var rootKey: SymmetricKey
-    private var sendChainKey: SymmetricKey?
-    private var recvChainKey: SymmetricKey?
-    private var sendCounter: Int
-    private var recvCounter: Int
-    private var dhRatchetKeyPair: Curve25519.KeyAgreement.PrivateKey
-    private var remoteRatchetPK: Curve25519.KeyAgreement.PublicKey?
-    private var previousSendChainLength: Int = 0
-    private var skippedMessageKeys: [(chainKey: SymmetricKey, counter: Int)] = []
-    private let maxSkippedKeys: Int
+    let sessionID: String
+    var rootKey: SymmetricKey
+    var sendChainKey: SymmetricKey?
+    var recvChainKey: SymmetricKey?
+    var sendCounter: Int
+    var recvCounter: Int
+    var dhRatchetKeyPair: Curve25519.KeyAgreement.PrivateKey
+    var remoteRatchetPK: Curve25519.KeyAgreement.PublicKey?
+    var previousSendChainLength: Int = 0
+    var skippedMessageKeys: [(chainKey: SymmetricKey, counter: Int)] = []
+    let maxSkippedKeys: Int
 
     // MARK: - Init
 
@@ -362,5 +362,121 @@ public final class DoubleRatchetSession {
         aad.append(ratchetPK)
         withUnsafeBytes(of: UInt32(counter).bigEndian) { aad.append(contentsOf: $0) }
         return aad
+    }
+
+    // MARK: - Live-state export / restore (Sprint 10B)
+
+    /// Codable snapshot of the live ratchet state
+    /// (everything except the initial X3DH bundle
+    /// material that is already in
+    /// `PersistedRatchetSession`). Used by
+    /// `RatchetChannel` to persist the in-flight
+    /// chain keys, counters, DH ratchet keypair,
+    /// and the skipped-message-key window so a
+    /// conversation that has progressed past the
+    /// initial-bundle phase survives an app
+    /// relaunch.
+    public struct LiveState: Codable, Equatable {
+        /// 32-byte symmetric key.
+        public let rootKey: Data
+        /// 32-byte symmetric key, optional (nil
+        /// before the first outgoing ratchet
+        /// step).
+        public let sendChainKey: Data?
+        /// 32-byte symmetric key, optional (nil
+        /// before the first incoming ratchet
+        /// step or initial-bundle phase).
+        public let recvChainKey: Data?
+        /// Counter of the next outgoing message
+        /// in the current send chain.
+        public let sendCounter: Int
+        /// Counter of the next expected incoming
+        /// message in the current recv chain.
+        public let recvCounter: Int
+        /// 32-byte X25519 private key for the
+        /// current ratchet keypair. After the
+        /// first DH ratchet step this is rotated
+        /// from the X3DH initial-bundle key, so
+        /// persisting it is required to keep
+        /// the chain consistent across
+        /// relaunches.
+        public let dhRatchetPrivateKey: Data
+        /// 32-byte X25519 public key for the
+        /// remote's current ratchet keypair, or
+        /// nil if no incoming ratchet step has
+        /// happened yet.
+        public let remoteRatchetPublicKey: Data?
+        /// Number of messages sent in the
+        /// **previous** send chain. Used by the
+        /// receiver to skip the correct number
+        /// of message keys after a ratchet
+        /// rotation.
+        public let previousSendChainLength: Int
+        /// (chain key data, counter) pairs that
+        /// have been stepped but not yet
+        /// delivered. Capped at the session's
+        /// `maxSkippedKeys`.
+        public let skippedMessageKeys: [SkippedKey]
+
+        public struct SkippedKey: Codable, Equatable {
+            public let chainKey: Data
+            public let counter: Int
+            public init(chainKey: Data, counter: Int) {
+                self.chainKey = chainKey
+                self.counter = counter
+            }
+        }
+    }
+
+    /// Snapshot the current live state. Callers
+    /// (the `RatchetChannel`) should invoke this
+    /// after every `encrypt` / `decrypt` and
+    /// before the next app-launched-save point.
+    public func exportLiveState() -> LiveState {
+        LiveState(
+            rootKey: rootKey.withUnsafeBytes { Data($0) },
+            sendChainKey: sendChainKey.map { $0.withUnsafeBytes { Data($0) } },
+            recvChainKey: recvChainKey.map { $0.withUnsafeBytes { Data($0) } },
+            sendCounter: sendCounter,
+            recvCounter: recvCounter,
+            dhRatchetPrivateKey: dhRatchetKeyPair.rawRepresentation,
+            remoteRatchetPublicKey: remoteRatchetPK?.rawRepresentation,
+            previousSendChainLength: previousSendChainLength,
+            skippedMessageKeys: skippedMessageKeys.map {
+                .init(
+                    chainKey: $0.chainKey.withUnsafeBytes { Data($0) },
+                    counter: $0.counter
+                )
+            }
+        )
+    }
+
+    /// Restore live state from a previous
+    /// `exportLiveState()` snapshot. The session
+    /// is left in the same state as it was at
+    /// export time; subsequent `encrypt` / `decrypt`
+    /// calls continue the chain as if no
+    /// relaunch had happened.
+    public func restoreLiveState(_ state: LiveState) throws {
+        precondition(state.rootKey.count == 32, "rootKey must be 32 bytes")
+        rootKey = SymmetricKey(data: state.rootKey)
+        sendChainKey = state.sendChainKey.map { SymmetricKey(data: $0) }
+        recvChainKey = state.recvChainKey.map { SymmetricKey(data: $0) }
+        sendCounter = state.sendCounter
+        recvCounter = state.recvCounter
+        dhRatchetKeyPair = try Curve25519.KeyAgreement.PrivateKey(
+            rawRepresentation: state.dhRatchetPrivateKey
+        )
+        if let remotePKData = state.remoteRatchetPublicKey {
+            remoteRatchetPK = try Curve25519.KeyAgreement.PublicKey(
+                rawRepresentation: remotePKData
+            )
+        } else {
+            remoteRatchetPK = nil
+        }
+        previousSendChainLength = state.previousSendChainLength
+        skippedMessageKeys = state.skippedMessageKeys.map {
+            (SymmetricKey(data: $0.chainKey), $0.counter)
+        }
     }
 }

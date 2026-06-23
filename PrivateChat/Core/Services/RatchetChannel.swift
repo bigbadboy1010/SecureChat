@@ -65,6 +65,13 @@ final class RatchetChannel {
     private let session: DoubleRatchetSession
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    /// Sprint 10B: the X3DH bundle material that
+    /// was used to build the session. Kept in
+    /// memory so `send` / `receive` can persist a
+    /// refreshed `PersistedRatchetSession` (with
+    /// the new `liveState`) back into the store
+    /// after every state change.
+    private var persistedTemplate: PersistedRatchetSession
 
     init(
         peerID: String,
@@ -74,6 +81,7 @@ final class RatchetChannel {
         self.peerID = peerID
         self.sessionID = persisted.sessionID
         self.store = store
+        self.persistedTemplate = persisted
         self.session = try DoubleRatchetSessionFactory.makeSession(from: persisted)
         self.encoder = DoubleRatchetStore.defaultEncoder
         self.decoder = DoubleRatchetStore.defaultDecoder
@@ -89,8 +97,23 @@ final class RatchetChannel {
     /// so to put the sender's identity on the wire
     /// the caller passes a `senderID` (typically
     /// the `LocalIdentity.id` of the local user).
+    ///
+    /// Sprint 10B: after the encrypt, the live
+    /// ratchet state (rootKey, sendChainKey,
+    /// sendCounter, dhRatchetKeyPair, ...) is
+    /// written back to the on-device store so the
+    /// next app relaunch picks up the exact chain
+    /// position. A failure to write to the store
+    /// is **not** raised to the caller; the
+    /// next message will trigger another save
+    /// attempt, and the v2 envelope is still
+    /// emitted. The user sees a "session still on
+    /// v1" finding on the next Sentinel
+    /// assessment only if the store write fails
+    /// three times in a row.
     func send(plaintext: Data, senderID: String) throws -> RatchetChannelEnvelope {
         let wire = try session.encrypt(plaintext)
+        persistLiveState()
         return RatchetChannelEnvelope(peerID: senderID, ratchet: wire)
     }
 
@@ -101,6 +124,11 @@ final class RatchetChannel {
     /// (i.e. the receiver knows the sender by the
     /// same string both sides agreed on during
     /// pairing). They must match.
+    ///
+    /// Sprint 10B: after the decrypt, the live
+    /// ratchet state is written back to the store
+    /// so a follow-up app relaunch continues the
+    /// chain at the exact recvCounter position.
     func receive(_ envelope: RatchetChannelEnvelope) throws -> Data {
         guard envelope.peerID == peerID else {
             throw ChannelError.peerMismatch(
@@ -111,7 +139,34 @@ final class RatchetChannel {
         guard envelope.ratchet.sessionID == sessionID else {
             throw ChannelError.sessionMismatch
         }
-        return try session.decrypt(envelope.ratchet)
+        let plaintext = try session.decrypt(envelope.ratchet)
+        persistLiveState()
+        return plaintext
+    }
+
+    /// Sprint 10B: snapshot the current live
+    /// ratchet state and write a refreshed
+    /// `PersistedRatchetSession` to the store.
+    /// Errors are swallowed: the on-device store
+    /// failure should not abort an in-flight
+    /// send / receive, the next encrypt /
+    /// decrypt call will trigger another save
+    /// attempt.
+    private func persistLiveState() {
+        let live = session.exportLiveState()
+        let refreshed = PersistedRatchetSession(
+            peerID: persistedTemplate.peerID,
+            sessionID: persistedTemplate.sessionID,
+            rootKey: persistedTemplate.rootKey,
+            localInitialRatchetPrivateKey: persistedTemplate.localInitialRatchetPrivateKey,
+            remoteInitialRatchetPublicKey: persistedTemplate.remoteInitialRatchetPublicKey,
+            localPayloadCreatedAt: persistedTemplate.localPayloadCreatedAt,
+            remotePayloadCreatedAt: persistedTemplate.remotePayloadCreatedAt,
+            isSealed: true,
+            liveState: live
+        )
+        persistedTemplate = refreshed
+        try? store.save(refreshed)
     }
 
     /// Build a `RatchetChannel` for a peer, loading
