@@ -120,6 +120,35 @@ struct RelayStatsResponse: Decodable, Equatable {
     /// envelope. Optional for backwards
     /// compatibility with pre-9C relay builds.
     let v2EnvelopeRequests: Int?
+    /// Sprint 12-4: ISO-8601 UTC string of
+    /// the first v2 envelope request observed
+    /// by the relay process (null if none
+    /// yet). Optional for backwards
+    /// compatibility with pre-12-4 relay
+    /// builds.
+    let firstV2RequestAt: String?
+    /// Sprint 12-4: ISO-8601 UTC string of
+    /// the most recent v2 envelope request.
+    /// Optional for backwards compatibility.
+    let lastV2RequestAt: String?
+}
+
+/// Sprint 12-4: dedicated v2-envelope
+/// health response. Decoded by the iOS
+/// dashboard to surface "is the v2
+/// rollout healthy?" without having to
+/// derive the share from the basic
+/// `RelayStatsResponse`.
+struct RelayV2HealthResponse: Decodable, Equatable {
+    let ready: Bool
+    let v2EnvelopeRequests: Int
+    let v1EnvelopeRequests: Int
+    let totalEnvelopeRequests: Int
+    let v2SharePercent: Double
+    let firstV2RequestAt: String?
+    let lastV2RequestAt: String?
+    let lastV2RequestAgeSeconds: Int?
+    let warnings: [String]
 }
 
 struct RelayPurgeResponse: Decodable, Equatable {

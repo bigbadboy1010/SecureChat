@@ -268,7 +268,9 @@ final class MockTransportCoordinator: TransportCoordinating {
             activeRecipients: 0,
             acknowledgedPacketTombstones: 0,
             v1EnvelopeRequests: 0,
-            v2EnvelopeRequests: 0
+            v2EnvelopeRequests: 0,
+            firstV2RequestAt: nil,
+            lastV2RequestAt: nil
         )
     ) {
         self.inbox = inbox

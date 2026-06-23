@@ -22,6 +22,136 @@ public-beta trust regression.
 
 ## Unreleased
 
+### Sprint 12: v2-envelope UX + live dashboard + v2 health endpoint (2026-06-23)
+
+Sprint 12 closes the last UX / observability
+gaps for the v2 envelope rollout. The
+Privacy Sentinel now explains v1 / v2 in
+plain language, the public relay exposes a
+dedicated v2 health endpoint, and a live
+dashboard at
+`https://securechat.team/v2-stats.html`
+surfaces the v1 / v2 share without leaving
+the marketing site.
+
+**iOS (3 files modified, +160/-8 lines; 0 new
+test file):**
+
+* `PrivateChat/Features/Settings/SecuritySentinelView.swift`
+  - `SecurityFindingRow` now renders a
+    "Was heißt das?" disclosure (Sprint
+    12-1). v2-envelope findings show a
+    small green `v2` badge inline with
+    the severity label; the disclosure
+    expands to a short plain-language
+    explanation of the v2 envelope
+    (X3DH, Double Ratchet, Forward
+    Secrecy, Post-Compromise Security)
+    or the v1 envelope (Curve25519 + AES-
+    GCM, ADR-002, no per-message FS).
+    The old "Empfehlung:" line is moved
+    into the expanded card so the
+    collapsed row stays scannable.
+  - No new tests: the disclosure is a
+    pure SwiftUI rendering, the
+    underlying findings (Sprint 10D) are
+    already covered by
+    `RatchetSentinelFindingsTests`.
+
+* `PrivateChat/Core/Transport/TransportModels.swift`
+  - `RelayStatsResponse` extended with
+    `firstV2RequestAt: String?` and
+    `lastV2RequestAt: String?` (ISO-8601
+    UTC, optional for backwards compat).
+  - New `RelayV2HealthResponse` struct
+    decoding `/v1/relay/v2-health`
+    (Sprint 12-4).
+
+* `Tests/PrivateChatTests/TestSupport.swift`
+  - `MockTransportCoordinator`'s default
+    `RelayStatsResponse` seeds the two
+    new optional fields to `nil`. No
+    behavioural change.
+
+**Relay (3 files modified, +130/-2 lines; 1
+new HTML file, ~250 lines):**
+
+* `RelayServer/src/schemas.ts`
+  - `RelayStatsResponse` gains
+    `firstV2RequestAt?` and
+    `lastV2RequestAt?` (optional for
+    pre-12-4 client compatibility).
+  - New `RelayV2HealthResponse` schema
+    with `ready`, `v2SharePercent`,
+    `firstV2RequestAt`, `lastV2RequestAt`,
+    `lastV2RequestAgeSeconds`, and a
+    `warnings: ReadonlyArray<string>`
+    field.
+
+* `RelayServer/src/store.ts`
+  - `InMemoryRelayStore` tracks
+    `firstV2RequestAt` and
+    `lastV2RequestAt` (in-process, set
+    on every `put(...)` with
+    `protocolVersion === 3`). Surfaced
+    via `stats()`.
+
+* `RelayServer/src/routes.ts`
+  - New public `GET /v1/relay/v2-health`
+    endpoint (Sprint 12-4). Returns the
+    `RelayV2HealthResponse`. Computes
+    `v2SharePercent`,
+    `lastV2RequestAgeSeconds`, and
+    synthesises a `warnings` array
+    based on the optional
+    `?freshWindow=86400` query
+    parameter (default 1d). The
+    `isPublicRelaySubRoute` allowlist
+    is extended to cover the new path
+    so monitors can scrape it without
+    authentication.
+  - Sprint 12-3 dashboard link is
+    added to the public nav (via the
+    static `site/v2-stats.html`).
+
+* `RelayServer/site/v2-stats.html` (new,
+  ~250 lines)
+  - Standalone dashboard page
+    (Sprint 12-3). Polls
+    `/v1/relay/stats` every 5s, shows
+    v1 / v2 counters, a v2-share
+    progress bar, and a 30s-stale
+    watchdog. No peer IDs, no
+    payloads, no authentication.
+    Served by the existing
+    `@fastify/static` registration.
+
+**Sprint 12-2 (v2 indicator per message) was
+intentionally skipped.** Adding a v2 badge
+to the chat bubble would require a
+persisted `envelopeVersion` field on
+`ChatMessage` (Codable migration, init
+overloads, all decoders updated). The
+counter is already surfaced in the
+Sentinel and the public dashboard, which
+gives the same UX value with much less
+schema churn; the per-message indicator
+is a Sprint 13 candidate.
+
+**Result:**
+- 11 iOS test suites, 0 failures, 0
+  XCTSkip (unchanged from Sprint 11A/B).
+- 18 / 18 live tests pass (unchanged
+  surface, new v2-health endpoint
+  passes its `200` smoke check via the
+  new public allowlist).
+- New live endpoints:
+  `https://securechat.team/v1/relay/v2-health`
+  (200, `ready: false` until the first
+  v2 request lands), and
+  `https://securechat.team/v2-stats.html`
+  (200, live-polling dashboard).
+
 ### Sprint 11B: 2-DH X3DH attempt + revert (2026-06-23)
 
 Sprint 11B started as an upgrade to the **2-DH

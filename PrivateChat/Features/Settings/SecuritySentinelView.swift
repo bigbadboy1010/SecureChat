@@ -181,35 +181,131 @@ struct SecuritySentinelView: View {
 
 private struct SecurityFindingRow: View {
     let finding: SecurityAIFinding
+    @State private var isExpanded: Bool = false
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: severityIcon)
-                .font(.headline.weight(.semibold))
-                .foregroundStyle(severityColor)
-                .frame(width: 28, height: 28)
-                .background(severityColor.opacity(0.12), in: Circle())
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: severityIcon)
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(severityColor)
+                    .frame(width: 28, height: 28)
+                    .background(severityColor.opacity(0.12), in: Circle())
 
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 8) {
-                    Text(finding.severity.localizedTitle)
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack(spacing: 8) {
+                        Text(finding.severity.localizedTitle)
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(severityColor)
+                        if let v2Badge = v2Badge {
+                            Text(v2Badge)
+                                .font(.caption2.weight(.bold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(.green, in: Capsule())
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    Text(finding.title)
+                        .font(.headline.weight(.semibold))
+                    Text(finding.detail)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            // Sprint 12-1: expandable
+            // "Was heißt das?" disclosure so the
+            // user can drill into the meaning of
+            // a v1 / v2 envelope finding without
+            // leaving the Sentinel screen.
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    isExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: isExpanded ? "chevron.up.circle.fill" : "info.circle")
+                        .font(.caption.weight(.semibold))
+                    Text(isExpanded ? "Weniger" : "Was heißt das?")
+                        .font(.caption.weight(.semibold))
+                }
+                .foregroundStyle(severityColor)
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Empfehlung")
                         .font(.caption.weight(.bold))
                         .foregroundStyle(severityColor)
-                    Spacer(minLength: 0)
+                    Text(finding.recommendation)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let explanation = v2Explanation {
+                        Text(explanation.headline)
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 4)
+                        ForEach(explanation.lines, id: \.self) { line in
+                            HStack(alignment: .top, spacing: 6) {
+                                Text("•")
+                                    .foregroundStyle(.secondary)
+                                Text(line)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
                 }
-                Text(finding.title)
-                    .font(.headline.weight(.semibold))
-                Text(finding.detail)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text("Empfehlung: \(finding.recommendation)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(severityColor.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
             }
         }
         .padding(14)
+    }
+
+    /// Short badge label for v2-envelope
+    /// findings (Sprint 12-1). v1 findings
+    /// stay unbadged so the visual contrast
+    /// matches the warning severity.
+    private var v2Badge: String? {
+        guard finding.title.contains("v2") else { return nil }
+        return "v2"
+    }
+
+    /// Longer "was heißt das" copy for
+    /// v1 / v2 envelope findings so the
+    /// user understands the difference
+    /// without leaving the app.
+    private var v2Explanation: (headline: String, lines: [String])? {
+        if finding.title.contains("v2") {
+            return (
+                headline: "Was ist der v2-Envelope?",
+                lines: [
+                    "X3DH-Initial-Bundle leitet einen geteilten 32-Byte Root-Key ab.",
+                    "Double Ratchet rotiert die Chain-Keys pro Nachricht (Forward Secrecy).",
+                    "Selbst bei kompromittiertem Langzeit-Key heilt die Ratchet innerhalb weniger Messages (Post-Compromise Security).",
+                    "Identitäts-Commitment läuft über die v1-Envelope-Signatur (Sprint 7)."
+                ]
+            )
+        }
+        if finding.title.contains("v1") {
+            return (
+                headline: "Was ist der v1-Envelope?",
+                lines: [
+                    "Curve25519-ECDH + AES-GCM (ADR-002) — kein Forward Secrecy pro Nachricht.",
+                    "Wird durch das automatische Pairing-Opt-in seit Sprint 10 für neue Konversationen durch v2 ersetzt.",
+                    "Bestehende v1-Sitzungen bleiben lesbar; ein Re-Pairing aktiviert v2."
+                ]
+            )
+        }
+        return nil
     }
 
     private var severityIcon: String {
