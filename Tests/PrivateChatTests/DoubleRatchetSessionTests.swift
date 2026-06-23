@@ -15,48 +15,55 @@ final class DoubleRatchetSessionTests: XCTestCase {
     // MARK: - Helpers
 
     private func makeSessionPair() throws -> (alice: DoubleRatchetSession, bob: DoubleRatchetSession) {
-        // X3DH initial-bundle: both sides have a long-term
-        // Curve25519 key-agreement key (the `keyAgreementPrivateKey`
-        // in the `LocalIdentity`). The shared root key comes out
-        // of the X3DH agreement on those two long-term keys.
-        let aliceLongTerm = Curve25519.KeyAgreement.PrivateKey()
-        let bobLongTerm = Curve25519.KeyAgreement.PrivateKey()
+        // X3DH initial-bundle (Sprint 9, two-DH variant):
+        // both sides have two long-term Curve25519 keys (one
+        // key-agreement key, one signing key). The shared
+        // root key comes from two DH agreements:
+        //   DH(alice_keyAgreementPriv, bob_signingPub)
+        //   DH(alice_keyAgreementPriv, bob_keyAgreementPub)
+        // and the symmetric equivalent on Bob's side.
+        let aliceKeyAgreement = Curve25519.KeyAgreement.PrivateKey()
+        let aliceSigning = Curve25519.Signing.PrivateKey()
+        let bobKeyAgreement = Curve25519.KeyAgreement.PrivateKey()
+        let bobSigning = Curve25519.Signing.PrivateKey()
         let pairDate = Date(timeIntervalSince1970: 1_700_000_000)
         let salt = X3DHAgreement.sessionSalt(
             localPayloadCreatedAt: pairDate,
             remotePayloadCreatedAt: pairDate
         )
         let aliceRoot = try X3DHAgreement.deriveRootKey(
-            localKeyAgreementPrivateKey: aliceLongTerm,
-            remoteKeyAgreementPublicKey: bobLongTerm.publicKey,
+            localKeyAgreementPrivateKey: aliceKeyAgreement,
+            remoteKeyAgreementPublicKey: bobKeyAgreement.publicKey,
+            remoteSigningPublicKey: bobSigning.publicKey,
             sessionSalt: salt
         )
         let bobRoot = try X3DHAgreement.deriveRootKey(
-            localKeyAgreementPrivateKey: bobLongTerm,
-            remoteKeyAgreementPublicKey: aliceLongTerm.publicKey,
+            localKeyAgreementPrivateKey: bobKeyAgreement,
+            remoteKeyAgreementPublicKey: aliceKeyAgreement.publicKey,
+            remoteSigningPublicKey: aliceSigning.publicKey,
             sessionSalt: salt
         )
         // Sanity: both sides MUST derive the same root key.
         XCTAssertEqual(aliceRoot, bobRoot, "X3DH root-key derivation must be symmetric")
         let sessionID = X3DHAgreement.sessionID(fromRootKey: aliceRoot)
 
-        // The initial ratchet keypair is a fresh Curve25519
-        // key (not the long-term key). Both sides pre-exchange
-        // it via the PairingPayload so the first DH ratchet
-        // step has a remote PK to ratchet against.
-        let aliceRatchet = Curve25519.KeyAgreement.PrivateKey()
-        let bobRatchet = Curve25519.KeyAgreement.PrivateKey()
+        // The initial ratchet keypair is the long-term
+        // **key-agreement** key itself (Sprint 9 fix to
+        // ADR-007: the initial ratchet step is symmetric when
+        // both sides use their long-term key as the initial
+        // ratchet key). Both sides pre-exchange it via the
+        // PairingPayload.
         let alice = DoubleRatchetSession(
             sessionID: sessionID,
             rootKey: aliceRoot,
-            initialRatchetPrivateKey: aliceRatchet,
-            initialRemoteRatchetPublicKey: bobRatchet.publicKey
+            initialRatchetPrivateKey: aliceKeyAgreement,
+            initialRemoteRatchetPublicKey: bobKeyAgreement.publicKey
         )
         let bob = DoubleRatchetSession(
             sessionID: sessionID,
             rootKey: bobRoot,
-            initialRatchetPrivateKey: bobRatchet,
-            initialRemoteRatchetPublicKey: aliceRatchet.publicKey
+            initialRatchetPrivateKey: bobKeyAgreement,
+            initialRemoteRatchetPublicKey: aliceKeyAgreement.publicKey
         )
         return (alice, bob)
     }
@@ -64,21 +71,25 @@ final class DoubleRatchetSessionTests: XCTestCase {
     // MARK: - Tests
 
     func testX3DHRootKeyDerivationIsSymmetric() throws {
-        // Sanity check the X3DH module in isolation.
-        let alice = Curve25519.KeyAgreement.PrivateKey()
-        let bob = Curve25519.KeyAgreement.PrivateKey()
+        // Sanity check the X3DH two-DH module in isolation.
+        let aliceKeyAgreement = Curve25519.KeyAgreement.PrivateKey()
+        let aliceSigning = Curve25519.Signing.PrivateKey()
+        let bobKeyAgreement = Curve25519.KeyAgreement.PrivateKey()
+        let bobSigning = Curve25519.Signing.PrivateKey()
         let salt = X3DHAgreement.sessionSalt(
             localPayloadCreatedAt: Date(timeIntervalSince1970: 1_700_000_000),
             remotePayloadCreatedAt: Date(timeIntervalSince1970: 1_700_000_000)
         )
         let a = try X3DHAgreement.deriveRootKey(
-            localKeyAgreementPrivateKey: alice,
-            remoteKeyAgreementPublicKey: bob.publicKey,
+            localKeyAgreementPrivateKey: aliceKeyAgreement,
+            remoteKeyAgreementPublicKey: bobKeyAgreement.publicKey,
+            remoteSigningPublicKey: bobSigning.publicKey,
             sessionSalt: salt
         )
         let b = try X3DHAgreement.deriveRootKey(
-            localKeyAgreementPrivateKey: bob,
-            remoteKeyAgreementPublicKey: alice.publicKey,
+            localKeyAgreementPrivateKey: bobKeyAgreement,
+            remoteKeyAgreementPublicKey: aliceKeyAgreement.publicKey,
+            remoteSigningPublicKey: aliceSigning.publicKey,
             sessionSalt: salt
         )
         XCTAssertEqual(a, b)
@@ -86,36 +97,58 @@ final class DoubleRatchetSessionTests: XCTestCase {
     }
 
     func testFirstMessageRoundTrip() throws {
-        // Sprint 8: skipped. The X3DH initial-bundle is
-        // verified to derive symmetric root keys
-        // (`testX3DHRootKeyDerivationIsSymmetric` passes), but
-        // the first DH-Ratchet-Step in `performOutgoingDHRatchet`
-        // still produces a different `sendChainKey` than the
-        // receiver's `dhratchetIncoming`. The X3DH initial
-        // ratchet keypair is the X3DH-pre-exchanged one, but
-        // the sender rotates it on the first outgoing step
-        // while the receiver's pre-derivation uses the initial
-        // pair. The asymmetry is a known bug, documented in
-        // `Docs/ADR-007-double-ratchet-first-step.md` and
-        // tracked for Sprint 9. Re-enabled in Sprint 9 once
-        // the first-step DH is fixed.
-        try XCTSkipIf(true, "Sprint 9: ADR-007 first-step DH asymmetry")
+        let (alice, bob) = try makeSessionPair()
+        let plaintext = Data("hello bob".utf8)
+
+        let wire = try alice.encrypt(plaintext)
+        let decoded = try bob.decrypt(wire)
+
+        XCTAssertEqual(decoded, plaintext)
     }
 
     func testMidChainMessage() throws {
-        try XCTSkipIf(true, "Sprint 9: ADR-007 first-step DH asymmetry")
+        let (alice, bob) = try makeSessionPair()
+        let m1 = try alice.encrypt(Data("m1".utf8))
+        _ = try bob.decrypt(m1)
+        let m2 = try alice.encrypt(Data("m2".utf8))
+        let d2 = try bob.decrypt(m2)
+        XCTAssertEqual(d2, Data("m2".utf8))
+        let m3 = try alice.encrypt(Data("m3".utf8))
+        let d3 = try bob.decrypt(m3)
+        XCTAssertEqual(d3, Data("m3".utf8))
     }
 
     func testDHRatchetStepOnTurnChange() throws {
-        try XCTSkipIf(true, "Sprint 9: ADR-007 first-step DH asymmetry")
+        let (alice, bob) = try makeSessionPair()
+        let m1 = try alice.encrypt(Data("alice->bob 1".utf8))
+        _ = try bob.decrypt(m1)
+        let m2 = try bob.encrypt(Data("bob->alice 1".utf8))
+        let d2 = try alice.decrypt(m2)
+        XCTAssertEqual(d2, Data("bob->alice 1".utf8))
     }
 
     func testOutOfOrderDelivery() throws {
-        try XCTSkipIf(true, "Sprint 9: ADR-007 first-step DH asymmetry")
+        let (alice, bob) = try makeSessionPair()
+        let m1 = try alice.encrypt(Data("m1".utf8))
+        let m2 = try alice.encrypt(Data("m2".utf8))
+        let m3 = try alice.encrypt(Data("m3".utf8))
+        let d2 = try bob.decrypt(m2)
+        let d1 = try bob.decrypt(m1)
+        let d3 = try bob.decrypt(m3)
+        XCTAssertEqual(d1, Data("m1".utf8))
+        XCTAssertEqual(d2, Data("m2".utf8))
+        XCTAssertEqual(d3, Data("m3".utf8))
     }
 
     func testForwardSecrecyByPastKeyEviction() throws {
-        try XCTSkipIf(true, "Sprint 9: ADR-007 first-step DH asymmetry")
+        let (alice, bob) = try makeSessionPair()
+        let m1 = try alice.encrypt(Data("secret-1".utf8))
+        _ = try bob.decrypt(m1)
+        for i in 2...10 {
+            let m = try alice.encrypt(Data("m\(i)".utf8))
+            _ = try bob.decrypt(m)
+        }
+        XCTAssertThrowsError(try bob.decrypt(m1))
     }
 
     func testVersionRejection() throws {

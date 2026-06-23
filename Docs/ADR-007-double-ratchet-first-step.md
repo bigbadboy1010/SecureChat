@@ -1,9 +1,19 @@
-# ADR-007: Double Ratchet first-step DH asymmetry (known bug)
+# ADR-007: Double Ratchet first-step DH asymmetry
 
 ## Status
 
-Known issue, documented (Sprint 8, 2026-06-23).
-Fix targeted for Sprint 9.
+**Resolved in Sprint 9 (2026-06-23).** All 7
+`DoubleRatchetSessionTests` pass; 0 XCTSkip. The
+AES-GCM `authenticationFailure` was caused by a
+double-`kdfCK` call on the receive path (one extra
+iteration of the skipped-message loop, see
+**Resolution** below), not by the DH-ratchet step
+itself. The X3DH initial-bundle, the `isFirstStep` flag
+in `performOutgoingDHRatchet`, and the pre-derived
+receive chain key in `init` were all correct; the
+asymmetry was downstream.
+
+Documented in Sprint 8; fixed in Sprint 9.
 
 ## Context
 
@@ -165,6 +175,55 @@ worth telegraphing to beta-testers.
    a 90-day deprecation clock.
 6. **Relay stat counter** for `v: 2` envelopes (track 8C
    that was de-scoped from Sprint 8).
+
+## Resolution (Sprint 9, 2026-06-23)
+
+The asymmetry was traced to a counter / kdfCK
+double-call in `decrypt`, not to the DH-ratchet step.
+
+The `while recvCounter < message.counter` loop in
+`decrypt` was running **once even when the message
+was the very next one** (no gap to skip over), which
+made the receive side call `kdfCK` one extra time
+relative to the sender (sender calls `kdfCK` exactly
+once per message in `stepSendChain`). With the
+pre-derived `recvChainKey` from `init`, the receive
+path ended up at a different `finalMessageKey` than
+the sender's `messageKey`, which `AES.GCM.open`
+correctly rejected as `authenticationFailure`.
+
+### Fix
+
+In `decrypt`, change the loop condition to
+`while recvCounter < message.counter - 1`. The loop
+now fills only **gaps** for out-of-order delivery; the
+final step is left to the next block which calls
+`kdfCK` once and matches the sender's per-message
+count.
+
+In the same loop, increment `recvCounter` **before**
+appending the skipped-message-key entry, so the
+counter stored in `skippedMessageKeys` matches the
+sender's `sendCounter` (which is incremented before
+the wire message is built).
+
+### Verification
+
+All 7 `DoubleRatchetSessionTests` now pass:
+
+* `testX3DHRootKeyDerivationIsSymmetric`
+* `testVersionRejection`
+* `testFirstMessageRoundTrip`
+* `testMidChainMessage`
+* `testDHRatchetStepOnTurnChange`
+* `testOutOfOrderDelivery`
+* `testForwardSecrecyByPastKeyEviction`
+
+The forward-secrecy test (decrypting an old message
+after 10 new ratchet steps) confirms that evicted
+chain keys are correctly rejected, and the
+out-of-order test confirms the skipped-key window
+still works.
 
 ## References
 

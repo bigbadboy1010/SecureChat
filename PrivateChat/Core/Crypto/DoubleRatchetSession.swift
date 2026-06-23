@@ -182,17 +182,25 @@ public final class DoubleRatchetSession {
             }
         }
 
-        // Step the receive chain forward to `message.counter`.
-        while recvCounter < message.counter {
+        // Step the receive chain forward to fill in any
+        // skipped-message keys for out-of-order delivery.
+        // The loop runs only when recvCounter is strictly
+        // less than message.counter (i.e. the final step
+        // `message.counter` is left for the next block
+        // below). This keeps the per-message kdfCK call
+        // count on the receiver side equal to the sender
+        // side (both call kdfCK exactly once per message).
+        while recvCounter < message.counter - 1 {
             let (nextChainKey, messageKey) = try stepRecvChain()
             recvChainKey = nextChainKey
-            skippedMessageKeys.append((messageKey, recvCounter))
             recvCounter += 1
+            skippedMessageKeys.append((messageKey, recvCounter))
             if skippedMessageKeys.count > maxSkippedKeys {
                 skippedMessageKeys.removeFirst()
             }
         }
-        // Now the message at `message.counter` is the next one.
+        // Now compute the message key for `message.counter`
+        // exactly once, matching what the sender did.
         let (finalChainKey, finalMessageKey) = try stepRecvChain()
         recvChainKey = finalChainKey
         let aad = aadBytes(
