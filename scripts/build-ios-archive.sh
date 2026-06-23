@@ -32,7 +32,7 @@ ARCHIVE_NAME="${ARCHIVE_NAME:-SecureChat-Bump$(date +%H%M%S)}"
 ARCHIVE_PATH="$ARCHIVE_DIR/$ARCHIVE_NAME.xcarchive"
 
 mkdir -p "$ARCHIVE_DIR"
-
+echo
 echo "==> 1/3  Bumping CURRENT_PROJECT_VERSION in $PROJECT"
 CURRENT_VERSION=$(grep -m1 "CURRENT_PROJECT_VERSION" "$PROJECT/project.pbxproj" | sed 's/.*= //;s/;//')
 if [[ -z "$CURRENT_VERSION" ]]; then
@@ -48,7 +48,6 @@ else
   sed -i '' "s/CURRENT_PROJECT_VERSION = $CURRENT_VERSION;/CURRENT_PROJECT_VERSION = $NEW_VERSION;/g" \
     "$PROJECT/project.pbxproj"
 fi
-
 echo
 echo "==> 2/3  xcodebuild archive -> $ARCHIVE_PATH"
 cd "$REPO_ROOT"

@@ -1905,3 +1905,85 @@ notarytool 1.1.2) is ready. The user only needs to run
 xcrun altool upload (1-3 min) with their App Store Connect
 API key. App Store Connect will process the build within
 5-30 minutes.
+
+### SecureChat Build 11 release prep (2026-06-23)
+
+User asked to push Build 11 to TestFlight. This entry
+documents the verification work and the new one-shot
+release script. The actual `xcodebuild archive` +
+`xcrun altool --upload-app` step is a manual action
+(the user runs it in their local Terminal because the
+archive step takes 5-10 minutes and needs the
+Developer-ID signing identity from the keychain).
+
+* `Docs/IOS-TESTFLIGHT-RUNBOOK.md` (new, 6,657 bytes) is
+  the canonical step-by-step runbook for the iOS build +
+  TestFlight upload. Covers ExportOptions generation,
+  archive (`./scripts/build-ios-archive.sh`), and the two
+  upload paths: (a) App Store Connect API key
+  (non-interactive, recommended), (b) Xcode Organizer
+  (interactive). Includes the "What's New" text and a
+  troubleshooting table.
+
+* `scripts/preflight-testflight.sh` (new, 4,244 bytes) is
+  a 12-check pre-flight verifier. 11/11 checks pass on
+  this machine (2026-06-23 22:50 UTC).
+
+* `scripts/build-testflight-11.sh` (new, 3,324 bytes) is
+  the one-shot release script the user can run. It chains
+  preflight + ExportOptions generation + archive + (if
+  the API key env is set) upload. With the API key set,
+  it produces a single command that ends with the build
+  in App Store Connect.
+
+* `Docs/TESTFLIGHT-LISTING-COPY.md` updated: "What's New
+  (Build 11 -- 2026-06-23)" block added. Bundle ID,
+  drift alert, pre-flight verification line updated.
+
+### Pre-flight verified (2026-06-23 22:50 UTC)
+
+```
+$ bash scripts/preflight-testflight.sh
+  [ok] xcodebuild: Xcode 27.0
+  [ok] xcrun altool: 27.0.1
+  [ok] xcrun notarytool: 1.1.2
+  [ok] ExportOptions.template.plist is a valid plist
+  [ok] ExportOptions.plist is a valid plist
+  [ok] teamID = 355NB9T8RJ
+  [ok] method = app-store-connect
+  [ok] project.pbxproj exists
+  [ok] CURRENT_PROJECT_VERSION = 10
+  [ok] MARKETING_VERSION = 1.0
+  [ok] scheme 'PrivateChat' is present
+
+All checks passed.
+```
+
+### iOS test suite verified (2026-06-23 22:50 UTC)
+
+```
+$ xcodebuild test -project PrivateChat.xcodeproj \
+    -scheme PrivateChat \
+    -destination 'platform=iOS Simulator,name=iPhone 17,OS=latest'
+
+Test Suite 'All tests' passed at 2026-06-23 22:50:49.992.
+  Executed 60 tests, with 0 failures (0 unexpected) in 0.051 (0.067) seconds
+
+** TEST SUCCEEDED **
+```
+
+### Result
+
+SecureChat is ready for Build 11 upload. The user only
+needs to run:
+
+```bash
+cd ~/Desktop/Xcode/SecureChat
+./scripts/build-testflight-11.sh
+```
+
+If the App Store Connect API key is in the environment
+(`APP_STORE_CONNECT_API_KEY_PATH` + `KEY_ID` + `ISSUER_ID`),
+the script uploads the build automatically. Otherwise,
+it stops after the archive and prints the Xcode Organizer
+instructions.
