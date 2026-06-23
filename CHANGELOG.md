@@ -22,6 +22,102 @@ public-beta trust regression.
 
 ## Unreleased
 
+### Sprint 9C: v2 envelope routing (router + sentinel + counter) (2026-06-23)
+
+Sprint 9C wires the Sprint 9B RatchetChannel into a
+non-invasive router that the ConversationService can
+opt into, adds the corresponding Privacy-Sentinel
+findings, and tracks the v1 / v2 envelope split on
+the relay.
+
+**iOS (3 new files, 2 new test files):**
+
+* `PrivateChat/Core/Services/RatchetEnvelopeRouter.swift`
+  (4.9 KB) -- additive v2-envelope adapter for the
+  existing v1 `OutboundTransportPacket` transport.
+  - `makeRatchetPacket(peerID:plaintext:existingPacket:)`
+    returns a v2-style
+    `OutboundTransportPacket(protocolVersion: 3, ...)`
+    if a v2 channel is on file; otherwise `nil` so
+    the caller falls back to v1.
+  - `tryDecodeV2(packet:)` decodes a v2 envelope on
+    the inbound path; returns the plaintext + a
+    `RatchetSentinelObservation` or `nil` to fall
+    back to v1.
+  - `v1FallbackObservation(peerID:)` produces a
+    sentinel observation for the v1 path.
+  - The router does not touch
+    `makeTransportPacket` or
+    `processInboundPacket`; v1 stays 100% intact.
+
+* `PrivateChat/Core/Services/RatchetSentinelFindings.swift`
+  (3.0 KB) -- turns a batch of
+  `RatchetSentinelObservation`s into
+  `SecurityAIFinding`s the Privacy Sentinel can
+  surface in the dashboard. The v1-fallback
+  finding is collapsed (one warning, not N), the
+  v2-ok finding lists the peerIDs that are
+  already on v2.
+
+* `Tests/PrivateChatTests/RatchetEnvelopeRouterTests.swift`
+  (5.6 KB) -- 5 tests covering the v2 / v1 routing
+  split, peer mismatch, JSON envelope decoding,
+  and the v1-fallback observation.
+
+* `Tests/PrivateChatTests/RatchetSentinelFindingsTests.swift`
+  (3.1 KB) -- 5 tests covering empty / single-v1 /
+  single-v2 / mixed / many-v1-collapse.
+
+**Server (3 files, 1 new wire field):**
+
+* `RelayServer/src/store.ts` -- cumulative
+  `v1EnvelopeRequests` / `v2EnvelopeRequests`
+  counters in `BaseRelayStore`, populated in
+  `put()` based on `packet.protocolVersion`. The
+  counters are in-memory and reset on relay
+  restart; the live counter is exposed via
+  `stats()` so the `/v1/relay/stats` endpoint
+  surfaces them.
+
+* `RelayServer/src/schemas.ts` --
+  `outboundTransportPacketSchema` now accepts
+  `protocolVersion: z.union([z.literal(2), z.literal(3)])`
+  (was `z.literal(2)`), and
+  `RelayStatsResponse` gets
+  `v1EnvelopeRequests` / `v2EnvelopeRequests`.
+
+* `scripts/test-relay.sh` -- 3 new assertions:
+  - the `/v1/relay/stats` body contains
+    `v1EnvelopeRequests` and `v2EnvelopeRequests`
+  - a v2-protocolVersion POST without auth still
+    returns 401 (auth gate is envelope-version
+    agnostic)
+
+**Result:** iOS test suites: 10 (was 8). All
+green, 0 failures, 0 XCTSkip. The two new
+RatchetChannel-related suites (Router and
+Findings) add 10 tests, bringing the iOS test
+count to 31.
+
+**Live behaviour:** the live relay at
+`securechat.team` is rebuilt and redeployed
+during the Sprint 9C final step; the v1
+envelope continues to work, and the
+`v1EnvelopeRequests` / `v2EnvelopeRequests`
+counters are visible on `/v1/relay/stats` for
+the 90-day deprecation window.
+
+**Wiring note (Sprint 9C is half-wired):** the
+`RatchetEnvelopeRouter` is **library-complete**
+and **test-complete**, but the
+`ConversationService.sendMessage` /
+`processInboundPacket` sites are not yet
+updated to call it. They will pick up the v2
+path in Sprint 9D (one-line branch). Until
+then, the v1 envelope is the only path the
+production iOS app exercises, and the relay's
+`v2EnvelopeRequests` counter stays at 0.
+
 ### Sprint 9B: v2 envelope transport (RatchetChannel + persistence) (2026-06-23)
 
 Sprint 9B wires the v2 Double-Ratchet library
@@ -29,8 +125,7 @@ Sprint 9B wires the v2 Double-Ratchet library
 that the `ConversationService` can route
 through. The wire envelope, the on-device
 store, and the high-level channel are all in
-place; the conversation routing is the
-remaining Sprint 9C step.
+place.
 
 **New code:**
 

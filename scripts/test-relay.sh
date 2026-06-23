@@ -116,13 +116,13 @@ STATUS=$(echo "$RESP" | tail -n1)
 BODY=$(echo "$RESP" | sed '$d')
 expect_status "  HTTP code"  "200" "$STATUS"
 expect_match "  encryptedPayloadOnly" '"encryptedPayloadOnly":true' "$BODY"
-
 echo
 echo "5) /v1/relay/stats (public, no auth, no peer IDs in body)"
 RESP=$(curl -sS --max-time 5 -w "\n%{http_code}" "$BASE/v1/relay/stats" 2>&1 || echo "fail")
 STATUS=$(echo "$RESP" | tail -n1)
 BODY=$(echo "$RESP" | sed '$d')
-expect_status "  HTTP code"  "200" "$STATUS"
+
+expect_status "  HTTP code" "200" "$STATUS"
 if echo "$BODY" | grep -qE '[a-f0-9]{64}'; then
   echo "  FAIL  body must not contain a 64-hex peer id"
   FAIL=$((FAIL + 1))
@@ -130,11 +130,34 @@ else
   echo "  PASS  body has no peer id"
   PASS=$((PASS + 1))
 fi
+# Sprint 9C: stats must include the v1 / v2 envelope
+# counters (cumulative since relay start).
+if echo "$BODY" | grep -qE '"v1EnvelopeRequests":[0-9]+'; then
+  echo "  PASS  stats has v1EnvelopeRequests"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL  stats missing v1EnvelopeRequests: $(echo "$BODY" | head -c 200)"
+  FAIL=$((FAIL + 1))
+fi
+if echo "$BODY" | grep -qE '"v2EnvelopeRequests":[0-9]+'; then
+  echo "  PASS  stats has v2EnvelopeRequests"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL  stats missing v2EnvelopeRequests: $(echo "$BODY" | head -c 200)"
+  FAIL=$((FAIL + 1))
+fi
 
 echo
 echo "6) POST /v1/relay/messages without auth (must be 401)"
 RESP=$(curl -sS --max-time 5 -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" \
   -d '{"protocolVersion":2,"id":"11111111-2222-4333-8444-555555555555","senderID":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","recipientID":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","sealedPayloadBase64":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==","signatureBase64":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==","createdAt":"2026-06-22T12:00:00+00:00","expiresAt":"2026-06-22T13:00:00+00:00"}' \
+  "$BASE/v1/relay/messages" 2>&1 || echo "000")
+expect_status "  HTTP code"  "401" "$RESP"
+
+echo
+echo "6b) POST /v1/relay/messages with v2 envelope without auth (must be 401)"
+RESP=$(curl -sS --max-time 5 -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" \
+  -d '{"protocolVersion":3,"id":"22222222-3333-4444-8555-666666666666","senderID":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","recipientID":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","sealedPayloadBase64":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==","signatureBase64":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==","createdAt":"2026-06-22T12:00:00+00:00","expiresAt":"2026-06-22T13:00:00+00:00"}' \
   "$BASE/v1/relay/messages" 2>&1 || echo "000")
 expect_status "  HTTP code"  "401" "$RESP"
 
