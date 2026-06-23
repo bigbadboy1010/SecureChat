@@ -162,18 +162,44 @@ public enum X3DHAgreement {
 }
 
 // MARK: - Signing public key -> key agreement conversion
+//
+// **ADR-008: this extension is *not* a
+// correct Ed25519 → X25519 birational map.**
+// Apple CryptoKit has no exposed birational
+// map; `Curve25519.KeyAgreement.PublicKey(
+// rawRepresentation: ed25519_raw)` succeeds
+// but treats the ed25519 raw bytes as a raw
+// Montgomery U-coordinate, which is a
+// *different curve point* than the birational
+// map would produce. A DH agreement against
+// this "X25519" key is not symmetric and does
+// not commit the root key to the remote's
+// identity. Sprint 13G confirmed this with a
+// test script; the bytes are passed through
+// unchanged.
+//
+// The extension is marked `@unavailable` so
+// new code cannot accidentally use it. The
+// single-DH agreement in `deriveRootKey(...)`
+// plus the v1 envelope signing (Sprint 7)
+// is the production crypto posture for the
+// SecureChat Public-Beta track. A real
+// birational map (60 lines of curve
+// arithmetic + external audit) is a
+// post-1.0 crypto-refresh item; see
+// `Docs/ADR-008-apple-cryptokit-no-birational-map.md`.
 
+@available(*, unavailable, message: "see ADR-008: Apple CryptoKit has no birational map; this is a no-op pass-through. The single-DH + v1-signing fallback in deriveRootKey is the production posture.")
 private extension Curve25519.Signing.PublicKey {
-    /// Treat the signing public key as a key-agreement public
-    /// key for the purpose of the X3DH initial DH. This is the
-    /// standard X25519/Ed25519 conversion: the two curves are
-    /// birationally equivalent on the same Montgomery form.
+    /// DO NOT USE. Pass-through; not a real
+    /// birational map. See ADR-008.
     var associatedKeyAgreementPublicKey: Curve25519.KeyAgreement.PublicKey {
-        // Curve25519.Signing.PublicKey exposes the raw
-        // 32-byte representation directly. We hand it to
-        // Curve25519.KeyAgreement.PublicKey which performs
-        // the birational map internally.
-        // swiftlint:disable:next force_try
+        // The init succeeds (Apple treats the
+        // 32 bytes as a raw Montgomery U), but
+        // the result is cryptographically the
+        // wrong point. Kept here only so
+        // future code that mistakenly imports
+        // the symbol gets a compile-time error.
         try! Curve25519.KeyAgreement.PublicKey(
             rawRepresentation: self.rawRepresentation
         )

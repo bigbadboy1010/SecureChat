@@ -22,6 +22,120 @@ public-beta trust regression.
 
 ## Unreleased
 
+### Sprint 13: docs sync (CURRENT-ENDPOINTS.md) + ADR-008 (2-DH X3DH deferred to post-1.0) (2026-06-23)
+
+Sprint 13 closes two small-but-important
+loose ends:
+
+1. **Docs sync (Sprint 13A):** the
+   `Docs/CURRENT-ENDPOINTS.md` source-of-truth
+   was missing the new `/v1/relay/v2-health`
+   endpoint and the `/v2-stats.html` dashboard
+   that shipped in Sprint 12. The two new
+   rows are added to the canonical endpoint
+   table; the `Public stats surface` section
+   gets the updated `RelayStatsResponse`
+   JSON example (with `firstV2RequestAt` /
+   `lastV2RequestAt`); a new
+   `v2 envelope health surface` section
+   documents the `/v1/relay/v2-health`
+   shape, the `warnings[]` heuristics,
+   and the dashboard polling.
+
+2. **2-DH X3DH research (Sprint 13G):**
+   Sprint 11B reverted from the 2-DH form
+   to the single-DH form because Apple
+   CryptoKit does not expose the
+   Ed25519 → X25519 birational map. Sprint
+   13G confirmed the diagnosis with a
+   standalone Swift test script: the
+   `Curve25519.KeyAgreement.PublicKey(
+   rawRepresentation: ed25519_raw)` init
+   succeeds but the output raw bytes are
+   *identical* to the input — Apple treats
+   the ed25519 bytes as a raw Montgomery
+   U-coordinate, which is a different
+   curve point. A DH against this "X25519"
+   key is not symmetric and does not commit
+   the root key to the remote's identity.
+   The birational-map extension in
+   `X3DHAgreement.swift` is now marked
+   `@available(*, unavailable, ...)` so
+   future code cannot accidentally use it.
+   The full research write-up lives in the
+   new `Docs/ADR-008-apple-cryptokit-no-birational-map.md`.
+
+**iOS (1 file modified, +30/-8 lines):**
+
+* `PrivateChat/Core/Crypto/X3DHAgreement.swift`
+  - The `Curve25519.Signing.PublicKey
+    -> associatedKeyAgreementPublicKey`
+    extension (the Sprint-9 / 11B-era
+    no-op birational map) is marked
+    `@available(*, unavailable, message:
+    "see ADR-008: ...")` so any future
+    code that imports the symbol gets a
+    compile-time error pointing at
+    ADR-008. The body is kept for
+    documentation; no production code
+    path uses it (it never did, even
+    before the `@unavailable` mark).
+  - The file header doc-comment already
+    documents the single-DH production
+    posture from Sprint 11B; no change
+    needed there.
+
+**Docs (2 files modified; 1 new file,
+~150 lines):**
+
+* `Docs/CURRENT-ENDPOINTS.md` (Sprint 13A)
+  - 2 new rows in the canonical endpoint
+    table:
+    - `v2-envelope dashboard:
+      https://securechat.team/v2-stats.html`
+    - `v2-envelope health:
+      https://relay.securechat.team/v1/relay/v2-health`
+  - `Public stats surface` section gets
+    the full updated JSON example with
+    `firstV2RequestAt` and
+    `lastV2RequestAt`.
+  - New `v2 envelope health surface`
+    section documents the
+    `RelayV2HealthResponse` shape, the
+    `warnings[]` heuristics, the
+    `?freshWindow=N` query parameter,
+    and the dashboard polling cadence.
+
+* `Docs/ADR-008-apple-cryptokit-no-birational-map.md` (new, ~150 lines)
+  - Full research write-up: context,
+    Sprint 13G test, Sprint 11B failed
+    workarounds, three recommended
+    paths forward (manual birational
+    map; pre-audited Swift package;
+    single-key model), decision, and
+    consequences.
+  - Marks the 2-DH X3DH upgrade as
+    **deferred to a post-1.0
+    crypto-refresh sprint with external
+    review**.
+
+**Result:**
+- 11 iOS test suites, 0 failures, 0
+  XCTSkip (unchanged from Sprint 12).
+- The `@unavailable` mark on the
+  birational-map extension is a
+  compile-time safety net: any future
+  iOS code that tries to use the symbol
+  will fail to build with a clear
+  pointer to ADR-008.
+- `CURRENT-ENDPOINTS.md` is back in
+  sync with the live site (Sprint 12
+  endpoints are documented; the
+  deployment-drift risk that the
+  "Single source of truth" preamble
+  warns about is closed for the v2
+  rollout).
+
 ### Sprint 12: v2-envelope UX + live dashboard + v2 health endpoint (2026-06-23)
 
 Sprint 12 closes the last UX / observability

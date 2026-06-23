@@ -37,12 +37,14 @@ website).
 | Imprint              | `https://securechat.team/imprint.html`           | none                 |
 | Self-host guide      | `https://securechat.team/docs/self-host.html`    | none                 |
 | Architecture         | `https://securechat.team/docs/architecture.html` | none                 |
+| v2-envelope dashboard| `https://securechat.team/v2-stats.html`          | none                 |
 | Public healthz       | `https://securechat.team/healthz`                | none                 |
 | Operator healthz     | `https://securechat.team/healthz/internal`      | `X-Securechat-Ops-Token` |
 | Relay WebSocket / API| `https://relay.securechat.team/v1/relay/*`       | `Authorization: Bearer $RELAY_AUTH_TOKEN` (and HTTPS) |
 | Relay admin          | `https://relay.securechat.team/v1/admin/*`       | `Authorization: Bearer $RELAY_ADMIN_TOKEN` (and HTTPS) |
 | Security policy      | `https://relay.securechat.team/v1/relay/security/policy` | none (public — this is the post-deployment posture) |
 | Stats (public read)  | `https://relay.securechat.team/v1/relay/stats`   | none — see "Public stats surface" below |
+| v2-envelope health   | `https://relay.securechat.team/v1/relay/v2-health` | none — see "v2 envelope health surface" below |
 
 ### Public stats surface
 
@@ -54,9 +56,67 @@ correlate traffic. The same endpoint exists at `/v1/admin/relay/stats`
 behind `RELAY_ADMIN_TOKEN` and adds administrative fields (per-peer
 counters, last-seen timestamps).
 
+The current stats schema (Sprint 12) is:
+
+```json
+{
+  "storedPackets": 0,
+  "activeRecipients": 0,
+  "acknowledgedPacketTombstones": 0,
+  "v1EnvelopeRequests": 0,
+  "v2EnvelopeRequests": 0,
+  "firstV2RequestAt": null,
+  "lastV2RequestAt": null
+}
+```
+
+`firstV2RequestAt` and `lastV2RequestAt` are ISO-8601 UTC strings,
+`null` until the first v2 envelope request has been observed by the
+relay process. Both fields are optional for backwards compatibility
+with pre-12 relay builds.
+
 The current stats schema lives in
 [`RelayServer/src/routes.ts`](../RelayServer/src/routes.ts) under
 `app.get('/v1/relay/stats', ...)`.
+
+### v2 envelope health surface
+
+`/v1/relay/v2-health` (Sprint 12) is unauthenticated, like
+`/v1/relay/stats`. It is a **dedicated v2-envelope rollout
+dashboard endpoint**, derived from the same in-process counters as
+`/v1/relay/stats` but with a v2-specific shape that external
+monitors can scrape and alert on:
+
+```json
+{
+  "ready": false,
+  "v2EnvelopeRequests": 0,
+  "v1EnvelopeRequests": 0,
+  "totalEnvelopeRequests": 0,
+  "v2SharePercent": 0,
+  "firstV2RequestAt": null,
+  "lastV2RequestAt": null,
+  "lastV2RequestAgeSeconds": null,
+  "warnings": ["no v2 envelope requests observed yet"]
+}
+```
+
+`warnings` is a synthesized array of advisory strings. The current
+heuristics are:
+
+* `"no v2 envelope requests observed yet"` when `v2EnvelopeRequests
+  === 0`.
+* `"no v2 envelope requests in the last Ns"` when the last v2
+  request is older than the optional `?freshWindow=N` query
+  parameter (default 86400 seconds = 1 day).
+* `"v2 share is X% (below 1% threshold)"` when at least one
+  envelope request has been observed but the v2 share is below 1%.
+
+The endpoint is wired into the public-route allowlist in
+`src/routes.ts` (`isPublicRelaySubRoute`) so no auth header is
+required. A companion dashboard page at
+`https://securechat.team/v2-stats.html` polls `/v1/relay/stats`
+every 5 seconds and renders the v1 / v2 counters + v2-share bar.
 
 ## Health endpoints
 
