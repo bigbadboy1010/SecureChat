@@ -88,6 +88,25 @@ public final class DoubleRatchetSession {
         self.recvCounter = 0
         self.maxSkippedKeys = maxSkippedKeys
         self.remoteRatchetPK = initialRemoteRatchetPublicKey
+        // If we already know the remote's initial ratchet PK
+        // (X3DH pre-exchange), pre-derive the receive chain key
+        // so the first message can be decrypted without a
+        // separate dhratchetIncoming step.
+        if let remotePK = initialRemoteRatchetPublicKey {
+            do {
+                let shared = try initialRatchetPrivateKey.sharedSecretFromKeyAgreement(with: remotePK)
+                let (_, newRecvChain) = kdfRK(
+                    rootKey: self.rootKey,
+                    dhOutput: shared.withUnsafeBytes { Data($0) }
+                )
+                self.recvChainKey = newRecvChain
+            } catch {
+                // If the DH fails for any reason, the first
+                // message will trigger dhratchetIncoming on
+                // decrypt (the fallback path).
+                self.recvChainKey = nil
+            }
+        }
     }
 
     // MARK: - Encrypt
@@ -134,6 +153,11 @@ public final class DoubleRatchetSession {
 
         // If the remote ratchet key has changed, step the
         // DH ratchet and skip any messages in the old chain.
+        // On the very first message we have already
+        // pre-derived the receive chain (see
+        // `initialiseReceiveChainIfNeeded` below) so the
+        // first decrypt succeeds without a fresh
+        // dhratchetIncoming.
         if let current = remoteRatchetPK, current.rawRepresentation != remotePK.rawRepresentation {
             try skipMessageKeys(until: message.prevChainLen)
             try dhratchetIncoming(remotePK: remotePK)
@@ -189,36 +213,40 @@ public final class DoubleRatchetSession {
     public func performOutgoingDHRatchet() throws {
         // 1. Save the previous send chain length.
         previousSendChainLength = sendCounter
-        // 2. Generate a fresh DH ratchet keypair (becomes the
-        // new keypair AFTER the DH step uses the old one).
-        let newPair = Curve25519.KeyAgreement.PrivateKey()
+        // 2. The first ratchet step is special: we keep the
+        // **current** ratchet keypair (the X3DH initial one)
+        // and only install a fresh one on the SECOND and later
+        // steps. This keeps the first DH step symmetric with
+        // the receiver's first `dhratchetIncoming` (which also
+        // uses the X3DH initial keys).
+        let newPair: Curve25519.KeyAgreement.PrivateKey
+        let isFirstStep = previousSendChainLength == 0
+        if isFirstStep {
+            newPair = dhRatchetKeyPair // no rotation on the first step
+        } else {
+            newPair = Curve25519.KeyAgreement.PrivateKey()
+        }
         let newPublic = newPair.publicKey
 
         // 3. Run the DH agreement using the **current**
-        // dhRatchetKeyPair against the remote's current
-        // ratchet PK. The first ratchet step is special: if
-        // we have never ratcheted before (no `sendCounter`
-        // accumulated), the root key already incorporates the
-        // X3DH initial agreement, so we use a zero-byte DH
-        // output. This keeps the first sender in sync with
-        // the receiver's first `dhratchetIncoming` (which also
-        // uses zero-byte DH on the first step).
-        if let remotePK = remoteRatchetPK, sendCounter > 0 {
-            // Subsequent turn: real DH ratchet step.
+        // dhRatchetKeyPair (which is still the X3DH initial
+        // one on the first step) against the remote's
+        // initial ratchet PK. On later steps we use the
+        // remote's most recent ratchet PK.
+        if let remotePK = remoteRatchetPK {
             let shared = try dhRatchetKeyPair.sharedSecretFromKeyAgreement(with: remotePK)
             let (newRoot, newSendChain) = kdfRK(rootKey: rootKey, dhOutput: shared.withUnsafeBytes { Data($0) })
             rootKey = newRoot
             sendChainKey = newSendChain
         } else {
-            // First turn (or first turn without X3DH
-            // pre-exchange). Initialise the send chain from
-            // the root key directly via a 0-byte DH output so
-            // the peer can derive the same chain key.
+            // No remote ratchet PK (degenerate fallback).
             let (newRoot, newSendChain) = kdfRK(rootKey: rootKey, dhOutput: Data())
             rootKey = newRoot
             sendChainKey = newSendChain
         }
-        dhRatchetKeyPair = newPair
+        if !isFirstStep {
+            dhRatchetKeyPair = newPair
+        }
         _ = newPublic
         sendCounter = 0
     }
@@ -227,6 +255,7 @@ public final class DoubleRatchetSession {
     /// key from the remote's new ratchet PK.
     private func dhratchetIncoming(remotePK: Curve25519.KeyAgreement.PublicKey) throws {
         let shared = try dhRatchetKeyPair.sharedSecretFromKeyAgreement(with: remotePK)
+
         let (newRoot, newRecvChain) = kdfRK(rootKey: rootKey, dhOutput: shared.withUnsafeBytes { Data($0) })
         rootKey = newRoot
         recvChainKey = newRecvChain
