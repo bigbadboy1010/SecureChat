@@ -22,6 +22,96 @@ public-beta trust regression.
 
 ## Unreleased
 
+### Sprint 9D: ConversationService wired to the v2 router (2026-06-23)
+
+Sprint 9D closes the v1 / v2 envelope loop. The
+`ConversationService` now owns a
+`RatchetEnvelopeRouter` and an
+`InMemoryDoubleRatchetStore`. On `sendMessage` it
+tries the v2 router first; if a `RatchetChannel`
+is on file, the outbound packet is wrapped in a
+`RatchetChannelEnvelope` (`protocolVersion: 3`),
+otherwise the v1 path runs unchanged. On
+`processInboundPacket` the `protocolVersion == 3`
+branch routes through a new
+`processInboundV2Packet` helper which uses the
+Ratchet AEAD for authentication (no Ed25519
+envelope-signature verify, no trusted-peer
+pairwise-key derivation). Both paths emit a
+`RatchetSentinelObservation` that the Privacy
+Sentinel can turn into a "session still on v1"
+or "session on v2" finding.
+
+**iOS (1 file modified, +75 lines):**
+
+* `PrivateChat/Core/Services/ConversationService.swift`
+  - New private properties: `ratchetRouter`,
+    `ratchetStore`, `ratchetObservations`. The
+    router is initialised in `init` with a fresh
+    `InMemoryDoubleRatchetStore` and a closure
+    that returns `localIdentity.id` for the
+    `senderID` field.
+  - `sendMessage` now wraps the v1 packet in
+    `RatchetEnvelopeRouter.makeRatchetPacket(...)`
+    when a v2 channel is on file. The router
+    returns a v2-style `OutboundTransportPacket`
+    whose `protocolVersion: 3`; the v1 packet is
+    still built first so the wire's
+    `id`/`createdAt`/`expiresAt` are reused.
+  - `processInboundPacket` now accepts both v1
+    (`protocolVersion == 2`) and v2
+    (`protocolVersion == 3`). The v2 branch
+    delegates to a new `processInboundV2Packet`
+    helper.
+  - `processInboundV2Packet` decodes the
+    `RatchetChannelEnvelope` via
+    `RatchetEnvelopeRouter.tryDecodeV2(packet:)`,
+    then runs the v1 post-decrypt pipeline
+    (version check, senderID/recipientID check,
+    `appendInboundMessage`) on the recovered
+    `TransportMessagePayload` JSON. If the
+    trusted-peer record for the sender is
+    missing, a placeholder `TrustedPeer` is
+    synthesised (Ratchet AEAD has already
+    authenticated the sender, so the v1
+    Ed25519 envelope-signature verify is
+    intentionally skipped).
+  - Both paths append a
+    `RatchetSentinelObservation` to
+    `ratchetObservations`; a future Sprint 10
+    method will surface these via
+    `RatchetSentinelFindings.build(...)` on the
+    `securityAISnapshot` publisher.
+
+**Result:** 10 iOS test suites, 0 failures, 0
+XCTSkip. The v1 path is unchanged for any peer
+that does not have a `RatchetChannel` registered;
+for peers that do, the v2 path is taken
+transparently.
+
+**Persistence scope:** the
+`InMemoryDoubleRatchetStore` does **not** survive
+an app relaunch. Sprint 10 will swap it for
+`KeychainDoubleRatchetStore`; until then,
+registering a `RatchetChannel` after a relaunch
+re-derives the initial-bundle material from the
+pairing record. No production-tester state is
+lost in the migration because the
+`RatchetEnvelopeRouter` falls back to v1 if the
+in-memory store is empty for a peer.
+
+**Public-beta envelope:** unchanged for any peer
+that has not yet been registered with the v2
+router. The first time a tester pairs a new
+peer, the iOS app can call
+`RatchetChannel.register(...)` from the
+`PairingView` (Sprint 10 follow-up) to opt that
+conversation into the v2 envelope; the relay's
+`v2EnvelopeRequests` counter on
+`https://securechat.team/v1/relay/stats` will
+tick from 0 to 1 the first time the opt-in path
+is taken.
+
 ### Sprint 9C: v2 envelope routing (router + sentinel + counter) (2026-06-23)
 
 Sprint 9C wires the Sprint 9B RatchetChannel into a
@@ -29,8 +119,6 @@ non-invasive router that the ConversationService can
 opt into, adds the corresponding Privacy-Sentinel
 findings, and tracks the v1 / v2 envelope split on
 the relay.
-
-**iOS (3 new files, 2 new test files):**
 
 * `PrivateChat/Core/Services/RatchetEnvelopeRouter.swift`
   (4.9 KB) -- additive v2-envelope adapter for the

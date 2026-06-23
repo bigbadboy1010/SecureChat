@@ -73,6 +73,15 @@ final class ConversationService: ObservableObject {
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private var relayPacketLedger: RelayPacketLedger
+    // Sprint 9D: the v2 (Double Ratchet) envelope
+    // router. Owned by the service so the v2 path
+    // has the same lifetime as the v1 path. The
+    // router is library-complete; a future Sprint
+    // 10 will swap the in-memory store for the
+    // keychain-backed one.
+    private let ratchetRouter: RatchetEnvelopeRouter
+    private let ratchetStore: DoubleRatchetStoring
+    private var ratchetObservations: [RatchetSentinelObservation] = []
     private var relayAutoSyncTask: Task<Void, Never>?
 
     init(
@@ -100,6 +109,19 @@ final class ConversationService: ObservableObject {
         self.relayPacketLedger = .empty
         self.conversations = []
         self.trustedPeers = []
+        // Sprint 9D: own a fresh in-memory ratchet
+        // store. The KeychainDoubleRatchetStore
+        // wiring is a Sprint 10 follow-up; for
+        // now, no v2 envelopes survive an app
+        // relaunch. Production testers can opt in
+        // to a fresh v2 channel for a single
+        // session.
+        let ratchetStore = InMemoryDoubleRatchetStore()
+        self.ratchetStore = ratchetStore
+        self.ratchetRouter = RatchetEnvelopeRouter(
+            store: ratchetStore,
+            localIdentityID: { localIdentity.id }
+        )
         self.securityState = .secureDefault
         self.lastRelaySyncSummary = nil
         self.isRelaySyncRunning = false
@@ -1091,7 +1113,30 @@ final class ConversationService: ObservableObject {
                 createdAt: context.message.createdAt,
                 deliveredMessageID: nil
             )
-            let packet = try makeTransportPacket(payload: payload, recipientID: peerID)
+            // Sprint 9D: try the v2 (Double Ratchet)
+            // envelope first. The router returns a
+            // v2-style OutboundTransportPacket if a
+            // RatchetChannel is on file for this
+            // peer; otherwise we fall back to the v1
+            // makeTransportPacket path. The fallback
+            // observation is added to the
+            // ratchetObservations list so the
+            // Privacy Sentinel can surface a
+            // "session still on v1" finding.
+            let v1Packet = try makeTransportPacket(payload: payload, recipientID: peerID)
+            let payloadData = try encoder.encode(payload)
+            let packet: OutboundTransportPacket
+            if let ratchetResult = try ratchetRouter.makeRatchetPacket(
+                peerID: peerID,
+                plaintext: payloadData,
+                existingPacket: v1Packet
+            ) {
+                packet = ratchetResult.0
+                ratchetObservations.append(ratchetResult.1)
+            } else {
+                packet = v1Packet
+                ratchetObservations.append(ratchetRouter.v1FallbackObservation(peerID: peerID))
+            }
             try await transportCoordinator.send(
                 packet,
                 mode: securityState.transportMode,
@@ -1304,7 +1349,13 @@ final class ConversationService: ObservableObject {
     }
 
     private func processInboundPacket(_ packet: OutboundTransportPacket) throws -> InboundPacketProcessResult {
-        guard packet.protocolVersion == 2,
+        // Sprint 9D: accept both v1 (protocolVersion 2)
+        // and v2 (protocolVersion 3) envelopes. v2
+        // packets carry a RatchetChannelEnvelope in
+        // their sealedPayloadBase64; the v1 path
+        // continues to verify the Ed25519 envelope
+        // signature against the trusted-peer key.
+        guard (packet.protocolVersion == 2 || packet.protocolVersion == 3),
               packet.recipientID == localIdentity.id,
               packet.senderID != localIdentity.id else {
             throw PrivateChatError.invalidInboundPacket
@@ -1312,6 +1363,14 @@ final class ConversationService: ObservableObject {
 
         let wasSeenBefore = relayPacketLedger.registerSeen(packetID: packet.id)
         persistRelayPacketLedger()
+
+        if packet.protocolVersion == 3 {
+            // v2 (Double Ratchet) path. Skip the
+            // Ed25519 envelope-signature verification
+            // and the trusted-peer pairwise key -- the
+            // Ratchet AEAD authenticates the sender.
+            return try processInboundV2Packet(packet, wasSeenBefore: wasSeenBefore)
+        }
 
         let peer = try verifiedPeer(id: packet.senderID)
         try verifyEnvelopeSignature(packet, peer: peer)
@@ -1400,6 +1459,61 @@ final class ConversationService: ObservableObject {
         guard crypto.verify(signature: signatureData, data: packet.authenticatedData, publicKey: publicKey) else {
             throw PrivateChatError.invalidSignature
         }
+    }
+
+    // Sprint 9D: handle a v2 (protocolVersion 3)
+    // inbound packet. The RatchetChannelEnvelope is
+    // in the sealedPayloadBase64; the ratchet AEAD
+    // authenticates the sender, so we do not run
+    // the v1 Ed25519 envelope-signature verify or
+    // the trusted-peer pairwise key. The decoded
+    // plaintext is the v1 TransportMessagePayload
+    // JSON, so the v1 post-decrypt pipeline
+    // (version check, senderID/recipientID check,
+    // appendInboundMessage) is reused as-is.
+    private func processInboundV2Packet(
+        _ packet: OutboundTransportPacket,
+        wasSeenBefore: Bool
+    ) throws -> InboundPacketProcessResult {
+        let (plaintext, obs) = try ratchetRouter.tryDecodeV2(packet: packet)
+            ?? (Data(), ratchetRouter.v1FallbackObservation(peerID: packet.senderID))
+        ratchetObservations.append(obs)
+        let payload = try decoder.decode(TransportMessagePayload.self, from: plaintext)
+        guard payload.version == 3,
+              payload.senderID == packet.senderID,
+              payload.recipientID == localIdentity.id else {
+            throw PrivateChatError.invalidInboundPacket
+        }
+        // The trusted-peer record is the v1
+        // invariant. For the v2 path we look it
+        // up by senderID; if it is missing, we
+        // synthesise a minimal TrustedPeer so the
+        // downstream appendInboundMessage and
+        // delivery-receipt flow continue to work.
+        let peer: TrustedPeer
+        if let existing = trustedPeers.first(where: { $0.id == packet.senderID }) {
+            peer = existing
+        } else {
+            // The Ratchet AEAD has already
+            // authenticated the sender; we use a
+            // deterministic placeholder for the
+            // fields the post-decrypt pipeline
+            // does not need (displayName,
+            // signingPublicKeyBase64, safetyNumber).
+            peer = TrustedPeer(
+                id: packet.senderID,
+                displayName: packet.senderID,
+                keyAgreementPublicKeyBase64: "",
+                signingPublicKeyBase64: "",
+                safetyNumber: ""
+            )
+        }
+        appendInboundMessage(payload: payload, peer: peer)
+        return InboundPacketProcessResult(
+            didProcessMessage: true,
+            isDuplicate: wasSeenBefore,
+            deliveryReceiptContext: nil
+        )
     }
 
     private func appendInboundMessage(payload: TransportMessagePayload, peer: TrustedPeer) {
