@@ -2053,3 +2053,41 @@ Plus style.css checks:
   safe-area-inset (4 vars):  present
   min-height: 44px (1 rule):  present
   overflow-x: auto (3 rules): present
+
+
+### Sprint 24: DSGVO Datenschutzerklärung (2026-06-24)
+
+Adds a German DSGVO (GDPR) compliant privacy policy and a
+sub-processors disclosure page. The EN privacy policy already
+existed; the DE translation closes a long-standing request from
+EU testers and satisfies the EU AI Act / GDPR transparency
+requirements (Articles 5, 12, 13, 15, 16, 17, 18, 20, 21, 28, 32,
+77). The new `/sub-processors.html` page names every third party
+that processes SecureChat data on our behalf (GitHub, Cloudflare,
+Apple, Hetzner) with their data, region, and compliance posture.
+
+**Files:**
+- `RelayServer/site/privacy-de.html` (new, 15,056 bytes, DE
+  translation, DSGVO-conform, 13 numbered sections)
+- `RelayServer/site/sub-processors.html` (new, 7,378 bytes, lists
+  GitHub, Cloudflare, Apple, Hetzner; data processed, region,
+  compliance; not-sub-processor list; change-process)
+- `RelayServer/site/privacy.html` (patched, +EN/DE language
+  switcher in nav)
+
+**Why this matters:**
+- DSGVO Art. 12(1) requires "concise, transparent, intelligible
+  and easily accessible" privacy information in the data subject's
+  language.
+- German public-beta testers consistently asked for a DE privacy
+  policy (and an AVV they can sign for their org).
+- Sub-processors list is required by Art. 28(2) DSGVO for any
+  data we outsource.
+
+**NOT changed (intentionally):**
+- EN privacy policy content remains the legally binding version;
+  the DE page explicitly says so in section 13.
+- The relay does not collect new data; the DE document is
+  purely descriptive of what was already true.
+- No SDKs added; no analytics; no third-party tracking.
+
