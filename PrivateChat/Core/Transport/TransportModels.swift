@@ -159,3 +159,39 @@ struct RelayPurgeResponse: Decodable, Equatable {
 struct RelayPurgeRequest: Encodable, Equatable {
     let recipientID: String
 }
+
+/// Sprint 27 (2026-06-24): peer-enrollment
+/// wire models. The iOS app POSTs its
+/// `LocalIdentity.signingPublicKeyData`
+/// (PEM-encoded SPKI) plus its 64-hex
+/// `peerID` to `/v1/relay/peers` after
+/// identity creation, so subsequent
+/// peer-signed requests are accepted.
+struct RelayEnrollmentRequest: Encodable, Equatable {
+    let peerID: String
+    let publicKeyPem: String
+    let clientVersion: String
+
+    init(peerID: String, publicKeyPem: String, clientVersion: String) {
+        self.peerID = peerID
+        self.publicKeyPem = publicKeyPem
+        self.clientVersion = clientVersion
+    }
+
+    /// Convenience init that omits `clientVersion`
+    /// if the caller has not yet computed it.
+    /// The server treats `clientVersion` as
+    /// optional; missing it is fine but loses
+    /// the diagnostic visibility.
+    init(peerID: String, publicKeyPem: String) {
+        self.peerID = peerID
+        self.publicKeyPem = publicKeyPem
+        self.clientVersion = ""
+    }
+}
+
+struct RelayEnrollmentResponse: Decodable, Equatable {
+    let peerID: String
+    let registeredAt: Int64
+    let registrySize: Int
+}

@@ -2399,6 +2399,109 @@ because of a missing **peer-enrollment code path**:
   Sprint 28.
 - After Sprint 27 ships, Sprint 26 can be retried.
 
+### Sprint 27 (post-1.0): Peer-Enrollment — server route + iOS enrollment (2026-06-24)
+
+**Goal:** ship the missing piece that caused the
+Sprint 26.1 outage so the auth flip can be
+retried safely.
+
+**Server changes (`RelayServer/`):**
+- New `POST /v1/relay/peers` route
+  (`src/routes.ts:412-462`) — bearer-only,
+  persists `{peerID, publicKeyPem, clientVersion}`
+  to `data/peer-registry.json` atomically.
+- New `validatePeerEnrollment()`,
+  `persistPeerRegistry()`,
+  `loadPeerRegistryFromDisk()` in
+  `src/peerAuth.ts`. The validator checks the
+  64-hex peerID regex and parses the PEM via
+  `createPublicKey` (the same code path
+  `verifyPeerBoundRequest` already used).
+- New `RELAY_PEER_REGISTRY_FILE` env var in
+  `src/config.ts` (default
+  `<DATA_DIR>/peer-registry.json`).
+- `errors.ts` extended with optional
+  `RelayHttpError.details` so structured 400
+  bodies (`{error, requestID, details}`) are
+  possible without breaking the existing
+  handler.
+- `index.ts` now calls
+  `loadPeerRegistryFromDisk()` at startup.
+  Missing file = empty registry (first boot).
+  Malformed JSON = hard fail (operator must
+  inspect).
+- Smoke test `test/smoke.ts` gained three
+  scenarios: happy-path enrollment,
+  bad-peerID (400), bad-PEM (400). All pass.
+
+**iOS changes (`PrivateChat/`):**
+- `CryptoService.pemEncodedSigningPublicKey(_:)`
+  — encode the 32 raw Ed25519 pubkey bytes
+  as an RFC 8410 SPKI DER (11-byte header
+  `302a300506032b6570032100` + 32 raw bytes),
+  then base64-line-wrap to PEM. **No
+  Security/SecKey dependency** (which would
+  ship unstable PEM semantics across iOS
+  versions).
+- `RelayTransport.enrollPublicKey(_:)` — sends
+  `POST /v1/relay/peers` with bearer + body,
+  decodes the `{peerID, registeredAt,
+  registrySize}` response. Best-effort log
+  on success, throws on 4xx so the caller
+  (`ConversationService`) can decide.
+- `ConversationService.enrollLocalPeerIfNeeded()`
+  — async, idempotent. Called from
+  `AppContainer.bootstrap` in a detached
+  task so the synchronous bootstrap path
+  stays sync. Failures are logged but never
+  surfaced to the user.
+- `TransportCoordinator.enrollLocalPeer`
+  delegates to the configured transport's
+  `enrollPublicKey`. `LocalOnlyTransport` and
+  the `MockTransportCoordinator` got
+  no-op stubs.
+- Wire-format enums updated in
+  `TransportModels.swift`:
+  `RelayEnrollmentRequest` + `RelayEnrollmentResponse`.
+
+**Tests:**
+- New `CryptoServiceTests
+  .testPemEncodedSigningPublicKeyMatchesPythonReference`
+  — pins Swift PEM export against a
+  python-`cryptography`-generated vector
+  (`MCowBQYDK2VwAyEAIVL40Zt5HSRFMkLhXy6rbLfP+ntqXtMAl5YOBpiB2xI=`).
+  This is the test that would have caught the
+  `0x05 0x00` NULL-byte bug in the original
+  attempt before it shipped to TestFlight.
+- All other tests pass with the new
+  protocol methods (`StubCryptoService`,
+  `MockTransportCoordinator` extended).
+
+**Verification commands:**
+- `npm run build` (relay) — clean
+- `npm run test:smoke` — PASSED
+- `xcodebuild test` (full iOS suite) —
+  passed
+
+**Sprint 26 retry — pre-conditions (not yet
+done, deferred to user-driven TestFlight
+push):**
+1. TestFlight Build 12 installed on at
+   least one iPhone (user installs).
+2. iOS app opened once → enrollment POST
+   fired → `peer-registry.json` contains the
+   peerID.
+3. `curl https://securechat.team/v1/admin/...
+   /stats` shows `signedRequestCount > 0`.
+4. THEN flip `RELAY_REQUIRE_PEER_AUTH=true`
+   on the production container and watch
+   the logs for 30 min.
+
+The flip is intentionally NOT performed by
+this commit — it must wait until at least one
+device has enrolled so the registry is
+non-empty.
+
 **See also:**
 - `securechat-deploy` skill — the runbook this
   should have been done by.

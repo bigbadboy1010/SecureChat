@@ -161,6 +161,41 @@ final class ConversationService: ObservableObject {
         }
     }
 
+    /// Sprint 27 (2026-06-24): peer-enrollment hook.
+    ///
+    /// Called from `AppContainer.bootstrap` once
+    /// after `loadOrCreateLocalIdentity` + `load`.
+    /// Best-effort: failures are logged but never
+    /// surface to the user. The next outgoing
+    /// relay request will still fail with the
+    /// relay's standard 401 message, but the user
+    /// can recover by toggling relay-mode off and
+    /// on (which triggers a fresh enrollment attempt).
+    ///
+    /// Idempotency: the relay's `validatePeerEnrollment`
+    /// overwrites the existing entry on each call,
+    /// so calling this on every launch is safe and
+    /// cheap.
+    func enrollLocalPeerIfNeeded() async {
+        guard securityState.transportMode == .relayAllowed,
+              securityState.relayConfiguration.isEnabled,
+              securityState.relayConfiguration.hasUsableClientToken else {
+            return
+        }
+        do {
+            let response = try await transportCoordinator.enrollLocalPeer(
+                localIdentity,
+                relayConfiguration: securityState.relayConfiguration
+            )
+            lastRelayHealthMessage = "Peer enrolled (\(response.registrySize) registered)"
+        } catch {
+            // Enrollment is best-effort: log and
+            // continue. The relay will return its
+            // usual 401 if a signed request fails.
+            lastRelayHealthMessage = "Peer enrollment failed: \(error.localizedDescription)"
+        }
+    }
+
     func clearError() {
         lastErrorMessage = nil
     }

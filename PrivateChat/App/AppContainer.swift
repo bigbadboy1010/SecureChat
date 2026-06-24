@@ -43,7 +43,19 @@ final class AppContainer: ObservableObject {
                 transportCoordinator: transportCoordinator
             )
             service.load()
-            return AppContainer(conversationService: service, biometricGate: biometricGate, startupErrorMessage: nil)
+            let container = AppContainer(conversationService: service, biometricGate: biometricGate, startupErrorMessage: nil)
+            // Sprint 27 (2026-06-24): enroll the local
+            // peer with the relay after the
+            // conversation service has loaded its
+            // settings. Done from a detached task so
+            // the synchronous bootstrap path stays
+            // synchronous. Failures are logged in
+            // `ConversationService.enrollLocalPeerIfNeeded`
+            // and do not block app startup.
+            Task.detached(priority: .utility) {
+                await service.enrollLocalPeerIfNeeded()
+            }
+            return container
         } catch {
             let fallbackIdentity = LocalIdentity(
                 id: "fallback",

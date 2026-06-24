@@ -12,6 +12,15 @@ build/e2e-result.json
 RelayServer/.env.test
 RelayServer/dist/
 
+# Sprint 27: the relay's persisted peer-registry
+# is created on first enrollment and lives in
+# `RelayServer/data/`. This is dev-state, never
+# committed: production uses `/opt/securechat/
+# data/peer-registry.json` via the
+# `RELAY_PEER_REGISTRY_FILE` env var.
+RelayServer/data/
+RelayServer/.data/
+
 # Standard macOS / Node noise
 .DS_Store
 node_modules/

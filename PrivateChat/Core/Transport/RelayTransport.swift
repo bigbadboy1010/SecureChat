@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import OSLog
 
@@ -6,6 +7,8 @@ final class RelayTransport: RelayMessageTransporting {
 
     private let configuration: RelayConfiguration
     private let signingContext: PeerBoundSigningContext?
+    private let crypto: CryptoServicing?
+    private let clientVersion: String
     private let urlSession: URLSession
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
@@ -13,10 +16,14 @@ final class RelayTransport: RelayMessageTransporting {
     init(
         configuration: RelayConfiguration,
         signingContext: PeerBoundSigningContext? = nil,
+        crypto: CryptoServicing? = nil,
+        clientVersion: String = "org.francois.PrivateChat/1.4.2/12",
         urlSession: URLSession? = nil
     ) {
         self.configuration = configuration
         self.signingContext = signingContext
+        self.crypto = crypto
+        self.clientVersion = clientVersion
         self.urlSession = urlSession ?? RelayTransport.makeDefaultURLSession()
         self.encoder = DateCoding.makeEncoder()
         self.decoder = DateCoding.makeDecoder()
@@ -107,6 +114,68 @@ final class RelayTransport: RelayMessageTransporting {
             throw PrivateChatError.relayHealthCheckFailed("Unerwarteter Health-Status: \(status.status)")
         }
         return status
+    }
+
+    /// Sprint 27 (2026-06-24): peer enrollment.
+    ///
+    /// The relay's peer-bound auth requires the
+    /// local iOS app's Ed25519 public key to be
+    /// in `peer-registry.json` before any signed
+    /// request is accepted (otherwise the relay
+    /// returns 401 `unsigned_request_required`
+    /// or 401 `peer_not_enrolled`). This method
+    /// is the iOS-side counterpart to the
+    /// server's `POST /v1/relay/peers` route.
+    ///
+    /// Wire format (request):
+    /// ```
+    /// POST /v1/relay/peers
+    /// Authorization: Bearer <registrationToken>
+    /// Content-Type: application/json
+    /// {
+    ///   "peerID": "<64 hex of sha256(signingPubRaw)>",
+    ///   "publicKeyPem": "<SPKI PEM of Ed25519>",
+    ///   "clientVersion": "org.francois.PrivateChat/<version>/<build>"
+    /// }
+    /// ```
+    ///
+    /// The relay responds with 200 and a body
+    /// containing the registered `peerID`,
+    /// `registeredAt` epoch millis, and the
+    /// current `registrySize`. 4xx errors are
+    /// re-thrown as `relayHTTPError` so the
+    /// caller can decide whether to retry.
+    ///
+    /// **Important:** this request must be
+    /// bearer-only, not peer-signed (chicken-and-
+    /// egg). The server's `preHandler` enforces
+    /// this by checking `request.url.startsWith(
+    /// '/v1/relay/peers')` and skipping the
+    /// `requirePeerAuth` step. iOS automatically
+    /// sends the bearer token because
+    /// `applyDefaultHeaders` always sets
+    /// `Authorization` when `registrationToken`
+    /// is configured.
+    func enrollPublicKey(_ identity: LocalIdentity) async throws -> RelayEnrollmentResponse {
+        guard let crypto = crypto else {
+            throw PrivateChatError.relayHTTPError(statusCode: 500, message: "enroll requires CryptoServicing")
+        }
+        let publicKeyPem = crypto.pemEncodedSigningPublicKey(identity.signingPrivateKey.publicKey)
+        let body = RelayEnrollmentRequest(
+            peerID: identity.id,
+            publicKeyPem: publicKeyPem,
+            clientVersion: clientVersion
+        )
+
+        var request = try makeRequest(path: "/v1/relay/peers", method: "POST", body: try encoder.encode(body))
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let data = try await perform(request)
+        let response = try decoder.decode(RelayEnrollmentResponse.self, from: data)
+        Self.logger.info(
+            "enrolled peer \(response.peerID.prefix(8))… (registrySize=\(response.registrySize))"
+        )
+        return response
     }
 
 

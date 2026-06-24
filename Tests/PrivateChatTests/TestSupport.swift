@@ -185,6 +185,14 @@ final class StubCryptoService: CryptoServicing {
     func verify(signature: Data, data: Data, publicKey: Curve25519.Signing.PublicKey) -> Bool {
         publicKey.isValidSignature(signature, for: data)
     }
+
+    /// Sprint 27 (2026-06-24): the test stub
+    /// delegates to the real implementation so
+    /// enrollment flow tests exercise the same
+    /// PEM-export the production app uses.
+    func pemEncodedSigningPublicKey(_ publicKey: Curve25519.Signing.PublicKey) -> String {
+        CryptoService().pemEncodedSigningPublicKey(publicKey)
+    }
 }
 
 /// Identity manager mock that returns a fixed
@@ -302,5 +310,20 @@ final class MockTransportCoordinator: TransportCoordinating {
 
     func purgeRelayInbox(recipientID: String, relayConfiguration: RelayConfiguration) async throws -> RelayPurgeResponse {
         inboxPurge
+    }
+
+    /// Sprint 27 (2026-06-24): enrollment
+    /// stub. Tests that exercise the
+    /// enrollment flow set `nextEnrollment`
+    /// before calling
+    /// `ConversationService.enrollLocalPeerIfNeeded`.
+    /// Tests that do not care about enrollment
+    /// get a default `RelayEnrollmentResponse`.
+    var nextEnrollmentResult: Result<RelayEnrollmentResponse, Error> = .success(
+        RelayEnrollmentResponse(peerID: "stub", registeredAt: 0, registrySize: 1)
+    )
+
+    func enrollLocalPeer(_ identity: LocalIdentity, relayConfiguration: RelayConfiguration) async throws -> RelayEnrollmentResponse {
+        try nextEnrollmentResult.get()
     }
 }

@@ -77,3 +77,48 @@ private extension SymmetricKey {
         }
     }
 }
+
+extension CryptoServiceTests {
+    /// Sprint 27 (2026-06-24): peer enrollment
+    /// helper. The iOS PEM-export is verified
+    /// against a fixed test vector generated
+    /// with python `cryptography` lib:
+    ///
+    ///   seed = 0x42 * 32
+    ///   Ed25519PrivateKey.from_private_bytes(seed)
+    ///   .public_key().public_bytes(DER, SPKI)
+    ///   = 302a300506032b6570032100...edb12 (44 bytes)
+    ///   PEM:
+    ///     MCowBQYDK2VwAyEAIVL40Zt5HSRFMkLhXy6rbLfP+ntqXtMAl5YOBpiB2xI=
+    ///   peerID (sha256(raw)):
+    ///     3097e2dee2cb4a34b53840cdb705aed71067c36f68db0e0f559c3f3fa043315f
+    ///
+    /// If this test fails the relay will reject
+    /// every enrollment from a fresh iOS install
+    /// (the failure mode of Sprint 26.2).
+    func testPemEncodedSigningPublicKeyMatchesPythonReference() throws {
+        let seed = Data(repeating: 0x42, count: 32)
+        let privateKey = try Curve25519.Signing.PrivateKey(rawRepresentation: seed)
+        let pem = crypto.pemEncodedSigningPublicKey(privateKey.publicKey)
+        // The Swift implementation appends a final
+        // newline after `-----END PUBLIC KEY-----`
+        // for clean concatenation. Strip both sides
+        // before comparison so the test is robust to
+        // the trailing-newline convention.
+        let trimmedPem = pem.trimmingCharacters(in: .whitespacesAndNewlines)
+        let expectedPEM = """
+        -----BEGIN PUBLIC KEY-----
+        MCowBQYDK2VwAyEAIVL40Zt5HSRFMkLhXy6rbLfP+ntqXtMAl5YOBpiB2xI=
+        -----END PUBLIC KEY-----
+        """
+        XCTAssertEqual(trimmedPem, expectedPEM, "Swift PEM must match python cryptography output")
+
+        // peerID must be sha256(raw 32-byte pubkey).
+        let expectedPeerID = "3097e2dee2cb4a34b53840cdb705aed71067c36f68db0e0f559c3f3fa043315f"
+        let actualPeerID = crypto.peerID(publicKeyData: privateKey.publicKey.rawRepresentation)
+        XCTAssertEqual(actualPeerID, expectedPeerID, "Swift peerID must match python sha256")
+
+        // Roundtrip: rawRepresentation must be 32 bytes.
+        XCTAssertEqual(privateKey.publicKey.rawRepresentation.count, 32)
+    }
+}

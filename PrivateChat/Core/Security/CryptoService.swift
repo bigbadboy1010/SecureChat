@@ -14,6 +14,14 @@ protocol CryptoServicing {
     func safetyNumber(peerID: String) -> String
     func sign(_ data: Data, privateKey: Curve25519.Signing.PrivateKey) throws -> Data
     func verify(signature: Data, data: Data, publicKey: Curve25519.Signing.PublicKey) -> Bool
+    /// Sprint 27 (2026-06-24): encode an
+    /// Ed25519 signing public key as a
+    /// PEM-encoded SubjectPublicKeyInfo.
+    /// Used by `RelayTransport.enrollPublicKey`
+    /// to register the local peer with the
+    /// relay before any peer-signed request
+    /// is accepted.
+    func pemEncodedSigningPublicKey(_ publicKey: Curve25519.Signing.PublicKey) -> String
 }
 
 final class CryptoService: CryptoServicing {
@@ -88,5 +96,74 @@ final class CryptoService: CryptoServicing {
 
     func verify(signature: Data, data: Data, publicKey: Curve25519.Signing.PublicKey) -> Bool {
         publicKey.isValidSignature(signature, for: data)
+    }
+
+    /// Sprint 27 (2026-06-24): encode an Ed25519
+    /// signing public key as a PEM-encoded
+    /// SubjectPublicKeyInfo (SPKI) so the relay
+    /// can verify peer-bound signatures.
+    ///
+    /// CryptoKit exposes `rawRepresentation` (the
+    /// 32-byte Ed25519 public key) but not the
+    /// ASN.1 wrapper the relay expects. The
+    /// standard SPKI for Ed25519 (RFC 8410) is:
+    ///
+    ///   SEQUENCE {                       -- 0x30 0x2A
+    ///     SEQUENCE {                     -- 0x30 0x05
+    ///       OID 1.3.101.112 (Ed25519)    -- 0x06 0x03 0x2B 0x65 0x70
+    ///     }
+    ///     BIT STRING {                   -- 0x03 0x21 0x00
+    ///       <32 raw bytes>
+    ///     }
+    ///   }
+    ///
+    /// The header is fixed for all Ed25519 SPKIs.
+    /// We hardcode it here so we don't pull in
+    /// Security/SecKey APIs that ship unstable
+    /// PEM semantics across iOS versions.
+    ///
+    /// **Correction (2026-06-24):** the previous
+    /// header included an explicit `NULL` (0x05 0x00)
+    /// inside the inner algorithm SEQUENCE, which
+    /// matches the X.509 AlgorithmIdentifier for
+    /// *some* algorithms (e.g. RSA) but is **wrong**
+    /// for Ed25519 (RFC 8410 §3: parameters must be
+    /// ABSENT, not NULL). This produced a 12-byte
+    /// DER that openssl/Python cryptography rejected
+    /// on the first attempt. The corrected header
+    /// is 11 bytes and was verified against
+    /// `cryptography.hazmat.primitives.asymmetric.ed25519`.
+    func pemEncodedSigningPublicKey(_ publicKey: Curve25519.Signing.PublicKey) -> String {
+        let rawKey = publicKey.rawRepresentation
+        precondition(rawKey.count == 32, "Ed25519 public key must be 32 raw bytes")
+
+        // Fixed Ed25519 SPKI header (11 bytes).
+        // Verified against python `cryptography` lib:
+        //   cryptography.hazmat.primitives.asymmetric.ed25519.Ed25519PublicKey
+        //     .public_bytes(DER, SubjectPublicKeyInfo)
+        // produces a 44-byte DER starting with
+        // `30 2a 30 05 06 03 2b 65 70 03 21 00`.
+        let spkiHeader: [UInt8] = [
+            0x30, 0x2A,                   // SEQUENCE (42 bytes)
+            0x30, 0x05,                   // SEQUENCE (5 bytes)
+            0x06, 0x03, 0x2B, 0x65, 0x70, // OID 1.3.101.112
+            0x03, 0x21, 0x00,             // BIT STRING (33 bytes, 0 unused)
+        ]
+
+        var spkiBytes = Data(spkiHeader)
+        spkiBytes.append(rawKey)
+
+        let base64 = spkiBytes.base64EncodedString()
+        // PEM is base64 wrapped in 64-char lines.
+        var pem = "-----BEGIN PUBLIC KEY-----\n"
+        var index = base64.startIndex
+        while index < base64.endIndex {
+            let end = base64.index(index, offsetBy: 64, limitedBy: base64.endIndex) ?? base64.endIndex
+            pem += base64[index..<end]
+            pem += "\n"
+            index = end
+        }
+        pem += "-----END PUBLIC KEY-----\n"
+        return pem
     }
 }

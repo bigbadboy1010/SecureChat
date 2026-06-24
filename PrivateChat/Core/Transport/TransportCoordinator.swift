@@ -7,6 +7,12 @@ protocol TransportCoordinating {
     func checkRelayHealth(relayConfiguration: RelayConfiguration) async throws -> RelayHealthStatus
     func fetchRelayStats(relayConfiguration: RelayConfiguration) async throws -> RelayStatsResponse
     func purgeRelayInbox(recipientID: String, relayConfiguration: RelayConfiguration) async throws -> RelayPurgeResponse
+    /// Sprint 27 (2026-06-24): register the
+    /// local iOS peer with the relay so
+    /// subsequent signed requests succeed.
+    /// Called from AppContainer.bootstrap
+    /// after `loadOrCreateLocalIdentity`.
+    func enrollLocalPeer(_ identity: LocalIdentity, relayConfiguration: RelayConfiguration) async throws -> RelayEnrollmentResponse
 }
 
 final class TransportCoordinator: TransportCoordinating {
@@ -16,14 +22,23 @@ final class TransportCoordinator: TransportCoordinating {
     init(
         localTransport: MessageTransport = LocalOnlyTransport(),
         signingContext: PeerBoundSigningContext? = nil,
-        relayTransportFactory: @escaping (RelayConfiguration) -> RelayMessageTransporting = { RelayTransport(configuration: $0, signingContext: nil) }
+        crypto: CryptoServicing? = nil,
+        relayTransportFactory: ((RelayConfiguration) -> RelayMessageTransporting)? = nil
     ) {
         self.localTransport = localTransport
         self.signingContext = signingContext
-        self.relayTransportFactory = relayTransportFactory
+        self.crypto = crypto
+        self.relayTransportFactory = relayTransportFactory ?? { config in
+            RelayTransport(
+                configuration: config,
+                signingContext: signingContext,
+                crypto: crypto
+            )
+        }
     }
 
     private let signingContext: PeerBoundSigningContext?
+    private let crypto: CryptoServicing?
 
     func send(_ packet: OutboundTransportPacket, mode: TransportMode, relayConfiguration: RelayConfiguration) async throws {
         switch mode {
@@ -61,5 +76,10 @@ final class TransportCoordinator: TransportCoordinating {
     func purgeRelayInbox(recipientID: String, relayConfiguration: RelayConfiguration) async throws -> RelayPurgeResponse {
         let relayTransport = relayTransportFactory(relayConfiguration)
         return try await relayTransport.purgeInbox(recipientID: recipientID)
+    }
+
+    func enrollLocalPeer(_ identity: LocalIdentity, relayConfiguration: RelayConfiguration) async throws -> RelayEnrollmentResponse {
+        let relayTransport = relayTransportFactory(relayConfiguration)
+        return try await relayTransport.enrollPublicKey(identity)
     }
 }
