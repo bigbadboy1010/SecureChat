@@ -5,6 +5,13 @@ build/sbom/
 build/audit.json
 build/e2e-result.json
 
+# Sprint 26: ephemeral test artefacts created by the smoke test.
+# /tmp/securechat-smoke-site lives outside the repo, but a local
+# `.env.test` is sometimes generated for debug runs. Both are
+# safe to keep untracked.
+RelayServer/.env.test
+RelayServer/dist/
+
 # Standard macOS / Node noise
 .DS_Store
 node_modules/
