@@ -2327,3 +2327,81 @@ with `401 unsigned_request_required`.
   this flip followed (with the `docker rm -f` workaround
   for the container-name conflict).
 - ADR-005 — the original peer-bound design.
+
+### Sprint 26.2: HOTFIX — rollback RELAY_REQUIRE_PEER_AUTH (2026-06-24, 10:14 CEST)
+
+Sprint 26 was rolled back 39 minutes after deployment
+because of a missing **peer-enrollment code path**:
+- The relay has no `POST /v1/relay/peers` route.
+  The preHandler-hook at `routes.ts:140` references
+  the path, but no `app.post('/v1/relay/peers', ...)`
+  exists in `routes.ts`. (`grep -n "app.post.*peers"`
+  → no matches.)
+- The iOS app (`RelayTransport.swift`) never calls
+  any peer-enrollment endpoint. It only calls
+  `/v1/relay/messages` and `/v1/relay/stats`.
+- The peer registry in production therefore stays
+  empty forever. Every signed request fails with
+  `unknown_peer` (or, with `RELAY_REQUIRE_PEER_AUTH=***,
+  is rejected with 401 *before* the verifier even runs).
+- Result: `RELAY_REQUIRE_PEER_AUTH=*** in production
+  blocks 100% of real iOS requests.
+
+**Fix applied:**
+- `/opt/securechat/.env` rolled back to
+  `RELAY_REQUIRE_PEER_AUTH=*** (the flag is back to
+  the previous default).
+- Container `securechat` bounced.
+- Live verification: `curl POST /v1/relay/messages`
+  with bearer token + empty body now returns HTTP 400
+  (validation error, not 401). The preHandler-hook
+  is back to its old behaviour (unsigned requests are
+  accepted; signed requests are validated when present).
+
+**Corrupted-state recovery (10:11-10:14 CEST):**
+- The initial rollback attempt left the `.env` in a
+  corrupted state: half-replaced sed artefacts
+  (`REL...e/`, `after-*** were appended as standalone
+  lines, breaking `docker compose up`).
+- Recovery: a Python script on the server identified
+  the 7 surviving canonical lines
+  (`NODE_ENV/PORT/STORE_TYPE/DATA_DIR/RELAY_AUTH_TOKEN
+  /RELAY_ADMIN_TOKEN/OPS_TOKEN`), discarded the
+  corrupted lines, and re-appended
+  `RELAY_REQUIRE_PEER_AUTH=*** (verified via `xxd`).
+- The original 7 lines had not been touched; only the
+  PEER_AUTH line and the corrupted sed artefacts were
+  replaced.
+- `.env.corrupt.backup` was kept on the server for
+  forensic reference.
+
+**Process changes (post-mortem):**
+- Future ops that touch the production `.env` MUST
+  use the `securechat-deploy` skill, not ad-hoc
+  ssh+sed. The skill includes a `.env` audit step
+  that re-reads the file with `xxd` and confirms
+  the line count before bouncing.
+- Future flips of a per-request auth flag MUST first
+  verify (a) the iOS-app code path that populates the
+  verifier state exists, (b) the relay route that the
+  code path hits exists, (c) the registry is non-empty
+  in a staging environment.
+- The `peer-bound-canonical` skill has been updated
+  to call out the missing enrollment step as the
+  primary gotcha. (Will be patched in this session.)
+
+**Sprint 27 (post-1.0) pre-condition:**
+- The real fix is to add the missing
+  `POST /v1/relay/peers` route (server) and the
+  matching `enrollPublicKey()` call in the iOS app
+  (client). This is now Sprint 27, replacing the
+  2-DH X3DH plan. The X3DH sprint moves to
+  Sprint 28.
+- After Sprint 27 ships, Sprint 26 can be retried.
+
+**See also:**
+- `securechat-deploy` skill — the runbook this
+  should have been done by.
+- `peer-bound-canonical` skill — gotcha list
+  (now includes "missing peer-enrollment").
+- ADR-005 — original peer-bound design.
