@@ -2091,3 +2091,46 @@ Apple, Hetzner) with their data, region, and compliance posture.
   purely descriptive of what was already true.
 - No SDKs added; no analytics; no third-party tracking.
 
+
+
+### Sprint 25: AVV Auftragsverarbeitung (2026-06-24)
+
+Adds the Auftragsverarbeitungsvertrag (AVV) under DSGVO
+Art. 28 and the supporting public-summary page. The AVV
+makes the data-processing relationship between
+SecureChat (controller) and Hetzner (sub-processor)
+explicit and audit-ready, including a sub-processor
+list, an incident-response playbook, a transparency and
+disclosure policy, and a sub-processor change process
+(30-day advance notice).
+
+**Files:**
+- `docs/avv.md` (new, 12,743 bytes, 13 §§ covering
+  controller, processor, subject matter, data categories,
+  processor obligations, deletion, incident notification,
+  sub-processor management, transparency, liability, changes)
+- `docs/INCIDENT-RESPONSE.md` (new, 7,937 bytes, 9 sections
+  covering severity classification, first-hour checklist,
+  containment/eradication/recovery, post-incident review,
+  communication templates, drills)
+- `docs/SUB-PROCESSORS.md` (new, 3,163 bytes, current
+  sub-processor list with Hetzner, GitHub, Cloudflare, Apple)
+- `RelayServer/site/avv.html` (new, 15,338 bytes, public
+  AVV summary with 11 §§ and tables)
+
+**Why this matters:**
+- DSGVO Art. 28(3) requires a contract between controller
+  and processor. Enterprise customers (and the relevant
+  Datenschutzbehörde) need a copy of the AVV on request.
+- The incident-response playbook (Art. 33 DSGVO) makes
+  the 24-hour processor-to-controller notification and the
+  72-hour controller-to-supervisory-authority notification
+  deadlines achievable.
+- The sub-processor list (Art. 28(2) DSGVO) is required
+  for any outsourced processing.
+
+**NOT changed (intentionally):**
+- The relay does not collect new data; the AVV is
+  descriptive of what was already true.
+- No SDKs added; no analytics; no third-party tracking.
+
