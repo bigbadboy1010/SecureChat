@@ -1987,3 +1987,69 @@ If the App Store Connect API key is in the environment
 the script uploads the build automatically. Otherwise,
 it stops after the archive and prints the Xcode Organizer
 instructions.
+
+### Mobile fix (2026-06-24)
+
+Audit pass on a mobile device (iPhone 12, 390x844) revealed
+four classes of issues on securechat.team. This entry
+documents the fixes.
+
+* `RelayServer/site/style.css` (649 -> 751 lines):
+  - iOS safe-area: new `--safe-top/bottom/left/right` CSS
+    custom properties read from
+    `env(safe-area-inset-*)`. `.site-header` and `main`
+    apply `max(16px, var(--safe-top))` etc. so the notch
+    and home indicator are respected on iPhone X+
+  - Touch-targets: `.btn`, `.btn-primary`,
+    `.btn-secondary`, `.btn-large`, `.btn-ghost`,
+    `.header-cta`, `.site-nav a`, `.cta-card a/button`
+    enforce `min-height: 44px` (Apple HIG) and
+    `inline-flex; align-items: center` for vertical
+    centering. `.btn` font-size bumped to 15px,
+    `.btn-large` to 16px (was 14px in the default rule)
+  - Tables: `table { display: block; overflow-x: auto; }`
+    with `-webkit-overflow-scrolling: touch` so the
+    sub-processors and status tables scroll horizontally
+    on narrow viewports instead of breaking the layout
+  - Code: `pre, code` get `max-width: 100%;
+    overflow-x: auto; word-break: break-word;
+    white-space: pre-wrap` so long URLs and
+    code snippets do not push the layout into overflow
+  - Hero device-iphone: scaled to 0.78 on viewports <=
+    720px and 0.65 on <= 480px via `transform: scale()`
+    with `transform-origin: top center` so the mock
+    phone does not push the layout into overflow on
+    a 375px-wide iPhone SE
+  - Hero visual min-height: reduced from 480px to 360px
+    on <= 720px and 320px on <= 480px so the hero does
+    not push the CTA below the fold unnecessarily
+  - Floating badges: font-size reduced on <= 480px
+    so the badge text does not wrap into a 4th line
+  - Site-nav: `flex-wrap: wrap` + `gap: 12px` so the
+    6-link nav wraps to 2 rows on narrow viewports
+  - Trust-badges: stacked to column on <= 640px
+    so the 4 badges become a vertical list
+  - CTA grid: stacked to 1 column on <= 640px
+    (was already 1 column on <= 720px, kept that)
+  - Footer grid: 1fr 1fr on <= 640px (was 1fr 1fr 1fr
+    on wider viewports)
+  - Body font-size: 16px (was 18px for some headings,
+    14px for body, 13px for code -- all under the
+    iOS-recommended 16px minimum)
+
+### Live verification (2026-06-24 06:00 UTC)
+
+```
+$ for page in '' status.html privacy.html; do
+    curl -sS https://securechat.team/$page | \
+      grep -q viewport-fit=cover && echo ok $page
+  done
+ok
+ok status.html
+ok privacy.html
+```
+
+Plus style.css checks:
+  safe-area-inset (4 vars):  present
+  min-height: 44px (1 rule):  present
+  overflow-x: auto (3 rules): present
