@@ -2,9 +2,25 @@
 
 > **End-to-end encrypted messaging for iOS** — built with Swift, secured by Curve25519 & AES-GCM, relayed by a hardened TypeScript/Fastify blind relay.
 
+**Latest release:** **Marketing 1.4.2** (Build **12**) — Sprint **27** complete · [TestFlight open beta](https://securechat.team/) · [Live status](https://securechat.team/status.html)
+
 **Status:** Public Beta ⚠️ — external security audit still recommended before high-assurance claims. See [`KNOWN_ISSUES`](https://securechat.team/known-issues.html) for the open gaps and [`SECURITY.md`](SECURITY.md) for the coordinated-disclosure policy.
 
 > **Note on the legacy name `PrivateChat`:** the bundle identifier, code target, and the source tree still use the original `PrivateChat` (and `org.francois.PrivateChat`) names — they are internal and not user-visible. The product name is **SecureChat**. The Code-Signing & Distribution scripts (`build-host-app.sh`, `build-and-upload-testflight.sh`) and the App-Store-Connect entry already use `org.francois.PrivateChat` and the `SecureChat` display name side by side. Do not rename the bundle without re-registering the App-Store-Connect entry; the relay URLs and the `CURRENT-ENDPOINTS.md` source of truth depend on the existing name.
+
+## 📌 Build & Version
+
+| Component | Version | Source |
+|-----------|---------|--------|
+| **iOS app** (`MARKETING_VERSION`) | **1.4.2** | `PrivateChat.xcodeproj/project.pbxproj` |
+| **iOS app** (`CURRENT_PROJECT_VERSION`, Build) | **12** | `PrivateChat.xcodeproj/project.pbxproj` |
+| **Relay** (`package.json#version`) | **0.1.0** | `RelayServer/package.json` |
+| **Relay** (live build-sha) | **cb4e783** | `https://securechat.team/healthz` |
+| **Phase / Sprint (current)** | **Sprint 27** (was Phase 14.6.2 before Sprint 14 transition) | `CHANGELOG.md` |
+| **TestFlight build number** | **12** | App Store Connect |
+| **Latest commit on `main`** | auto-synced | `git log --oneline -1` |
+
+The relay uses its own versioning (`0.1.0+<build-sha>`) while the iOS app uses a marketing-style versioning (`1.4.2`). The canonical live build is always on [`/healthz`](https://securechat.team/healthz); this README mirrors the values as of the latest commit on `main`.
 
 ---
 
@@ -12,7 +28,7 @@
 
 SecureChat (legacy code name `PrivateChat`) is a privacy-first iOS messenger built from the ground up with end-to-end encryption at its core. It is designed as a **hardened, production-oriented baseline** for secure messaging, not as a feature-complete consumer app.
 
-The project follows a phased development approach (currently at **Phase 14.6.2**), with each phase adding hardening, UX improvements, or security features while keeping the core cryptographic layer stable.
+The project follows a phased development approach (current cycle: **Sprints 15–27**, see [`CHANGELOG.md`](CHANGELOG.md) for the per-sprint history), with each phase adding hardening, UX improvements, or security features while keeping the core cryptographic layer stable.
 
 ### Key Design Principles
 

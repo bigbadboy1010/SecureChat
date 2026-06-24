@@ -1650,6 +1650,114 @@ Verified:
   `SecureChatProductionProfileTests` 3, `EncryptedMessageStoreTests`
   3, `IdentityManagerTests` 3, `EncryptedDraftStoreTests` 3).
 
+### Sprint 20: E2E test coverage design note (2026-06-23)
+
+Authored `Docs/e2e-test-coverage.md` — the design note
+for the automated end-to-end test suite that ships with
+the SecureChat relay, the iOS app, and the macOS
+pairing-host (for the self-hosted mode). Documented
+coverage matrix, scenario catalogue, and the
+operator-runbook for adding new regression tests. The
+note is the canonical reference for the next maintainer
+who needs to extend the test surface or debug a CI run.
+
+### Sprint 21: SBOM + dependency-audit pipeline (2026-06-23)
+
+Added the Software Bill of Materials + dependency-audit
+pipeline, mirrored from the Loupe `docs/SBOM.md`.
+
+* `Docs/SBOM.md` (new) — design note for the SBOM
+  pipeline. Two surfaces: relay (`RelayServer/`) — Fastify
+  5 + zod + pino + @fastify/rate-limit + @fastify/static —
+  and iOS (`PrivateChat.xcodeproj`) — SwiftPM transitive
+  graph (CryptoKit, sec-key utilities).
+* `.github/workflows/ci.yml` — runs `npm sbom` on the
+  relay and `swift package show-dependencies --format json`
+  on the iOS app on every push; diffs the result against
+  the previous run and posts a comment to the PR.
+* `RelayServer/.sbom-relay.json` + `PrivateChat/.sbom-ios.json`
+  are gitignored; the audit-result comment is the durable
+  artefact.
+
+### Sprint 26: flip `RELAY_REQUIRE_PEER_AUTH` to *** in production (2026-06-24)
+
+Promoted the peer-bound opt-in flag from opt-in to
+required (`***`) on the production relay container.
+
+* `RelayServer/src/config.ts` — default `requirePeerAuth`
+  flips to `***` when `NODE_ENV === 'production'`.
+* `RelayServer/src/index.ts` — startup log surfaces the
+  active value and refuses to boot if both
+  `requirePeerAuth === false` AND `NODE_ENV === 'production'`.
+* `RelayServer/site/status.html` + `/known-issues.html` —
+  rows updated: peer-bound canonicalisation marked
+  `enforced`.
+
+### Sprint 26.2: rollback `RELAY_REQUIRE_PEER_AUTH` (hotfix, 2026-06-24)
+
+Hotfix rolled back the production flip from Sprint 26
+within minutes of deploy — the empty peer-registry
+rejected every signed request, and the relay rejected
+all new message envelopes until at least one iOS device
+had completed peer enrollment.
+
+* `RelayServer/src/config.ts` — default `requirePeerAuth`
+  flips back to opt-in (`false`) when
+  `NODE_ENV === 'production'`.
+* `RelayServer/src/index.ts` — startup warning printed
+  when production-mode is on but no peer has enrolled
+  yet.
+* This is the hotfix that prompted Sprint 27 (peer
+  enrollment).
+
+### Sprint 27: peer enrollment (server + iOS) + bump build 11 → 12, marketing 1.0 → 1.4.2 (2026-06-24)
+
+Closed the loop on Sprint 26 by implementing peer
+enrollment end-to-end: iOS devices register their
+public signing key on first launch, the relay
+persists the registry, and the migration runbook
+documents how to flip `RELAY_REQUIRE_PEER_AUTH` to
+production-only once at least one device has enrolled.
+
+**Relay (`RelayServer/`):**
+
+* New `POST /v1/relay/peers` route (bearer-only, persists
+  to `data/peer-registry.json` atomically).
+* `peerAuth.ts` — `validatePeerEnrollment()`,
+  `persistPeerRegistry()`,
+  `loadPeerRegistryFromDisk()`.
+* `RELAY_PEER_REGISTRY_FILE` env var (default: production
+  `/opt/securechat/data/peer-registry.json`).
+* `errors.ts` — optional `RelayHttpError.details` for
+  structured 400 bodies.
+* Smoke test: 3 enrollment scenarios (happy-path,
+  bad-peerID, bad-PEM).
+
+**iOS (`PrivateChat/`):**
+
+* `CryptoService.pemEncodedSigningPublicKey()` — RFC 8410
+  Ed25519 SPKI export (11-byte header stripped).
+* `IdentityManager.exportSigningPublicKey()` —
+  user-facing helper used by the enrollment flow.
+* `PeerEnrollmentBootstrap.run()` — fires once on first
+  launch after a keypair is created; on success the
+  relay has a record for the device's signing key.
+* `RelayTransport` — every outgoing signed request now
+  uses the PEM-encoded public key as the `peer-id`.
+
+**Bumps:**
+
+* `MARKETING_VERSION`: 1.0 → 1.4.2.
+* `CURRENT_PROJECT_VERSION` (Build): 11 → 12.
+
+**Docs:**
+
+* `Docs/peer-bound-migration.md` (new) — operator
+  runbook for `RELAY_REQUIRE_PEER_AUTH` activation.
+  Mirrors the Loupe host's `LOUPE_REQUIRE_PEER_AUTH`
+  procedure.
+* `RelayServer/site/status.html` — peer-enrollment
+  row added, build-version row bumped to `build12`.
 
 ## Public Beta 2026-06-22
 
