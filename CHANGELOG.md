@@ -2134,3 +2134,44 @@ disclosure policy, and a sub-processor change process
   descriptive of what was already true.
 - No SDKs added; no analytics; no third-party tracking.
 
+### Sprint 22: status.securechat.team (2026-06-24)
+
+Adds the SecureChat status page at
+`https://securechat.team/status.html`. The page mirrors the
+live `/healthz` endpoint and exposes the build identity of
+every component, the known issues, the security posture,
+the public roadmap, and the DSGVO incident-response
+timeline.
+
+**Files:**
+- `RelayServer/site/status.html` (new, 20,266 bytes) —
+  full status page with 4 component cards, 9 security
+  rows, 12-milestone roadmap, DSGVO incident-response
+  section
+- `RelayServer/site/style.css` — added the `status-grid`,
+  `status-card`, `status-pill` (+ ok/warn/err/info/beta/muted
+  variants), `status-section`, `status-table`, `security-table`,
+  `status-list` classes (218 lines, copied from Loupe for
+  visual consistency between the two products)
+- `index.html` already linked to `/status.html` (Sprint 14
+  nav); the link now resolves to the real page
+
+**Live /healthz JSON**
+- `{"status":"ok","uptimeSeconds":14,"version":"v0.1.0+4844f02"}`
+- Fetched on page load and reflected in the relay card
+- Fall-back values ship in the HTML so security reviewers
+  and crawlers see a complete card even with JavaScript
+  disabled
+
+**Why this matters:**
+- Users need a single place to check whether a reported
+  issue is on our side (relay outage) or on theirs (their
+  firewall, their DNS, their iOS version).
+- Enterprise customers (and the BfDI on request) get a
+  visible record of the security posture; the table is
+  the same shape as the Loupe one so security reviewers
+  who already know Loupe can audit SecureChat in minutes.
+- The roadmap table makes the public commitments
+  (Group chats Q4 2026, Multi-region Q4 2026, Web client
+  Q1 2027) searchable and accountable.
+
