@@ -1,0 +1,109 @@
+# Sprint 20 (2026-06-24): end-to-end CI workflow.
+#
+# Runs the smoke test on every PR + push, and the full
+# acceptance suite on release tags.
+name: e2e
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+jobs:
+  smoke:
+    name: relay smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: RelayServer/package-lock.json
+      - name: Install
+        run: npm ci
+        working-directory: RelayServer
+      - name: Typecheck
+        run: npm run typecheck
+        working-directory: RelayServer
+      - name: Smoke
+        run: npx tsx test/smoke.ts
+        working-directory: RelayServer
+      - name: Upload smoke log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sc-smoke-log
+          path: RelayServer/build/
+          retention-days: 30
+
+  acceptance:
+    name: acceptance against ephemeral relay
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: RelayServer/package-lock.json
+      - name: Install relay
+        run: npm ci
+        working-directory: RelayServer
+      - name: Build relay
+        run: npm run build
+        working-directory: RelayServer
+      - name: Start ephemeral relay
+        run: |
+          cd RelayServer
+          nohup node dist/index.js > /tmp/relay.log 2>&1 &
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            sleep 1
+            if curl -sf http://127.0.0.1:3000/healthz > /dev/null; then
+              echo "relay up"; break
+            fi
+          done
+        env:
+          PORT: "3000"
+          NODE_ENV: "test"
+          STORE_BACKEND: "memory"
+      - name: Acceptance
+        run: scripts/e2e-acceptance.sh
+        env:
+          RELAY_BASE_URL: "http://127.0.0.1:3000"
+      - name: Upload acceptance result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sc-e2e-result
+          path: build/e2e-result.json
+          retention-days: 90
+
+  ios-controller-build:
+    name: iOS controller build (release tag only)
+    runs-on: macos-14
+    timeout-minutes: 15
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+      - name: xcodebuild
+        run: |
+          xcodebuild \
+            -project ios/PrivateChat.xcodeproj \
+            -scheme PrivateChat \
+            -destination 'generic/platform=iOS' \
+            -configuration Release \
+            -derivedDataPath build/derived \
+            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO \
+            build | tee build/xcodebuild.log
+      - name: Upload .app
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sc-ios-app
+          path: build/derived/Build/Products/Release-iphoneos/
+          retention-days: 30

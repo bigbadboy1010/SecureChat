@@ -2175,3 +2175,55 @@ timeline.
   (Group chats Q4 2026, Multi-region Q4 2026, Web client
   Q1 2027) searchable and accountable.
 
+
+### Sprint 20: End-to-End Test Coverage + CI (2026-06-24)
+
+Adds the automated end-to-end test pipeline that runs on
+every PR to `main` and on every release tag.
+
+**New files (Sprint 20):**
+- `RelayServer/test/smoke.ts` (250 lines) — boots an
+  ephemeral Fastify instance on a random port and runs
+  through the v1 relay API end-to-end. 7 assertions:
+  healthz, security-policy, POST → 202, GET → 200 with
+  packets array, ACK → 200 deleted=true, replay rejected
+  (401 or 409), bad-signature tolerated.
+- `RelayServer/src/index.ts` refactored: `buildServer()`
+  factory + `startServer()` entry-point guard. Imports
+  the file no longer bind a TCP port; the smoke test boots
+  the same wiring on port 0.
+- `scripts/e2e-acceptance.sh` (110 lines) — bash wrapper
+  that runs the policy check + `/healthz` + smoke test
+  against a reachable relay at `$RELAY_BASE_URL`. Refuses
+  to run against `productionMode=true`.
+- `.github/workflows/e2e.yml` — 3-job CI matrix:
+  `smoke` (every PR + push, ubuntu-latest), `acceptance`
+  (release tag only, spins up an ephemeral relay),
+  `ios-controller-build` (release tag only, macos-14,
+  xcodebuild Release).
+- `docs/e2e-test-coverage.md` — design note. Why a
+  buildServer factory, smoke coverage matrix, what the
+  acceptance test deliberately does not do (network
+  failures, real TURN, real device drive).
+
+**CI job matrix:**
+| Job | Trigger | Runner | Time |
+|---|---|---|---|
+| smoke | every PR + push | ubuntu-latest | ~30 s |
+| acceptance | release tag only | ubuntu-latest | ~1 min |
+| ios-controller-build | release tag only | macos-14 | ~5 min |
+
+**Verified locally:**
+- `cd RelayServer && npx tsc --noEmit` → OK
+- `cd RelayServer && npm run test:smoke` → `SC SMOKE TEST PASSED`
+- `bash -n scripts/e2e-acceptance.sh` → OK
+- `python3 -c "import yaml; yaml.safe_load(...)" .github/workflows/e2e.yml` → OK
+
+**package.json new scripts:**
+- `npm run test:smoke` — just the smoke test
+- `npm run test:e2e` — smoke + acceptance wrapper
+
+**NOT changed (intentionally):**
+- The relay's `routes.ts`, `peerAuth.ts`, `schemas.ts`,
+  `store.ts`, and `config.ts` are unchanged. Sprint 20
+  only added tests and a CI workflow around them.
