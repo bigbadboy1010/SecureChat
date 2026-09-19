@@ -235,8 +235,10 @@ private struct PeerTrustRow: View {
                     }
                     .buttonStyle(.bordered)
                 } else {
-                    Button("Verifizieren") {
-                        service.verifyPeer(id: peer.id)
+                    NavigationLink {
+                        SafetyNumberView(service: service, peer: peer)
+                    } label: {
+                        Text("Safety Number prüfen")
                     }
                     .buttonStyle(.borderedProminent)
                 }
