@@ -250,12 +250,19 @@ final class RelayTransport: RelayMessageTransporting {
         // produces. The signature is over
         // the assembled canonical string and
         // is verified server-side.
-        let signedHeaders: RequestSigner.SignedHeaders? = self.signingContext.flatMap { context in
-            let peerID = context.currentPeerID()
-            guard let peerID = peerID, peerID.isEmpty == false else {
-                return nil
+        let signedHeaders: RequestSigner.SignedHeaders?
+        if let context = signingContext {
+            guard let peerID = context.currentPeerID(), peerID.isEmpty == false,
+                  let signingKey = context.currentSigningPrivateKey() else {
+                // The production app always wires an IdentityManager as
+                // signingContext. If its keychain identity cannot be read,
+                // fail before the request leaves the device. Sending an
+                // unsigned request or inventing a temporary key would make
+                // authentication failures ambiguous and weaken identity
+                // binding.
+                throw PrivateChatError.invalidKeyMaterial
             }
-            return RequestSigner.sign(
+            signedHeaders = RequestSigner.sign(
                 method: method,
                 path: path,
                 queryStringCanonicalized: RequestSigner.canonicalQueryString(
@@ -265,8 +272,10 @@ final class RelayTransport: RelayMessageTransporting {
                 timestamp: RequestSigner.currentTimestamp(),
                 nonce: RequestSigner.makeNonce(),
                 peerID: peerID,
-                signingKey: context.currentSigningPrivateKey()
+                signingKey: signingKey
             )
+        } else {
+            signedHeaders = nil
         }
         applyDefaultHeaders(to: &request, signedHeaders: signedHeaders)
         return request
