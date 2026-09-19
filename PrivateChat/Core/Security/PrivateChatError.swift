@@ -89,7 +89,10 @@ enum PrivateChatError: LocalizedError, Equatable {
             return "Relay-Prüfung fehlgeschlagen: \(message)"
         case .relayHTTPError(let statusCode, let message):
             if statusCode == 401 {
-                return "Relay-Server hat HTTP 401 Unauthorized zurückgegeben. Der Server ist erreichbar, aber der RELAY_AUTH_TOKEN fehlt oder passt nicht."
+                if let message, message.isEmpty == false {
+                    return "Relay-Server hat HTTP 401 zurückgegeben: \(message). Der Server ist erreichbar; prüfe Bearer-Token, Peer-Registrierung und Request-Signatur."
+                }
+                return "Relay-Server hat HTTP 401 Unauthorized zurückgegeben. Prüfe Bearer-Token, Peer-Registrierung und Request-Signatur."
             }
             if let message, message.isEmpty == false {
                 return "Relay-Server hat HTTP \(statusCode) zurückgegeben: \(message). Prüfe \(SecureChatProductionProfile.relayBaseURLString), Caddy und den SecureChat-Container."

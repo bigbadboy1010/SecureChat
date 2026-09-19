@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-09-19 — Peer-auth request-signing hotfix
+
+- Relay mutations now pass their final HTTP method and encoded body into the
+  canonical request signer before transmission. This fixes invalid peer
+  signatures for message POST, ACK, legacy DELETE, and client purge requests.
+- Peer enrollment is explicitly bearer-only and no longer emits unnecessary
+  peer-signature headers before the peer is registered.
+- Saving Relay settings immediately performs idempotent peer enrollment; an
+  app restart is no longer required after entering or changing the client
+  token.
+- HTTP 401 diagnostics now retain the relay error code instead of always
+  reporting a token mismatch. This distinguishes `unauthorized`,
+  `peer_not_enrolled`, `unsigned_request_required`, and signature failures.
+
 All notable changes to SecureChat (formerly PrivateChat) are
 documented in this file. The format is loosely based on
 [Keep a Changelog](https://keepachangelog.com/) and the project

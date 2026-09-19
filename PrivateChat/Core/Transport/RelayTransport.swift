@@ -41,10 +41,12 @@ final class RelayTransport: RelayMessageTransporting {
     }
 
     func send(_ packet: OutboundTransportPacket) async throws {
-        var request = try makeRequest(path: "/v1/relay/messages")
-        request.httpMethod = "POST"
-        request.httpBody = try encoder.encode(packet)
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body = try encoder.encode(packet)
+        let request = try makeRequest(
+            path: "/v1/relay/messages",
+            method: "POST",
+            body: body
+        )
 
         let data = try await perform(request)
         let sendResponse = try decoder.decode(RelaySendResponse.self, from: data)
@@ -87,8 +89,10 @@ final class RelayTransport: RelayMessageTransporting {
     }
 
     private func acknowledge(packetID: UUID) async throws -> Bool {
-        var request = try makeRequest(path: "/v1/relay/messages/\(packetID.uuidString.lowercased())/ack")
-        request.httpMethod = "POST"
+        let request = try makeRequest(
+            path: "/v1/relay/messages/\(packetID.uuidString.lowercased())/ack",
+            method: "POST"
+        )
 
         let data = try await perform(request)
         let response = try decoder.decode(RelayDeleteResponse.self, from: data)
@@ -96,8 +100,10 @@ final class RelayTransport: RelayMessageTransporting {
     }
 
     private func legacyDelete(packetID: UUID) async throws -> Bool {
-        var request = try makeRequest(path: "/v1/relay/messages/\(packetID.uuidString.lowercased())")
-        request.httpMethod = "DELETE"
+        let request = try makeRequest(
+            path: "/v1/relay/messages/\(packetID.uuidString.lowercased())",
+            method: "DELETE"
+        )
 
         let data = try await perform(request)
         let response = try decoder.decode(RelayDeleteResponse.self, from: data)
@@ -110,8 +116,7 @@ final class RelayTransport: RelayMessageTransporting {
     /// ADR-005). Calling `/health` here would
     /// 401 in production with no ops token.
     func checkHealth() async throws -> RelayHealthStatus {
-        var request = try makeRequest(path: "/healthz")
-        request.httpMethod = "GET"
+        let request = try makeRequest(path: "/healthz")
 
         let data = try await perform(request)
         let status = try decoder.decode(RelayHealthStatus.self, from: data)
@@ -172,8 +177,12 @@ final class RelayTransport: RelayMessageTransporting {
             clientVersion: clientVersion
         )
 
-        var request = try makeRequest(path: "/v1/relay/peers", method: "POST", body: try encoder.encode(body))
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let request = try makeRequest(
+            path: "/v1/relay/peers",
+            method: "POST",
+            body: try encoder.encode(body),
+            includePeerSignature: false
+        )
 
         let data = try await perform(request)
         let response = try decoder.decode(RelayEnrollmentResponse.self, from: data)
@@ -185,18 +194,19 @@ final class RelayTransport: RelayMessageTransporting {
 
 
     func fetchStats() async throws -> RelayStatsResponse {
-        var request = try makeRequest(path: "/v1/relay/stats")
-        request.httpMethod = "GET"
+        let request = try makeRequest(path: "/v1/relay/stats")
 
         let data = try await perform(request)
         return try decoder.decode(RelayStatsResponse.self, from: data)
     }
 
     func purgeInbox(recipientID: String) async throws -> RelayPurgeResponse {
-        var request = try makeRequest(path: "/v1/relay/messages/purge")
-        request.httpMethod = "POST"
-        request.httpBody = try encoder.encode(RelayPurgeRequest(recipientID: recipientID))
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body = try encoder.encode(RelayPurgeRequest(recipientID: recipientID))
+        let request = try makeRequest(
+            path: "/v1/relay/messages/purge",
+            method: "POST",
+            body: body
+        )
 
         let data = try await perform(request)
         return try decoder.decode(RelayPurgeResponse.self, from: data)
@@ -216,7 +226,8 @@ final class RelayTransport: RelayMessageTransporting {
         path: String,
         method: String = "GET",
         queryItems: [URLQueryItem] = [],
-        body: Data? = nil
+        body: Data? = nil,
+        includePeerSignature: Bool = true
     ) throws -> URLRequest {
         let baseURL = try validatedBaseURL()
         let pathWithQuery: String
@@ -258,7 +269,7 @@ final class RelayTransport: RelayMessageTransporting {
         // the assembled canonical string and
         // is verified server-side.
         let signedHeaders: RequestSigner.SignedHeaders?
-        if let context = signingContext {
+        if includePeerSignature, let context = signingContext {
             guard let peerID = context.currentPeerID(), peerID.isEmpty == false,
                   let signingKey = context.currentSigningPrivateKey() else {
                 // The production app always wires an IdentityManager as

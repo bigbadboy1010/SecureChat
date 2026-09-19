@@ -766,6 +766,9 @@ struct SettingsView: View {
         state.restrictRelayOnRuntimeRisk = restrictRelayOnRuntimeRisk
 
         service.updateSecurityState(state)
+        Task {
+            await service.enrollLocalPeerIfNeeded()
+        }
     }
 
     private func saveLocalRetention() {
