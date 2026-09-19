@@ -166,7 +166,7 @@ private struct UnlockView: View {
             HStack(spacing: SecureChatDesign.spaceM) {
                 Image(systemName: "faceid")
                     .font(.title3.weight(.bold))
-                Text("Mit Face ID entsperren")
+                Text(container.canUnlock ? "Mit Face ID entsperren" : "Startfehler – App gesperrt")
                     .font(.headline.weight(.semibold))
             }
             .foregroundStyle(.white)
@@ -176,6 +176,8 @@ private struct UnlockView: View {
             .shadow(color: SecureChatDesign.brandCyan.opacity(0.35), radius: 20, x: 0, y: 10)
         }
         .buttonStyle(.plain)
+        .disabled(container.canUnlock == false)
+        .opacity(container.canUnlock ? 1.0 : 0.55)
     }
 
     @ViewBuilder
