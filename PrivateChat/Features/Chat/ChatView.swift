@@ -11,13 +11,6 @@ struct ChatView: View {
     @State private var selectedMessage: ChatMessage?
     @State private var scrollUpdateTask: Task<Void, Never>?
 
-    private let quickReplies = [
-        "Bin dran.",
-        "Ich melde mich gleich.",
-        "Passt für mich.",
-        "Bitte kurz bestätigen."
-    ]
-
     private var currentConversation: StoredConversation {
         service.conversations.first { $0.id == storedConversation.id } ?? storedConversation
     }
@@ -62,12 +55,6 @@ struct ChatView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if isPeerConversation {
-                SecurePeerBanner(service: service, peerID: currentConversation.conversation.peerID)
-            } else {
-                LocalNoteBanner()
-            }
-
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 10) {
@@ -110,34 +97,13 @@ struct ChatView: View {
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $messageSearchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "In diesem Chat suchen")
         .toolbar {
-            ToolbarItemGroup(placement: .navigationBarTrailing) {
-                if currentConversation.conversation.isMuted {
-                    Image(systemName: "bell.slash.fill")
-                        .foregroundStyle(Color.secondary)
-                }
-                if currentConversation.conversation.isPinned {
-                    Image(systemName: "pin.fill")
-                        .foregroundStyle(Color.secondary)
-                }
-
+            ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
                     showDetails = true
                 } label: {
                     Image(systemName: "info.circle")
                 }
                 .accessibilityLabel("Chat-Details")
-
-                Button {
-                    Task { await service.syncRelayInbox() }
-                } label: {
-                    if service.isRelaySyncRunning {
-                        ProgressView()
-                    } else {
-                        Image(systemName: "arrow.down.circle")
-                    }
-                }
-                .accessibilityLabel("Relay Inbox abrufen")
-                .disabled(service.isRelaySyncRunning || service.securityState.transportMode != .relayAllowed)
             }
         }
         .sheet(isPresented: $showDetails) {
@@ -166,50 +132,8 @@ struct ChatView: View {
                     .padding(.horizontal)
             }
 
-            if service.securityState.reduceKeyboardSuggestions {
-                Label("Keyboard-Vorschläge reduziert", systemImage: "keyboard")
-                    .font(.caption2)
-                    .foregroundStyle(Color.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal)
-            }
-
-            if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(quickReplies, id: \.self) { reply in
-                            Button(reply) {
-                                updateDraft(reply, persist: true)
-                            }
-                            .font(.caption)
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                        }
-                    }
-                    .padding(.horizontal)
-                }
-            } else {
-                HStack {
-                    Label("Entwurf wird verschlüsselt lokal gespeichert", systemImage: "lock")
-                        .font(.caption2)
-                        .foregroundStyle(Color.secondary)
-                    Spacer()
-                    Button("Entwurf löschen") {
-                        updateDraft("", persist: true)
-                    }
-                    .font(.caption2)
-                }
-                .padding(.horizontal)
-            }
-
             HStack(alignment: .bottom, spacing: 10) {
-                VStack(alignment: .trailing, spacing: 4) {
-                    composerInput
-
-                    Text("\(draft.count) Zeichen")
-                        .font(.caption2)
-                        .foregroundStyle(draft.count > 1_500 ? Color.orange : Color.secondary)
-                }
+                composerInput
 
                 Button {
                     sendDraft()
@@ -350,7 +274,7 @@ private struct EmptyChatState: View {
                 .foregroundStyle(Color.secondary)
             Text(isPeerConversation ? "Sicherer Chat bereit" : "Lokale Notiz bereit")
                 .font(.headline)
-            Text(isPeerConversation ? "Nachrichten werden lokal verschlüsselt, signiert und über den Relay nur als geschützte Pakete übertragen." : "Dieser Chat bleibt lokal auf diesem Gerät.")
+            Text(isPeerConversation ? "Schreibe deine erste Nachricht." : "Schreibe deine erste Notiz.")
                 .font(.subheadline)
                 .foregroundStyle(Color.secondary)
                 .multilineTextAlignment(.center)
@@ -374,96 +298,6 @@ private struct EmptySearchState: View {
                 .foregroundStyle(Color.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal)
-        }
-    }
-}
-
-private struct LocalNoteBanner: View {
-    var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "note.text")
-            Text("Lokaler Notiz-Chat. Keine Netzwerkübertragung.")
-                .font(.caption)
-            Spacer()
-        }
-        .foregroundStyle(Color.secondary)
-        .padding(.horizontal)
-        .padding(.vertical, 8)
-        .background(Color.secondary.opacity(0.08))
-    }
-}
-
-private struct SecurePeerBanner: View {
-    @ObservedObject var service: ConversationService
-    let peerID: String?
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: icon)
-                .foregroundStyle(color)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.caption.weight(.semibold))
-                    .lineLimit(1)
-                if let subtitle {
-                    Text(subtitle)
-                        .font(.caption2)
-                        .foregroundStyle(Color.secondary)
-                        .lineLimit(1)
-                }
-            }
-            Spacer()
-        }
-        .padding(.horizontal)
-        .padding(.vertical, 9)
-        .background(color.opacity(0.10))
-    }
-
-    private var peer: TrustedPeer? {
-        guard let peerID else { return nil }
-        return service.trustedPeers.first(where: { $0.id == peerID })
-    }
-
-    private var title: String {
-        guard let peer else { return "Kontakt nicht gefunden" }
-        switch peer.trustState {
-        case .verified:
-            return "Verifizierter E2E-Chat mit \(peer.displayName)"
-        case .unverified:
-            return "Kontakt ist noch nicht verifiziert"
-        case .blocked:
-            return "Kontakt ist blockiert"
-        }
-    }
-
-    private var subtitle: String? {
-        guard let peer else { return nil }
-        return "Safety: " + String(peer.safetyNumber.prefix(23)) + "…"
-    }
-
-    private var icon: String {
-        switch peer?.trustState {
-        case .verified:
-            return "lock.shield.fill"
-        case .unverified:
-            return "questionmark.shield"
-        case .blocked:
-            return "hand.raised.fill"
-        case nil:
-            return "exclamationmark.triangle"
-        }
-    }
-
-    private var color: Color {
-        switch peer?.trustState {
-        case .verified:
-            return .green
-        case .unverified:
-            return .orange
-        case .blocked:
-            return .red
-        case nil:
-            return .red
         }
     }
 }
@@ -533,7 +367,7 @@ private struct MessageBubble: View {
                     Text(message.createdAt, style: .time)
                     if message.isIncoming == false {
                         Image(systemName: message.status.systemImageName)
-                        Text(message.status.localizedTitle)
+                            .accessibilityLabel(message.status.localizedTitle)
                     } else if message.readAt != nil {
                         Image(systemName: "eye")
                     }

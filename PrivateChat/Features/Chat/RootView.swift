@@ -74,7 +74,6 @@ private struct UnlockView: View {
 
                 brandMark
                 brandTitle
-                statusPills
                 Spacer()
                 unlockButton
                 errorMessage
@@ -124,36 +123,9 @@ private struct UnlockView: View {
                 .font(.system(size: 36, weight: .heavy, design: .rounded))
                 .foregroundStyle(SecureChatDesign.textPrimary)
                 .tracking(-0.5)
-            Text("Privacy-first E2E Messenger")
+            Text("Deine Nachrichten. Privat.")
                 .font(.headline.weight(.medium))
                 .foregroundStyle(SecureChatDesign.textSecondary)
-            Text("Lokale Schlüssel, verifizierte Kontakte, gehärteter Relay.")
-                .font(.subheadline)
-                .foregroundStyle(SecureChatDesign.textTertiary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, SecureChatDesign.spaceM)
-        }
-    }
-
-    // MARK: - Status pills
-
-    private var statusPills: some View {
-        HStack(spacing: SecureChatDesign.spaceS) {
-            SecureChatStatusPill(
-                title: "E2E",
-                systemImage: "lock.fill",
-                tint: SecureChatDesign.success
-            )
-            SecureChatStatusPill(
-                title: "Relay",
-                systemImage: "antenna.radiowaves.left.and.right",
-                tint: SecureChatDesign.brandCyan
-            )
-            SecureChatStatusPill(
-                title: "Hardening",
-                systemImage: "shield.fill",
-                tint: SecureChatDesign.brandPurple
-            )
         }
     }
 
@@ -233,11 +205,6 @@ private struct MainTabView: View {
 
     var body: some View {
         TabView {
-            DashboardView(service: service)
-                .tabItem {
-                    Label("Status", systemImage: "gauge.with.dots.needle.67percent")
-                }
-
             ConversationListView(service: service)
                 .tabItem {
                     Label("Chats", systemImage: "message")
@@ -246,12 +213,12 @@ private struct MainTabView: View {
 
             PairingView(service: service)
                 .tabItem {
-                    Label("Pairing", systemImage: "qrcode")
+                    Label("Kontakte", systemImage: "person.2")
                 }
 
             SettingsView(service: service)
                 .tabItem {
-                    Label("Security", systemImage: "shield.lefthalf.filled")
+                    Label("Einstellungen", systemImage: "gearshape")
                 }
         }
         .tint(SecureChatDesign.brandCyan)

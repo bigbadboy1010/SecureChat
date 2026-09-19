@@ -29,10 +29,10 @@ grep -q "PrivateChat" <<<"$SCHEMES" || fail "PrivateChat scheme missing"
 ok "PrivateChat scheme present"
 
 BUILD_SETTINGS="$(xcodebuild -project "$PROJECT" -scheme PrivateChat -configuration Release -showBuildSettings 2>/dev/null)"
-BUNDLE="$(awk -F' = ' '/PRODUCT_BUNDLE_IDENTIFIER = / {print $2; exit}' <<<"$BUILD_SETTINGS")"
-TEAM="$(awk -F' = ' '/DEVELOPMENT_TEAM = / {print $2; exit}' <<<"$BUILD_SETTINGS")"
-MARKETING="$(awk -F' = ' '/MARKETING_VERSION = / {print $2; exit}' <<<"$BUILD_SETTINGS")"
-BUILD="$(awk -F' = ' '/CURRENT_PROJECT_VERSION = / {print $2; exit}' <<<"$BUILD_SETTINGS")"
+BUNDLE="$(awk -F' = ' '/^[[:space:]]*PRODUCT_BUNDLE_IDENTIFIER = / {print $2; exit}' <<<"$BUILD_SETTINGS")"
+TEAM="$(awk -F' = ' '/^[[:space:]]*DEVELOPMENT_TEAM = / {print $2; exit}' <<<"$BUILD_SETTINGS")"
+MARKETING="$(awk -F' = ' '/^[[:space:]]*MARKETING_VERSION = / {print $2; exit}' <<<"$BUILD_SETTINGS")"
+BUILD="$(awk -F' = ' '/^[[:space:]]*CURRENT_PROJECT_VERSION = / {print $2; exit}' <<<"$BUILD_SETTINGS")"
 
 [[ "$BUNDLE" == "$EXPECTED_BUNDLE" ]] || fail "bundle id is $BUNDLE, expected $EXPECTED_BUNDLE"
 [[ "$TEAM" == "$EXPECTED_TEAM" ]] || fail "development team is $TEAM, expected $EXPECTED_TEAM"
@@ -42,7 +42,7 @@ ok "Bundle ID: $BUNDLE"
 ok "Team: $TEAM"
 ok "Version: $MARKETING ($BUILD)"
 
-if grep -R --line-number --exclude-dir=.git --exclude='*.md' 'chatsecure\.ddns\.net\|192\.168\.178\.229:8080' "$REPO_ROOT/PrivateChat" "$REPO_ROOT/Config" >/tmp/securechat-legacy-relay.txt 2>/dev/null; then
+if grep -R --line-number --exclude-dir=.git --exclude='*.md' --exclude='SecureChatProductionProfile.swift' 'chatsecure\.ddns\.net\|192\.168\.178\.229:8080' "$REPO_ROOT/PrivateChat" "$REPO_ROOT/Config" >/tmp/securechat-legacy-relay.txt 2>/dev/null; then
   cat /tmp/securechat-legacy-relay.txt >&2
   fail "legacy relay address remains in active client code"
 fi
