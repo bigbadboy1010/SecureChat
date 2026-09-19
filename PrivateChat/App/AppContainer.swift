@@ -35,7 +35,14 @@ final class AppContainer: ObservableObject {
         let peerTrustStore = PeerTrustStore(keychain: keychain)
         let settingsStore = SecuritySettingsStore(keychain: keychain)
         let relayPacketLedgerStore = RelayPacketLedgerStore(keychain: keychain)
-        let transportCoordinator = TransportCoordinator()
+        // Production relay requests must be bound to the same long-term
+        // identity that is stored in Keychain. Passing IdentityManager and
+        // CryptoService here enables peer enrollment and X-Securechat-*
+        // request signatures for SEND, inbox GET, ACK and other relay calls.
+        let transportCoordinator = TransportCoordinator(
+            signingContext: identityManager,
+            crypto: crypto
+        )
         let biometricGate = BiometricGate()
 
         do {
