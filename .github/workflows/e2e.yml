@@ -26,17 +26,35 @@ jobs:
           plutil -lint Config/Info.plist
           plutil -lint PrivateChat/PrivacyInfo.xcprivacy
 
+      - name: Select available iPhone simulator
+        shell: bash
+        run: |
+          UDID="$(python3 - <<'PY'
+          import json, subprocess
+          data = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"]))
+          for devices in data["devices"].values():
+              for device in devices:
+                  if device.get("isAvailable") and device["name"].startswith("iPhone"):
+                      print(device["udid"])
+                      raise SystemExit
+          raise SystemExit("no available iPhone simulator")
+          PY
+          )"
+          echo "SIMULATOR_UDID=$UDID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+
       - name: Build and test on simulator
         shell: bash
         run: |
           set -o pipefail
-          xcodebuild             -project PrivateChat.xcodeproj             -scheme PrivateChat             -configuration Debug             -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest'             CODE_SIGNING_ALLOWED=NO             clean test | tee build-test.log
+          xcodebuild -project PrivateChat.xcodeproj -scheme PrivateChat -configuration Debug -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" CODE_SIGNING_ALLOWED=NO clean test | tee build-test.log
 
       - name: Release compile gate
         shell: bash
         run: |
           set -o pipefail
-          xcodebuild             -project PrivateChat.xcodeproj             -scheme PrivateChat             -configuration Release             -destination 'generic/platform=iOS'             CODE_SIGNING_ALLOWED=NO             CODE_SIGNING_REQUIRED=NO             build | tee build-release.log
+          xcodebuild -project PrivateChat.xcodeproj -scheme PrivateChat -configuration Release -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build | tee build-release.log
 
       - name: Upload Xcode logs
         if: always()
