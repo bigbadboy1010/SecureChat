@@ -54,6 +54,20 @@ enum TransportMode: String, Codable, Equatable, CaseIterable {
     case relayAllowed
 }
 
+enum ChatAttachmentKind: String, Codable, Equatable {
+    case image
+    case video
+    case document
+}
+
+struct ChatAttachment: Codable, Equatable, Identifiable {
+    let id: UUID
+    let kind: ChatAttachmentKind
+    let fileName: String
+    let mimeType: String
+    let byteCount: Int
+}
+
 struct ChatMessage: Identifiable, Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case id
@@ -66,6 +80,7 @@ struct ChatMessage: Identifiable, Codable, Equatable {
         case isIncoming
         case readAt
         case isStarred
+        case attachment
     }
 
     let id: UUID
@@ -78,6 +93,7 @@ struct ChatMessage: Identifiable, Codable, Equatable {
     let isIncoming: Bool
     var readAt: Date?
     var isStarred: Bool
+    let attachment: ChatAttachment?
 
     init(
         id: UUID = UUID(),
@@ -89,7 +105,8 @@ struct ChatMessage: Identifiable, Codable, Equatable {
         status: MessageDeliveryStatus,
         isIncoming: Bool,
         readAt: Date? = nil,
-        isStarred: Bool = false
+        isStarred: Bool = false,
+        attachment: ChatAttachment? = nil
     ) {
         self.id = id
         self.conversationID = conversationID
@@ -101,6 +118,7 @@ struct ChatMessage: Identifiable, Codable, Equatable {
         self.isIncoming = isIncoming
         self.readAt = readAt
         self.isStarred = isStarred
+        self.attachment = attachment
     }
 
     init(from decoder: Decoder) throws {
@@ -115,6 +133,7 @@ struct ChatMessage: Identifiable, Codable, Equatable {
         self.isIncoming = try container.decode(Bool.self, forKey: .isIncoming)
         self.readAt = try container.decodeIfPresent(Date.self, forKey: .readAt)
         self.isStarred = try container.decodeIfPresent(Bool.self, forKey: .isStarred) ?? false
+        self.attachment = try container.decodeIfPresent(ChatAttachment.self, forKey: .attachment)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -129,6 +148,7 @@ struct ChatMessage: Identifiable, Codable, Equatable {
         try container.encode(isIncoming, forKey: .isIncoming)
         try container.encodeIfPresent(readAt, forKey: .readAt)
         try container.encode(isStarred, forKey: .isStarred)
+        try container.encodeIfPresent(attachment, forKey: .attachment)
     }
 }
 
@@ -209,7 +229,7 @@ struct TrustedPeer: Identifiable, Codable, Equatable {
     var displayName: String
     let keyAgreementPublicKeyBase64: String
     let signingPublicKeyBase64: String
-    let safetyNumber: String
+    var safetyNumber: String
     var trustState: TrustState
     let firstSeenAt: Date
     var lastVerifiedAt: Date?

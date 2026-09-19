@@ -1,58 +1,83 @@
-# PrivateChat / SecureChat – Production Candidate Summary
+# SecureChat – TestFlight Candidate Summary
 
 **App target:** `PrivateChat`  
 **Bundle ID:** `org.francois.PrivateChat`  
-**Production Relay:** `https://chatsecure.ddns.net`  
-**Status:** Production Candidate ⚠️ – external security audit still required
+**Marketing version:** `1.4.2`  
+**Build:** `14`
+**Production relay:** `https://securechat.team`
+**Status:** TestFlight candidate; external security audit still open
 
-## Current position
+## Active security posture
 
-PrivateChat/SecureChat is a hardened secure-messaging candidate with local encrypted persistence, Keychain-backed identity material, manual QR pairing, trust-state handling and a hardened TypeScript Relay Server.
+The active Release/TestFlight message path uses the established
+protocolVersion 2 envelope:
 
-The project must not claim final production-grade cryptographic assurance until the active `PrivateChat` target has dedicated tests and an external security audit.
+- X25519 pairwise key agreement
+- HKDF-SHA256 key derivation
+- AES-GCM authenticated encryption
+- Ed25519 signed transport envelopes
+- Keychain-backed long-term identity keys
+- encrypted local message, draft and attachment stores
+- peer-bound relay request signatures
 
-## Implemented hardening
+The newer Double Ratchet implementation remains available in the
+source tree for engineering and unit tests but is **disabled on the
+active TestFlight/Release path**. It must not be presented as a
+reviewed production guarantee until its bootstrap, DH-turn rotation
+and crash-persistence behavior have completed a dedicated external
+cryptographic review.
 
-- Single active iOS app target: `PrivateChat`.
-- Local message store encrypted with AES-GCM.
-- Store keys and trust state stored outside UserDefaults.
-- Pairing payloads and Safety Number workflow.
-- Relay packets are signed and AEAD-protected before upload.
-- Relay server uses bearer-token authorization for `/v1/relay/*`.
-- Public relay is HTTPS-only through Caddy at `https://chatsecure.ddns.net`.
-- Separate `RELAY_AUTH_TOKEN` and `RELAY_ADMIN_TOKEN`.
-- Runtime Security view and local Security Sentinel.
-- Privacy Composer and preview-protection settings.
-- `PrivacyInfo.xcprivacy` added.
+## TestFlight hardening completed
 
-## Phase 14.4 cleanup
+- Canonical relay moved to `https://securechat.team`.
+- The legacy `chatsecure.ddns.net` value is migrated away.
+- Production `TransportCoordinator` now receives the real
+  `IdentityManager` signing context and `CryptoService`.
+- Inbox GET requests are peer-signed, not bearer-only.
+- Missing signing identity fails closed rather than creating a
+  temporary random signing key.
+- Critical Keychain/encrypted-store startup failure blocks unlock.
+- Safety Numbers are now SC2 pair-bound fingerprints derived from
+  both peers' Ed25519 public keys.
+- Existing verified contacts are automatically downgraded to
+  unverified when migrated to SC2 and must be compared again.
+- Pairing UI no longer exposes a one-tap verification bypass.
+- Block/unverify/delete removes stored experimental ratchet state.
+- GitHub CI now builds/tests the actual root Xcode project instead
+  of the removed public RelayServer tree.
+- Build number bumped to 14.
+- The user-facing navigation is chat-first: `Chats`, `Kontakte` and
+  `Einstellungen`. Diagnostics are available from Settings instead of
+  occupying the launch tab.
+- The conversation list and composer no longer expose operational
+  counters, relay summaries or implementation-detail banners during
+  normal messaging.
+- The TestFlight preflight now reads the exact bundle identifier and
+  permits obsolete relay strings only inside the explicit migration list.
+- Photos, short videos and documents can be selected or captured in the chat.
+  Attachments are split into relay-safe paced encrypted packets,
+  integrity-checked on receipt and stored locally with a separate
+  Keychain-backed AES-GCM key.
+- Chat bubbles use explicit high-contrast foreground and background colors.
 
-- Removed packaged `LegacyReference/` to eliminate duplicate-code security risk.
-- Removed stale `Tests/schatTests/` because they did not test the active `PrivateChat` target.
-- Added `Tests/README.md` with the required PrivateChat test migration scope.
-- Corrected KDF documentation: password-channel derivation is a custom memory-hard KDF, not Argon2id.
-- Auto-polling now blocks old local Relay URLs and requires a plausible `RELAY_AUTH_TOKEN` before Relay API calls.
+## Remaining release checks
 
-## Required before stronger production claims
+Before distributing Build 14 beyond a small internal TestFlight
+group:
 
-1. Create a real `PrivateChatTests` target.
-2. Add tests for `PrivateChat/Core/Security`, `PrivateChat/Core/Transport`, encrypted store migration and Relay configuration migration.
-3. Replace or externally review the custom memory-hard KDF before marketing it as high-assurance password hashing.
-4. Run an external security review of the active app and Relay server.
-5. Test Release/TestFlight builds on physical iPhone hardware.
-
-## App configuration
-
-```text
-Relay URL:
-https://chatsecure.ddns.net
-
-Relay Token:
-RELAY_AUTH_TOKEN from /opt/securechat/.env
-```
-
-Do not put `RELAY_ADMIN_TOKEN` into the app.
-
-## Phase 14.5 Update
-
-Status remains Production Candidate. Phase 14.5 fixes the most direct App Store / security-readiness findings: encrypted drafts instead of UserDefaults plaintext, backup exclusion for encrypted local stores, Privacy Manifest FileTimestamp reason, managed Relay auto-sync lifecycle, and initial PrivateChat unit-test target. External audit and broader ConversationService refactor remain open.
+1. GitHub iOS CI must be green.
+2. Archive the Release build on the MacBook in Xcode.
+3. Fresh-install on two physical iPhones.
+4. Pair both directions and verify identical SC2 Safety Numbers.
+5. Validate peer enrollment, SEND, inbox GET, ACK and reconnect.
+6. Kill/relaunch the app between messages and verify encrypted local
+   state remains readable.
+7. Block, unblock, delete and re-pair contacts.
+8. Review App Store privacy and export-compliance answers.
+9. Keep the external security/cryptographic audit as an explicit
+   precondition for stronger security claims.
+10. Send and open a photo, short video, PDF and text document in both
+    directions; test direct camera capture on physical hardware and confirm
+    larger transfers do not trigger HTTP 429.
+11. Update the public status page: it still reports Build 11 and an enforced
+    Double Ratchet, which does not match this Build 14 candidate.

@@ -116,7 +116,7 @@ public final class DoubleRatchetSession {
     /// keep using the same `DoubleRatchetSession` instance for
     /// all messages in a single outgoing turn.
     public func encrypt(_ plaintext: Data) throws -> WireMessage {
-        let (chainKey, messageKey) = try stepSendChain()
+        let (_, messageKey) = try stepSendChain()
         let aad = aadBytes(
             sessionID: sessionID,
             ratchetPK: dhRatchetKeyPair.publicKey.rawRepresentation,

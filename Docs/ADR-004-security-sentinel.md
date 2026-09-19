@@ -38,7 +38,8 @@ local-only assessment layer. It is implemented in
 `PrivateChat/Core/Security/SecurityAISentinel.swift` and surfaces
 in:
 
-- `Features/Chat/DashboardView.swift` (top-of-screen score + level)
+- `Features/Chat/DashboardView.swift` (diagnostics screen, reachable from
+  Settings)
 - `Features/Settings/SecuritySentinelView.swift` (full findings list)
 - `Features/Settings/ProductionReadinessView.swift` (one of the
   readiness checks; surfaces the sentinel as a named dependency)
@@ -75,7 +76,7 @@ in:
 ### Privacy posture
 
 Because the sentinel runs entirely on-device and is invoked only
-when the user opens the Dashboard or the Sentinel view, it adds
+when the user opens the diagnostics or Sentinel view, it adds
 zero new data flow. The score, the findings, and the summary are
 stored only in memory unless the user takes a screenshot or shares
 them manually. There is no "sentinel log" that is uploaded, no
@@ -98,11 +99,10 @@ across users.
 
 ## Consequences
 
-- The Dashboard now shows a "Sentinel" card that drives the
-  most-actionable finding to the top. Beta testers have used
-  this card to find misconfigured relay URLs, expired tokens,
-  and accidentally-disabled biometric unlock during the
-  closed-beta phase.
+- The diagnostics screen shows a "Sentinel" card that drives the
+  most-actionable finding to the top. It is intentionally kept outside the
+  primary chat navigation and is available through
+  `Einstellungen → Diagnose & Sicherheitsstatus`.
 - The score is *not* an absolute truth; it is a heuristic over
   a fixed rule set. We document that in the in-app help text.
 - The sentinel has a unit-testable surface

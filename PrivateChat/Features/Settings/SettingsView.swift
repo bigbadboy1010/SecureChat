@@ -44,6 +44,12 @@ struct SettingsView: View {
 
                 SwiftUI.Section {
                     NavigationLink {
+                        DashboardView(service: service)
+                    } label: {
+                        Label("Diagnose & Sicherheitsstatus", systemImage: "gauge.with.dots.needle.67percent")
+                    }
+
+                    NavigationLink {
                         PrivacyPolicyView()
                     } label: {
                         Label("Datenschutzerklärung", systemImage: "hand.raised")
@@ -536,7 +542,7 @@ struct SettingsView: View {
                     Text("Persistenz")
                 }
             }
-            .navigationTitle("Security")
+            .navigationTitle("Einstellungen")
             .privateChatErrorAlert(service: service)
             .onAppear {
                 loadRelayConfiguration()
@@ -760,6 +766,9 @@ struct SettingsView: View {
         state.restrictRelayOnRuntimeRisk = restrictRelayOnRuntimeRisk
 
         service.updateSecurityState(state)
+        Task {
+            await service.enrollLocalPeerIfNeeded()
+        }
     }
 
     private func saveLocalRetention() {

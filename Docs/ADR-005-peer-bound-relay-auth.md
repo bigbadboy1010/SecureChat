@@ -69,13 +69,14 @@ empty string.
 
 The relay keeps a server-side **peer registry** that maps
 `X-Securechat-Peer-ID` (a SHA-256 of the peer's Ed25519 public
-key, 32 hex chars) to the peer's registered Ed25519 public
-key. The registry is populated by:
+key, encoded as 64 lowercase hex characters) to the peer's
+registered Ed25519 public key. The registry is populated by:
 
 1. **Pairing bootstrap:** when a new peer enrolls through the
    iOS app's pairing flow, the app registers its public key
-   with the relay by submitting a signed enrollment packet
-   to `POST /v1/relay/peers`.
+   with the relay through bearer-authenticated
+   `POST /v1/relay/peers`. Enrollment itself is not peer-signed
+   because the registry does not contain that peer yet.
 2. **Self-hosted relays:** the operator seeds the registry
    from a `peers.json` file at startup.
 

@@ -5,10 +5,10 @@
 > significantly behind the live relay and the
 > `CURRENT-ENDPOINTS.md` source of truth. This
 > document is now the canonical public contract
-> for the `relay.securechat.team` surface.
+> for the `securechat.team` surface.
 
 This contract covers the **public** relay
-surface served by `https://relay.securechat.team`
+surface served by `https://securechat.team`
 behind a Caddy TLS terminator. The single source
 of truth for endpoint names, host names, and
 auth requirements is
@@ -26,7 +26,7 @@ back here for the wire-format details.
 
 | Surface      | URL                                          |
 | ------------ | -------------------------------------------- |
-| Public prod  | `https://relay.securechat.team`              |
+| Public prod  | `https://securechat.team`              |
 | Public prod  | `https://securechat.team/v2-stats.html`      |
 | Local dev    | `http://localhost:8080` (only in Debug)      |
 
@@ -70,10 +70,10 @@ peer-bound signing code, every request will
 additionally carry:
 
 ```text
-X-Securechat-Peer-ID:    <hex-encoded Curve25519 public peer ID>
-X-Securechat-Timestamp:  <unix epoch seconds, integer>
-X-Securechat-Nonce:      <32 random bytes, hex>
-X-Securechat-Signature:  <hex-encoded Ed25519 signature>
+X-Securechat-Peer-ID:    <hex SHA-256 of Ed25519 public key>
+X-Securechat-Timestamp:  <RFC3339 timestamp>
+X-Securechat-Nonce:      <base64url of 16 random bytes, unpadded>
+X-Securechat-Signature:  <base64url Ed25519 signature, unpadded>
 ```
 
 The signature is computed over a canonical
@@ -101,7 +101,7 @@ for the migration plan.
 
 ```http
 GET /healthz HTTP/1.1
-Host: relay.securechat.team
+Host: securechat.team
 ```
 
 Response (200):
@@ -234,6 +234,29 @@ assigned `packetID`; duplicate sends return
 the original `packetID` (idempotent within
 the TTL window).
 
+Attachment clients derive a stable packet ID from message ID, chunk index and
+recipient ID. Retrying a partially uploaded attachment therefore reuses the
+same relay entries instead of consuming additional recipient-queue capacity.
+
+#### Encrypted attachments (client payload)
+
+The relay remains attachment-agnostic: photos, videos and documents are never
+uploaded as plaintext or to a separate media endpoint. The sender splits an
+attachment into 64 KiB chunks and sends each chunk inside the existing signed and
+end-to-end-encrypted packet envelope. The decrypted client payload uses
+`kind = attachmentChunk` and includes attachment metadata, zero-based
+`chunkIndex`, `totalChunks`, the complete-file SHA-256 digest and the Base64
+chunk bytes.
+
+The receiving client persists incomplete chunks encrypted at rest, assembles
+only when every chunk is present, and verifies both the declared byte count and
+SHA-256 digest before exposing the attachment. Current clients enforce an
+8 MiB attachment ceiling and at most 256 chunks. The 64 KiB chunk size leaves
+headroom beneath the production relay's 128 KiB packet limit after JSON,
+Base64, AES-GCM and envelope overhead. Relay-bound attachment chunks are paced
+at 650 ms or slower per app instance to avoid exhausting the production
+120-requests-per-minute abuse limit during a larger transfer.
+
 ### 4.3 `GET /v1/relay/messages?recipientID=...`
 
 Fetch the inbox for the calling peer. Query
@@ -270,7 +293,7 @@ plus per-peer counters and last-seen
 timestamps. Requires
 `Authorization: Bearer $RELAY_ADMIN_TOKEN`.
 
-### 5.2 `POST /v1/admin/relay/purge`
+### 5.2 `POST /v1/admin/relay/messages/purge`
 
 Purge all packets for a `recipientID`. Requires
 admin token. Body: `{recipientID: string}`.

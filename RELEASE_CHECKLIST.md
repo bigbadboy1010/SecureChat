@@ -1,64 +1,110 @@
-# PrivateChat / SecureChat – Release Checklist
+# SecureChat – TestFlight / Release Checklist
 
 ## Current status
 
-Status: **Production Candidate, not externally audited**.
+Status: **TestFlight candidate, not externally audited**.
+
+The active production message path uses protocolVersion 2:
+X25519 pairwise key agreement + AES-GCM payload protection + Ed25519
+signed envelopes. The experimental Double Ratchet implementation is
+kept in the source tree but is disabled in TestFlight/Release until a
+dedicated cryptographic review is complete.
 
 ## Build identity
 
-- [ ] Open `PrivateChat.xcodeproj`
-- [ ] Target: `PrivateChat`
-- [ ] Bundle ID: `org.francois.PrivateChat`
-- [ ] Deployment target: iOS 16+
-- [ ] Release/TestFlight build on physical iPhone tested
+- [x] Xcode project: `PrivateChat.xcodeproj`
+- [x] Target / scheme: `PrivateChat`
+- [x] Bundle ID: `org.francois.PrivateChat`
+- [x] Marketing version: `1.4.2`
+- [x] TestFlight build: `14`
+- [x] Deployment target: iOS 16+
+- [ ] Archive succeeds on the MacBook with Release configuration
+- [ ] Build 14 tested on at least two physical iPhones
+
+## Chat-first UI
+
+- [x] App opens on the conversation list, not the diagnostics dashboard
+- [x] Top-level tabs are `Chats`, `Kontakte`, `Einstellungen`
+- [x] Operational metrics and relay summaries are removed from the chat list
+- [x] Composer is limited to message entry, send action and actionable warnings
+- [x] Diagnostics remain available under Settings
+- [ ] Chat-first navigation smoke-tested on a physical iPhone
+- [ ] Dynamic Type, VoiceOver labels and dark-mode contrast checked on device
+
+## Encrypted attachments
+
+- [x] Photo/video library picker, device-camera capture and Files document picker implemented
+- [x] Attachments are chunked below the production relay packet ceiling
+- [x] Inbound attachments are accepted only after byte-count and SHA-256 verification
+- [x] Complete attachments and pending chunks are encrypted locally and excluded from backup
+- [ ] Photo and short-video send/receive tested in both directions on physical devices
+- [ ] PDF and text-document send/receive/relaunch tested in both directions
+- [ ] Larger attachment transfer completes without HTTP 429
+- [ ] Camera photo/video capture tested on a physical iPhone and iPad
 
 ## Relay configuration
 
-- [ ] Relay URL is `https://chatsecure.ddns.net`
-- [ ] App contains only `RELAY_AUTH_TOKEN`
-- [ ] App does not contain `RELAY_ADMIN_TOKEN`
-- [ ] `/health` returns 200
-- [ ] `/v1/relay/security/policy` without token returns 401
-- [ ] `/v1/relay/security/policy` with `RELAY_AUTH_TOKEN` returns 200
-- [ ] Old local Relay URLs are not visible in Xcode logs
+- [x] Canonical relay URL is `https://securechat.team`
+- [x] Legacy `chatsecure.ddns.net` migrates to the canonical relay
+- [x] Plain HTTP / LAN relay URLs are blocked for Release
+- [x] App contains only the client `RELAY_AUTH_TOKEN`
+- [x] App does not contain `RELAY_ADMIN_TOKEN`
+- [x] Production `TransportCoordinator` is wired to the Keychain identity
+- [x] Inbox GET requests use the same peer-bound signature path as writes/ACKs
+- [ ] `https://securechat.team/healthz` returns HTTP 200
+- [ ] Peer enrollment succeeds from a fresh physical-device install
+- [ ] SEND → GET inbox → ACK works between two physical devices
 
-## App security
+## Identity and trust
 
-- [ ] Biometric unlock enabled
-- [ ] Preview protection reviewed
-- [ ] Keyboard suggestion reduction enabled for sensitive input
-- [ ] Runtime Security checked in Release/TestFlight build
-- [ ] Security Sentinel reviewed
-- [ ] Diagnostics report contains no chat plaintext
+- [x] SC2 Safety Number is derived symmetrically from both Ed25519 public keys
+- [x] Legacy verified peers are forced back to unverified after SC2 migration
+- [x] Direct “Verifizieren” bypass was removed from Pairing UI
+- [x] Block / unverify / delete revokes stored experimental ratchet state
+- [ ] Compare the same SC2 Safety Number on both physical devices
+- [ ] Key-change / re-pair flow tested
 
-## Code review cleanup
+## Local security
 
-- [x] `LegacyReference/` removed from package
-- [x] stale `schatTests` removed from package
-- [x] `PrivacyInfo.xcprivacy` added
-- [x] KDF documentation corrected: custom memory-hard KDF, not Argon2id
-- [ ] Real `PrivateChatTests` target added
-- [ ] Active `PrivateChat/Core/Security` tests added
-- [ ] Active `PrivateChat/Core/Transport` tests added
-- [ ] External security audit completed
+- [x] Identity and trust records stored in iOS Keychain
+- [x] Message, draft and attachment stores encrypted with AES-GCM
+- [x] Sensitive local stores excluded from backup
+- [x] Critical Keychain/store bootstrap failure is fail-closed
+- [x] Privacy manifest present
+- [ ] Biometric unlock tested on physical hardware
+- [ ] Background/app-switch preview behavior reviewed
 
-## App Store / privacy
+## Automated gates
 
-- [x] Camera usage description for QR pairing
+- [x] Real `PrivateChatTests` target exists
+- [x] Security / crypto tests exist
+- [x] Encrypted-store tests exist
+- [x] Request-signing tests exist
+- [x] Production-profile migration tests exist
+- [x] Pull requests run Xcode unit tests and a Release compile gate
+- [x] Public-repo SBOM job no longer depends on the private relay repository
+- [x] TestFlight preflight reads the exact bundle-ID build setting
+- [x] Legacy relay scan permits only the explicit migration compatibility list
+- [ ] GitHub CI green for the TestFlight hardening PR
+- [ ] Protect `main` and require the iOS CI check before merge
+
+## App Store Connect
+
+- [x] Camera usage description for QR pairing and chat media capture
+- [x] Microphone usage description for user-initiated video capture
 - [x] Face ID usage description
-- [x] Local Network usage description
 - [x] Privacy manifest added
-- [ ] App Privacy answers reviewed in App Store Connect
-- [ ] Export compliance reviewed
+- [ ] App Privacy answers reviewed against the current relay metadata model
+- [ ] Export-compliance answers reviewed
+- [ ] Privacy Policy and Support URLs verified publicly
+- [x] TestFlight “What to Test” text updated for Build 14, chat-first navigation and encrypted media
+- [x] iPhone acceptance guide aligned with the current SecureChat UI and relay
+- [ ] Public status page updated from Build 11 to 1.4.2 (Build 14)
+- [ ] Public status-page crypto claim aligned with the active protocolVersion 2
+      Release path; experimental Double Ratchet must not be marked enforced
 
 ## Final gate
 
-Do not market the app as independently audited secure messaging until the external audit and active target tests are complete.
-
-## Phase 14.5 Checklist Additions
-
-- [ ] Verify `PrivacyInfo.xcprivacy` includes UserDefaults and FileTimestamp reasons.
-- [ ] Verify encrypted drafts migrate from legacy UserDefaults and are removed from UserDefaults after launch.
-- [ ] Verify `messages.store` and `drafts.store` are excluded from backup.
-- [ ] Run `PrivateChatTests` in Xcode.
-- [ ] Verify `https://chatsecure.ddns.net/health` and Relay policy checks remain green.
+Do not market SecureChat as independently audited, Signal-protocol
+compatible, or as providing a reviewed Double Ratchet until those
+claims are supported by an external cryptographic/security audit.

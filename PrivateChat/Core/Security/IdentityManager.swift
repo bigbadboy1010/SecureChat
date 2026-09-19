@@ -128,13 +128,24 @@ final class IdentityManager: IdentityManaging, PeerBoundSigningContext {
             throw PrivateChatError.invalidPairingPayload
         }
 
+        guard let localSigningPrivateKeyData = try keychain.readData(account: Account.signingPrivateKey) else {
+            throw PrivateChatError.invalidKeyMaterial
+        }
+        let localSigningPrivateKey = try Curve25519.Signing.PrivateKey(
+            rawRepresentation: localSigningPrivateKeyData
+        )
+
         let peerID = crypto.peerID(publicKeyData: signingPublicKeyData)
+        let safetyNumber = SafetyNumberV2.make(
+            localSigningPublicKeyData: localSigningPrivateKey.publicKey.rawRepresentation,
+            remoteSigningPublicKeyData: signingPublicKeyData
+        )
         return TrustedPeer(
             id: peerID,
             displayName: Self.normalizedDisplayName(payload.displayName),
             keyAgreementPublicKeyBase64: payload.keyAgreementPublicKeyBase64,
             signingPublicKeyBase64: payload.signingPublicKeyBase64,
-            safetyNumber: crypto.safetyNumber(peerID: peerID),
+            safetyNumber: safetyNumber,
             trustState: .unverified
         )
     }
@@ -179,33 +190,14 @@ final class IdentityManager: IdentityManaging, PeerBoundSigningContext {
         }
     }
 
-    public func currentSigningPrivateKey() -> Curve25519.Signing.PrivateKey {
-        // The forced-try here is acceptable
-        // because the only failure mode is a
-        // corrupt keychain. If that happens
-        // we want the relay request to fail
-        // loudly (the transport catches
-        // `try?` and sends an unsigned
-        // request, which the relay will
-        // refuse once
-        // `RELAY_REQUIRE_PEER_AUTH=*** is
-        // enabled).
-        if let identity = try? loadOrCreateLocalIdentity(displayName: "") {
-            return identity.signingPrivateKey
+    public func currentSigningPrivateKey() -> Curve25519.Signing.PrivateKey? {
+        do {
+            return try loadOrCreateLocalIdentity(displayName: "").signingPrivateKey
+        } catch {
+            Self.logger.error(
+                "PeerBoundSigningContext.currentSigningPrivateKey failed: \(error.localizedDescription, privacy: .public)"
+            )
+            return nil
         }
-        // Fallback: a fresh in-memory
-        // signing key. This is **not**
-        // persisted and **not** the user's
-        // real identity; it is only used so
-        // the transport can still build a
-        // canonical string in the unlikely
-        // case the keychain is unreachable.
-        // The relay will reject the
-        // signature (the public key is not
-        // registered) and the request will
-        // fail with 401/403, which the
-        // transport surfaces as a normal
-        // network error.
-        return Curve25519.Signing.PrivateKey()
     }
 }

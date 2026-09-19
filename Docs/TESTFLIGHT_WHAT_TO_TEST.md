@@ -3,14 +3,21 @@
 ```text
 Bitte testen:
 1. Onboarding durchlaufen und Beta-Hinweis bestätigen.
-2. Display-Name im Pairing-Tab ändern und Pairing-Code neu laden.
-3. Dashboard → Solo-Test-Chat anlegen und lokale verschlüsselte Speicherung prüfen.
-4. Security → Transport: Production Relay https://chatsecure.ddns.net aktivieren und RELAY_AUTH_TOKEN eintragen.
-5. Relay prüfen, Inbox abrufen und Diagnosebericht teilen/kopieren.
-6. Pairing mit zweitem Gerät testen: QR scannen, Safety Number vergleichen, Kontakt verifizieren, Nachricht senden.
-7. Chat-Details → Safety Number vergleichen: Gruppen aktiv bestätigen und Peer verifizieren.
+2. Prüfen, dass die App mit „Chats“ startet und nur „Chats“, „Kontakte“ und „Einstellungen“ als Tabs zeigt.
+3. Unter „Chats“ einen lokalen Chat anlegen, eine Nachricht senden, einen Entwurf stehen lassen und die App neu starten. Nachricht und Entwurf müssen erhalten bleiben.
+4. Suche, Filter, ungelesene Markierung, Fixieren, Stummschalten und Archivieren testen.
+5. Unter „Kontakte“ den Anzeigenamen ändern, den eigenen QR-Code neu laden und einen Kontakt per QR importieren.
+6. Auf zwei Geräten die gleiche Safety Number vergleichen, den Kontakt verifizieren und Nachrichten in beide Richtungen senden.
+7. In einem verifizierten Zwei-Geräte-Chat über `+` ein Foto und ein kurzes Video aus der Mediathek senden. Danach auf dem Empfänger beide Anhänge antippen und prüfen, dass Foto beziehungsweise Video geöffnet werden.
+8. Auf einem physischen iPhone oder iPad über `+ → Kamera öffnen` ein Foto und ein kurzes Video aufnehmen und senden. Kamera- und Mikrofonabfrage müssen verständlich erscheinen; Abbrechen darf keine leere Nachricht erzeugen.
+9. Über `+ → Datei oder Dokument auswählen` je eine PDF- und Textdatei bis maximal 8 MB senden, auf dem Empfänger öffnen und nach einem App-Neustart erneut öffnen.
+10. Bei einem größeren Anhang kontrollieren, dass während des Versands kein HTTP 429 im Log erscheint. Einen unterbrochenen Versand einmal erneut versuchen; die Empfänger-Queue darf dadurch nicht um einen zweiten vollständigen Satz Chunks wachsen. Der Versand und Inbox-ACK dürfen wegen der Relay-sicheren Taktung länger dauern.
+11. Im hellen und dunklen Erscheinungsbild prüfen, dass eingehende und ausgehende Nachrichtentexte klar lesbar bleiben.
+12. Unter „Einstellungen“ den Production Relay https://securechat.team mit dem separat bereitgestellten RELAY_AUTH_TOKEN aktivieren.
+13. Unter „Einstellungen → Diagnose & Sicherheitsstatus“ Relay-Zustand, Inbox-Sync und Diagnosebericht prüfen.
+14. Offline senden, Verbindung wiederherstellen und Zustellung/ACK kontrollieren.
 
-Hinweis: Für Solo-Test ist kein zweites Gerät erforderlich. Für Relay-Tests wird der separate RELAY_AUTH_TOKEN benötigt. Bitte keine Tokens oder Chat-Inhalte im Feedback posten.
+Hinweis: Für den lokalen Chat ist kein zweites Gerät erforderlich. Für echte E2E-/Relay-Tests werden zwei Geräte und der separate RELAY_AUTH_TOKEN benötigt. Bitte keine Tokens, Safety Numbers oder Chat-Inhalte im Feedback posten.
 ```
 
 # Reviewer Notes
@@ -18,7 +25,7 @@ Hinweis: Für Solo-Test ist kein zweites Gerät erforderlich. Für Relay-Tests w
 ```text
 PrivateChat ist ein Production-Candidate für TestFlight. Die App nutzt lokale Keychain-Schlüssel, verschlüsselten lokalen Speicher und optional einen selbst betriebenen HTTPS-Relay. Der Relay kann keine Nachrichtenklartexte lesen.
 
-Für Tests ohne zweites Gerät gibt es im Dashboard einen Solo-Test-Modus. Für echte Peer-Tests bitte zwei Geräte installieren und Pairing per QR-Code durchführen.
+Für Tests ohne zweites Gerät kann direkt unter „Chats“ ein lokaler Chat angelegt werden. Für echte Peer-Tests bitte SecureChat auf zwei Geräten installieren und Kontakte per QR-Code koppeln.
 
 Kein Demo-Account erforderlich. Relay-Token wird nicht öffentlich bereitgestellt und wird nur für interne TestFlight-Tester verteilt.
 ```

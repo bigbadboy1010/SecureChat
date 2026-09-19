@@ -60,6 +60,29 @@ final class CryptoServiceTests: XCTestCase {
         XCTAssertEqual(aliceKey.testData, bobKey.testData)
     }
 
+    func testPairBoundSafetyNumberIsSymmetric() {
+        let alice = Curve25519.Signing.PrivateKey().publicKey.rawRepresentation
+        let bob = Curve25519.Signing.PrivateKey().publicKey.rawRepresentation
+        let mallory = Curve25519.Signing.PrivateKey().publicKey.rawRepresentation
+
+        let aliceView = SafetyNumberV2.make(
+            localSigningPublicKeyData: alice,
+            remoteSigningPublicKeyData: bob
+        )
+        let bobView = SafetyNumberV2.make(
+            localSigningPublicKeyData: bob,
+            remoteSigningPublicKeyData: alice
+        )
+        let differentPair = SafetyNumberV2.make(
+            localSigningPublicKeyData: alice,
+            remoteSigningPublicKeyData: mallory
+        )
+
+        XCTAssertEqual(aliceView, bobView)
+        XCTAssertTrue(aliceView.hasPrefix("SC2 "))
+        XCTAssertNotEqual(aliceView, differentPair)
+    }
+
     func testPeerIDAndSafetyNumberAreStable() {
         let publicKeyData = Curve25519.Signing.PrivateKey().publicKey.rawRepresentation
         let peerID = crypto.peerID(publicKeyData: publicKeyData)

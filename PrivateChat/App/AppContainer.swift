@@ -9,11 +9,22 @@ final class AppContainer: ObservableObject {
 
     let conversationService: ConversationService
     private let biometricGate: BiometricGating
+    private let hasCriticalStartupFailure: Bool
 
-    private init(conversationService: ConversationService, biometricGate: BiometricGating, startupErrorMessage: String?) {
+    var canUnlock: Bool {
+        hasCriticalStartupFailure == false
+    }
+
+    private init(
+        conversationService: ConversationService,
+        biometricGate: BiometricGating,
+        startupErrorMessage: String?,
+        hasCriticalStartupFailure: Bool = false
+    ) {
         self.conversationService = conversationService
         self.biometricGate = biometricGate
         self.startupErrorMessage = startupErrorMessage
+        self.hasCriticalStartupFailure = hasCriticalStartupFailure
         self.isUnlocked = false
     }
 
@@ -24,13 +35,21 @@ final class AppContainer: ObservableObject {
         let peerTrustStore = PeerTrustStore(keychain: keychain)
         let settingsStore = SecuritySettingsStore(keychain: keychain)
         let relayPacketLedgerStore = RelayPacketLedgerStore(keychain: keychain)
-        let transportCoordinator = TransportCoordinator()
+        // Production relay requests must be bound to the same long-term
+        // identity that is stored in Keychain. Passing IdentityManager and
+        // CryptoService here enables peer enrollment and X-Securechat-*
+        // request signatures for SEND, inbox GET, ACK and other relay calls.
+        let transportCoordinator = TransportCoordinator(
+            signingContext: identityManager,
+            crypto: crypto
+        )
         let biometricGate = BiometricGate()
 
         do {
             let identity = try identityManager.loadOrCreateLocalIdentity(displayName: UIDeviceNameProvider.defaultDisplayName)
             let messageStore = try EncryptedMessageStore(keychain: keychain, crypto: crypto)
             let draftStore = try EncryptedDraftStore(keychain: keychain, crypto: crypto)
+            let attachmentStore = try EncryptedAttachmentStore(keychain: keychain, crypto: crypto)
             let service = ConversationService(
                 localIdentity: identity,
                 messageStore: messageStore,
@@ -40,9 +59,14 @@ final class AppContainer: ObservableObject {
                 relayPacketLedgerStore: relayPacketLedgerStore,
                 identityManager: identityManager,
                 crypto: crypto,
-                transportCoordinator: transportCoordinator
+                transportCoordinator: transportCoordinator,
+                attachmentStore: attachmentStore
             )
-            service.load()
+            guard service.load() else {
+                throw PrivateChatError.persistenceFailed(
+                    service.lastErrorMessage ?? "Sicherheitszustand konnte nicht geladen werden"
+                )
+            }
             let container = AppContainer(conversationService: service, biometricGate: biometricGate, startupErrorMessage: nil)
             // Sprint 27 (2026-06-24): enroll the local
             // peer with the relay after the
@@ -52,7 +76,7 @@ final class AppContainer: ObservableObject {
             // synchronous. Failures are logged in
             // `ConversationService.enrollLocalPeerIfNeeded`
             // and do not block app startup.
-            Task.detached(priority: .utility) {
+            Task(priority: .utility) {
                 await service.enrollLocalPeerIfNeeded()
             }
             return container
@@ -75,11 +99,20 @@ final class AppContainer: ObservableObject {
                 transportCoordinator: transportCoordinator
             )
             service.load()
-            return AppContainer(conversationService: service, biometricGate: biometricGate, startupErrorMessage: error.localizedDescription)
+            return AppContainer(
+                conversationService: service,
+                biometricGate: biometricGate,
+                startupErrorMessage: "Sicherheitskritischer Startfehler: \(error.localizedDescription)",
+                hasCriticalStartupFailure: true
+            )
         }
     }
 
     func unlock() async {
+        guard hasCriticalStartupFailure == false else {
+            return
+        }
+
         if conversationService.securityState.requireBiometricUnlock == false {
             isUnlocked = true
             return

@@ -17,15 +17,24 @@ final class RelayTransport: RelayMessageTransporting {
         configuration: RelayConfiguration,
         signingContext: PeerBoundSigningContext? = nil,
         crypto: CryptoServicing? = nil,
-        clientVersion: String = "org.francois.PrivateChat/1.4.2/12",
+        clientVersion: String? = nil,
         urlSession: URLSession? = nil
     ) {
         self.configuration = configuration
         self.signingContext = signingContext
         self.crypto = crypto
+        let marketingVersion = Bundle.main.object(
+            forInfoDictionaryKey: "CFBundleShortVersionString"
+        ) as? String ?? "unknown"
+        let buildVersion = Bundle.main.object(
+            forInfoDictionaryKey: "CFBundleVersion"
+        ) as? String ?? "unknown"
         self.clientVersion = clientVersion
+            ?? "org.francois.PrivateChat/\(marketingVersion)/\(buildVersion)"
         self.urlSession = urlSession ?? RelayTransport.makeDefaultURLSession()
-        self.encoder = DateCoding.makeEncoder()
+        let requestEncoder = DateCoding.makeEncoder()
+        requestEncoder.outputFormatting.insert(.withoutEscapingSlashes)
+        self.encoder = requestEncoder
         self.decoder = DateCoding.makeDecoder()
     }
 
@@ -34,10 +43,12 @@ final class RelayTransport: RelayMessageTransporting {
     }
 
     func send(_ packet: OutboundTransportPacket) async throws {
-        var request = try makeRequest(path: "/v1/relay/messages")
-        request.httpMethod = "POST"
-        request.httpBody = try encoder.encode(packet)
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body = try encoder.encode(packet)
+        let request = try makeRequest(
+            path: "/v1/relay/messages",
+            method: "POST",
+            body: body
+        )
 
         let data = try await perform(request)
         let sendResponse = try decoder.decode(RelaySendResponse.self, from: data)
@@ -47,23 +58,21 @@ final class RelayTransport: RelayMessageTransporting {
     }
 
     func fetchInbox(recipientID: String, limit: Int) async throws -> [OutboundTransportPacket] {
-        let baseURL = try validatedBaseURL()
-        guard var components = URLComponents(url: baseURL.appendingPathComponent("v1/relay/messages"), resolvingAgainstBaseURL: false) else {
-            throw PrivateChatError.invalidRelayURL
-        }
-
-        components.queryItems = [
+        let queryItems = [
             URLQueryItem(name: "recipientID", value: recipientID),
             URLQueryItem(name: "limit", value: String(max(1, min(limit, 100))))
         ]
 
-        guard let endpointURL = components.url else {
-            throw PrivateChatError.invalidRelayURL
-        }
-
-        var request = URLRequest(url: endpointURL)
-        request.httpMethod = "GET"
-        applyDefaultHeaders(to: &request)
+        // Use the common request builder so inbox reads receive the
+        // same bearer token + peer-bound Ed25519 signature as writes,
+        // ACKs and deletes. Building the GET manually previously
+        // omitted X-Securechat-* signing headers and failed as soon
+        // as RELAY_REQUIRE_PEER_AUTH was enabled in production.
+        let request = try makeRequest(
+            path: "/v1/relay/messages",
+            method: "GET",
+            queryItems: queryItems
+        )
 
         let data = try await perform(request)
         let fetchResponse = try decoder.decode(RelayFetchResponse.self, from: data)
@@ -82,8 +91,10 @@ final class RelayTransport: RelayMessageTransporting {
     }
 
     private func acknowledge(packetID: UUID) async throws -> Bool {
-        var request = try makeRequest(path: "/v1/relay/messages/\(packetID.uuidString.lowercased())/ack")
-        request.httpMethod = "POST"
+        let request = try makeRequest(
+            path: "/v1/relay/messages/\(packetID.uuidString.lowercased())/ack",
+            method: "POST"
+        )
 
         let data = try await perform(request)
         let response = try decoder.decode(RelayDeleteResponse.self, from: data)
@@ -91,8 +102,10 @@ final class RelayTransport: RelayMessageTransporting {
     }
 
     private func legacyDelete(packetID: UUID) async throws -> Bool {
-        var request = try makeRequest(path: "/v1/relay/messages/\(packetID.uuidString.lowercased())")
-        request.httpMethod = "DELETE"
+        let request = try makeRequest(
+            path: "/v1/relay/messages/\(packetID.uuidString.lowercased())",
+            method: "DELETE"
+        )
 
         let data = try await perform(request)
         let response = try decoder.decode(RelayDeleteResponse.self, from: data)
@@ -105,8 +118,7 @@ final class RelayTransport: RelayMessageTransporting {
     /// ADR-005). Calling `/health` here would
     /// 401 in production with no ops token.
     func checkHealth() async throws -> RelayHealthStatus {
-        var request = try makeRequest(path: "/healthz")
-        request.httpMethod = "GET"
+        let request = try makeRequest(path: "/healthz")
 
         let data = try await perform(request)
         let status = try decoder.decode(RelayHealthStatus.self, from: data)
@@ -167,8 +179,12 @@ final class RelayTransport: RelayMessageTransporting {
             clientVersion: clientVersion
         )
 
-        var request = try makeRequest(path: "/v1/relay/peers", method: "POST", body: try encoder.encode(body))
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let request = try makeRequest(
+            path: "/v1/relay/peers",
+            method: "POST",
+            body: try encoder.encode(body),
+            includePeerSignature: false
+        )
 
         let data = try await perform(request)
         let response = try decoder.decode(RelayEnrollmentResponse.self, from: data)
@@ -180,18 +196,19 @@ final class RelayTransport: RelayMessageTransporting {
 
 
     func fetchStats() async throws -> RelayStatsResponse {
-        var request = try makeRequest(path: "/v1/relay/stats")
-        request.httpMethod = "GET"
+        let request = try makeRequest(path: "/v1/relay/stats")
 
         let data = try await perform(request)
         return try decoder.decode(RelayStatsResponse.self, from: data)
     }
 
     func purgeInbox(recipientID: String) async throws -> RelayPurgeResponse {
-        var request = try makeRequest(path: "/v1/relay/messages/purge")
-        request.httpMethod = "POST"
-        request.httpBody = try encoder.encode(RelayPurgeRequest(recipientID: recipientID))
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body = try encoder.encode(RelayPurgeRequest(recipientID: recipientID))
+        let request = try makeRequest(
+            path: "/v1/relay/messages/purge",
+            method: "POST",
+            body: body
+        )
 
         let data = try await perform(request)
         return try decoder.decode(RelayPurgeResponse.self, from: data)
@@ -211,7 +228,8 @@ final class RelayTransport: RelayMessageTransporting {
         path: String,
         method: String = "GET",
         queryItems: [URLQueryItem] = [],
-        body: Data? = nil
+        body: Data? = nil,
+        includePeerSignature: Bool = true
     ) throws -> URLRequest {
         let baseURL = try validatedBaseURL()
         let pathWithQuery: String
@@ -252,12 +270,19 @@ final class RelayTransport: RelayMessageTransporting {
         // produces. The signature is over
         // the assembled canonical string and
         // is verified server-side.
-        let signedHeaders: RequestSigner.SignedHeaders? = self.signingContext.flatMap { context in
-            let peerID = context.currentPeerID()
-            guard let peerID = peerID, peerID.isEmpty == false else {
-                return nil
+        let signedHeaders: RequestSigner.SignedHeaders?
+        if includePeerSignature, let context = signingContext {
+            guard let peerID = context.currentPeerID(), peerID.isEmpty == false,
+                  let signingKey = context.currentSigningPrivateKey() else {
+                // The production app always wires an IdentityManager as
+                // signingContext. If its keychain identity cannot be read,
+                // fail before the request leaves the device. Sending an
+                // unsigned request or inventing a temporary key would make
+                // authentication failures ambiguous and weaken identity
+                // binding.
+                throw PrivateChatError.invalidKeyMaterial
             }
-            return RequestSigner.sign(
+            signedHeaders = RequestSigner.sign(
                 method: method,
                 path: path,
                 queryStringCanonicalized: RequestSigner.canonicalQueryString(
@@ -267,8 +292,10 @@ final class RelayTransport: RelayMessageTransporting {
                 timestamp: RequestSigner.currentTimestamp(),
                 nonce: RequestSigner.makeNonce(),
                 peerID: peerID,
-                signingKey: context.currentSigningPrivateKey()
+                signingKey: signingKey
             )
+        } else {
+            signedHeaders = nil
         }
         applyDefaultHeaders(to: &request, signedHeaders: signedHeaders)
         return request

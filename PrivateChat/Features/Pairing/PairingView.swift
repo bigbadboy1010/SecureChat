@@ -34,7 +34,7 @@ struct PairingView: View {
                     }
                     .disabled(localDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 } header: {
-                    Text("Lokale Identität")
+                    Text("Mein Profil")
                 } footer: {
                     Text("Der Anzeigename wird lokal im Keychain gespeichert und in neuen Pairing-Codes als öffentlicher Name übertragen. Private Keys bleiben auf diesem Gerät.")
                 }
@@ -75,7 +75,7 @@ struct PairingView: View {
                         refreshLocalPairingCode()
                     }
                 } header: {
-                    Text("Mein Pairing")
+                    Text("Mein QR-Code")
                 }
 
                 SwiftUI.Section {
@@ -100,7 +100,7 @@ struct PairingView: View {
                         .disabled(inboundPairingCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
                 } header: {
-                    Text("Kontakt importieren")
+                    Text("Kontakt hinzufügen")
                 } footer: {
                     Text("Nach dem Import muss die Safety Number über einen zweiten Kanal verglichen werden. Erst danach Nachrichtenversand erlauben.")
                 }
@@ -115,10 +115,10 @@ struct PairingView: View {
                         }
                     }
                 } header: {
-                    Text("Vertrauensstatus")
+                    Text("Kontakte")
                 }
             }
-            .navigationTitle("Pairing")
+            .navigationTitle("Kontakte")
             .privateChatErrorAlert(service: service)
             .onAppear {
                 localDisplayName = service.localIdentity.displayName
@@ -235,8 +235,10 @@ private struct PeerTrustRow: View {
                     }
                     .buttonStyle(.bordered)
                 } else {
-                    Button("Verifizieren") {
-                        service.verifyPeer(id: peer.id)
+                    NavigationLink {
+                        SafetyNumberView(service: service, peer: peer)
+                    } label: {
+                        Text("Safety Number prüfen")
                     }
                     .buttonStyle(.borderedProminent)
                 }

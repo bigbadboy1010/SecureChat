@@ -179,7 +179,7 @@ struct ProductionReadinessView: View {
             VStack(spacing: 0) {
                 ProductionChecklistRow(title: "Tracking", value: "keine Tracking-SDKs", systemImage: "hand.raised", tint: .green)
                 Divider().opacity(0.45)
-                ProductionChecklistRow(title: "QR Pairing", value: "Camera Usage bleibt notwendig", systemImage: "qrcode.viewfinder", tint: .accentColor)
+                ProductionChecklistRow(title: "Kamera", value: "Pairing + Chat-Medien", systemImage: "camera", tint: .accentColor)
                 Divider().opacity(0.45)
                 ProductionChecklistRow(title: "LAN Relay", value: "Local Network Usage bleibt für Tests", systemImage: "network", tint: .accentColor)
                 Divider().opacity(0.45)

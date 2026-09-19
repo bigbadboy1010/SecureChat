@@ -140,11 +140,11 @@ enum SecurityAISentinel {
             let usesPublicHTTPS = SecureChatProductionProfile.isHTTPSProductionCandidate(trimmedURL)
 
             if usesProductionRelay && hasToken {
-                findings.append(SecurityAIFinding(title: "Production Relay konfiguriert", detail: "Die App nutzt https://chatsecure.ddns.net mit gesetztem RELAY_AUTH_TOKEN.", severity: .info, recommendation: "In der App regelmäßig Relay prüfen und bei Tokenwechsel nur RELAY_AUTH_TOKEN aktualisieren."))
+                findings.append(SecurityAIFinding(title: "Production Relay konfiguriert", detail: "Die App nutzt \(SecureChatProductionProfile.relayBaseURLString) mit gesetztem RELAY_AUTH_TOKEN.", severity: .info, recommendation: "In der App regelmäßig Relay prüfen und bei Tokenwechsel nur RELAY_AUTH_TOKEN aktualisieren."))
             }
 
             if SecureChatProductionProfile.isObsoleteLocalRelay(trimmedURL) {
-                add(.high, "Alte LAN-Relay-URL gespeichert", "Die App hat noch eine lokale Relay-Adresse aus der Entwicklungsphase gespeichert.", "Production Relay aktivieren: https://chatsecure.ddns.net und RELAY_AUTH_TOKEN setzen.", penalty: 14)
+                add(.high, "Alte LAN-Relay-URL gespeichert", "Die App hat noch eine lokale Relay-Adresse aus der Entwicklungsphase gespeichert.", "Production Relay aktivieren: \(SecureChatProductionProfile.relayBaseURLString) und RELAY_AUTH_TOKEN setzen.", penalty: 14)
             }
 
             if hasToken == false {
@@ -154,9 +154,9 @@ enum SecurityAISentinel {
             if trimmedURL.hasPrefix("http://") && isLikelyProductionRelay(trimmedURL) {
                 add(.high, "Relay ohne HTTPS", "Die Relay-URL nutzt HTTP außerhalb typischer lokaler Testadressen.", "Production nur mit HTTPS/Caddy oder vergleichbarem Reverse Proxy betreiben.", penalty: 16)
             } else if trimmedURL.hasPrefix("http://") {
-                add(.warning, "Lokaler HTTP-Relay", "HTTP ist für lokale Entwicklung ok, aber nicht für öffentliche Production.", "Für externe Nutzung HTTPS erzwingen oder die Production-Vorlage https://chatsecure.ddns.net übernehmen.", penalty: 4)
+                add(.warning, "Lokaler HTTP-Relay", "HTTP ist für lokale Entwicklung ok, aber nicht für öffentliche Production.", "Für externe Nutzung HTTPS erzwingen oder die Production-Vorlage \(SecureChatProductionProfile.relayBaseURLString) übernehmen.", penalty: 4)
             } else if usesPublicHTTPS == false && trimmedURL.isEmpty == false {
-                add(.warning, "Relay-URL nicht als Production erkannt", "Die Relay-URL ist gesetzt, entspricht aber nicht dem hinterlegten Production-Profil.", "Für den aktuellen Server https://chatsecure.ddns.net verwenden oder die Production-Readiness bewusst manuell prüfen.", penalty: 3)
+                add(.warning, "Relay-URL nicht als Production erkannt", "Die Relay-URL ist gesetzt, entspricht aber nicht dem hinterlegten Production-Profil.", "Für den aktuellen Server \(SecureChatProductionProfile.relayBaseURLString) verwenden oder die Production-Readiness bewusst manuell prüfen.", penalty: 3)
             }
         } else {
             findings.append(SecurityAIFinding(title: "Relay nicht aktiv", detail: "Transport läuft lokal oder ist deaktiviert.", severity: .info, recommendation: "Für Mehrgerätebetrieb Relay bewusst aktivieren und absichern."))

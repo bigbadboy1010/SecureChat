@@ -27,17 +27,12 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
-	<key>NSBonjourServices</key>
-	<array>
-		<string>_http._tcp</string>
-		<string>_privatechat._tcp</string>
-	</array>
 	<key>NSCameraUsageDescription</key>
-	<string>PrivateChat nutzt die Kamera ausschließlich, um Pairing-QR-Codes anderer Kontakte zu scannen.</string>
+	<string>SecureChat nutzt die Kamera, um Pairing-QR-Codes zu scannen sowie Fotos und Videos direkt im Chat aufzunehmen.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>SecureChat nutzt das Mikrofon ausschließlich für Videos, die du direkt im Chat aufnimmst.</string>
 	<key>NSFaceIDUsageDescription</key>
-	<string>PrivateChat nutzt Face ID oder Touch ID, um lokale Chats und Schlüssel vor unbefugtem Zugriff zu schützen.</string>
-	<key>NSLocalNetworkUsageDescription</key>
-	<string>PrivateChat nutzt die lokale Netzwerkfreigabe, um optional einen lokalen Relay-Server auf deinem Mac oder direkte lokale Peers zu erreichen.</string>
+	<string>SecureChat nutzt Face ID oder Touch ID, um lokale Chats und Schlüssel vor unbefugtem Zugriff zu schützen.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchScreen</key>

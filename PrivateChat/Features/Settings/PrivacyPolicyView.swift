@@ -18,7 +18,7 @@ struct PrivacyPolicyView: View {
                 PolicyRow(
                     systemImage: "externaldrive.fill",
                     title: "Lokaler Speicher",
-                    message: "Chats, Drafts und Metadaten werden im App-Container gespeichert. Nachrichten- und Draft-Stores sind AES-GCM-verschlüsselt und vom iCloud-Backup ausgeschlossen."
+                    message: "Chats, Drafts, Medien und Metadaten werden im App-Container gespeichert. Nachrichten-, Draft- und Medien-Stores sind AES-GCM-verschlüsselt und vom iCloud-Backup ausgeschlossen."
                 )
                 PolicyRow(
                     systemImage: "key.fill",
@@ -85,8 +85,8 @@ struct PrivacyPolicyView: View {
                 )
                 PolicyRow(
                     systemImage: "camera.viewfinder",
-                    title: "Kamera",
-                    message: "Die Kamera wird nur zum Scannen von Pairing-QR-Codes verwendet. Es erfolgt keine dauerhafte Speicherung von Kamerabildern."
+                    title: "Kamera und Mikrofon",
+                    message: "Die Kamera wird für Pairing-QR-Codes und von dir gestartete Chat-Aufnahmen verwendet. Das Mikrofon wird nur bei Videoaufnahmen genutzt. Medien werden verschlüsselt gespeichert."
                 )
                 PolicyRow(
                     systemImage: "faceid",
@@ -121,13 +121,13 @@ PrivateChat / SecureChat Datenschutzrichtlinie
 
 PrivateChat ist ein Ende-zu-Ende-verschlüsselter Messenger-Kern. Die App verwendet keine Werbe-SDKs, keine Tracker und keine Analyse-Drittanbieter.
 
-Nachrichteninhalte werden lokal auf dem Gerät verschlüsselt gespeichert. Drafts und Nachrichtenstores verwenden AES-GCM und Schlüssel aus dem iOS-Keychain. Lokale Stores werden vom iCloud-Backup ausgeschlossen. Private Schlüssel verlassen das Gerät nicht.
+Nachrichteninhalte, Drafts sowie gesendete und empfangene Medien werden lokal auf dem Gerät verschlüsselt gespeichert. Nachrichten-, Draft- und Medienstores verwenden AES-GCM und separate Schlüssel aus dem iOS-Keychain. Lokale Stores werden vom iCloud-Backup ausgeschlossen. Private Schlüssel verlassen das Gerät nicht.
 
-Wenn der Relay-Modus aktiviert ist, überträgt die App verschlüsselte Pakete an den SecureChat Relay unter https://securechat.team. Der Relay verarbeitet technische Zustellmetadaten wie Sender-ID, Empfänger-ID, Paket-ID, Ablaufzeit, ACKs und Zustellstatus. Der Relay kann Nachrichteninhalte nicht lesen.
+Wenn der Relay-Modus aktiviert ist, überträgt die App verschlüsselte Pakete an den SecureChat Relay unter https://securechat.team. Der Relay verarbeitet technische Zustellmetadaten wie Sender-ID, Empfänger-ID, Paket-ID, Ablaufzeit, ACKs und Zustellstatus. Fotos, Videos und Dokumente werden in kleine Teile zerlegt und innerhalb derselben Ende-zu-Ende-verschlüsselten Pakete übertragen. Der Relay kann Nachrichten- oder Anhangsinhalte nicht lesen.
 
 Pairing-Codes enthalten öffentliche Identity-Keys, Anzeigename und Erstellungszeitpunkt. Der lokale Anzeigename kann vom Nutzer geändert werden und wird bei neu erzeugten Pairing-Codes als öffentlicher Name geteilt.
 
-Die Kamera wird ausschließlich zum Scannen von Pairing-QR-Codes verwendet. Face ID oder Touch ID wird nur zur lokalen App-Entsperrung verwendet; biometrische Daten werden nicht von PrivateChat gelesen oder übertragen.
+Kamera und Mikrofon werden nur nach einer von dir ausgelösten QR-, Foto- oder Videoaktion verwendet. Der Zugriff auf die Fotomediathek erfolgt über Apples systemeigenen Auswahldialog. Face ID oder Touch ID wird nur zur lokalen App-Entsperrung verwendet; biometrische Daten werden nicht von PrivateChat gelesen oder übertragen.
 
 Diagnoseberichte enthalten technische Metadaten, Runtime-Sicherheitsstatus und Relay-Konfiguration, jedoch keine Chat-Texte, keine privaten Schlüssel und keine Tokens.
 

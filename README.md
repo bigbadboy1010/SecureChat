@@ -2,7 +2,7 @@
 
 > **End-to-end encrypted messaging for iOS** — built with Swift, secured by Curve25519 & AES-GCM, relayed by a hardened TypeScript/Fastify blind relay.
 
-**Latest release:** **Marketing 1.4.2** (Build **12**) — Sprint **27** complete · [TestFlight open beta](https://securechat.team/) · [Live status](https://securechat.team/status.html)
+**Latest release:** **Marketing 1.4.2** (Build **13**) — Sprint **27** complete · [TestFlight open beta](https://securechat.team/) · [Live status](https://securechat.team/status.html)
 
 **Status:** Public Beta ⚠️ — external security audit still recommended before high-assurance claims. See [`KNOWN_ISSUES`](https://securechat.team/known-issues.html) for the open gaps and [`SECURITY.md`](SECURITY.md) for the coordinated-disclosure policy.
 
@@ -13,11 +13,11 @@
 | Component | Version | Source |
 |-----------|---------|--------|
 | **iOS app** (`MARKETING_VERSION`) | **1.4.2** | `PrivateChat.xcodeproj/project.pbxproj` |
-| **iOS app** (`CURRENT_PROJECT_VERSION`, Build) | **12** | `PrivateChat.xcodeproj/project.pbxproj` |
-| **Relay** (`package.json#version`) | **0.1.0** | `RelayServer/package.json` |
-| **Relay** (live build-sha) | **cb4e783** | `https://securechat.team/healthz` |
+| **iOS app** (`CURRENT_PROJECT_VERSION`, Build) | **14** | `PrivateChat.xcodeproj/project.pbxproj` |
+| **Relay implementation** | operator-managed | private repository |
+| **Relay endpoint** | **https://securechat.team** | `Docs/CURRENT-ENDPOINTS.md` |
 | **Phase / Sprint (current)** | **Sprint 27** (was Phase 14.6.2 before Sprint 14 transition) | `CHANGELOG.md` |
-| **TestFlight build number** | **12** | App Store Connect |
+| **TestFlight candidate build** | **14** | `PrivateChat.xcodeproj/project.pbxproj` |
 | **Latest commit on `main`** | auto-synced | `git log --oneline -1` |
 
 The relay uses its own versioning (`0.1.0+<build-sha>`) while the iOS app uses a marketing-style versioning (`1.4.2`). The canonical live build is always on [`/healthz`](https://securechat.team/healthz); this README mirrors the values as of the latest commit on `main`.
@@ -49,6 +49,7 @@ The project follows a phased development approach (current cycle: **Sprints 15�
 - 🛡️ **Safety Number verification** — manual fingerprint comparison for out-of-band trust establishment
 - 🔄 **Relay transport** — encrypted packet dropbox for offline/remote messaging
 - 📬 **Delivery receipts & ACK tombstones** — reliable delivery tracking with deduplication
+- 📎 **Encrypted attachments** — photos, short videos, files and documents with chunked relay delivery and local encrypted storage (8 MiB per attachment)
 - 🔍 **Chat search, drafts, export** — local-only, encrypted-at-rest
 
 ### Security & Privacy
@@ -60,21 +61,22 @@ The project follows a phased development approach (current cycle: **Sprints 15�
 - 📋 **Diagnostics reports** — technical summary without chat plaintext, shareable for support
 - 🧹 **Local retention cleanup** — manual purge controls for messages and relay ledger
 
-### UI / UX (Phase 14)
-- 🎨 **Modern glass-card design system** — professional iOS 16+ UI
-- 📊 **Command Center Dashboard** — relay stats, security score, privacy status at a glance
-- 💬 **Refined chat bubbles** — with message actions, quick reply, editing history
-- 📌 **Pinned & archived chats** — with unread counters
-- 🔗 **QR pairing** — scan or share pairing codes for contact discovery
-- 🗂️ **Chat organization** — searchable list, chat details, local rename, mute
+### UI / UX (Chat-first)
+- 💬 **Chats are the primary screen** — the app opens directly on the conversation list
+- 🧭 **Three user-facing tabs** — `Chats`, `Kontakte`, `Einstellungen`
+- 🔎 **Focused conversation list** — search, filters, unread counters, swipe actions, pin, mute and archive without operational dashboards
+- ✍️ **Minimal composer** — message field and send action; technical details stay out of the normal conversation flow
+- ➕ **Attachment composer** — select photos/videos, capture with the device camera, or choose a document from Files
+- 🔗 **Contact pairing** — scan or share QR pairing codes and compare the Safety Number before verification
+- 🛠️ **Diagnostics remain available** — relay, runtime and security status are under `Einstellungen → Diagnose & Sicherheitsstatus`
+- 🎨 **Modern glass-card design system** — professional iOS 16+ UI without turning the messenger into an admin console
 
-### Relay Server
-- 🐳 **Dockerized Fastify backend** with TypeScript
-- 🔒 **Bearer-token auth** — separate client (`RELAY_AUTH_TOKEN`) and admin (`RELAY_ADMIN_TOKEN`) tokens
-- 🛡️ **Production hardening** — HTTPS enforcement, rate limiting, clock-skew validation, sanitized audit logs
-- 📦 **File-backed persistence** — `STORE_TYPE=file` with TTL and size limits
-- 🧹 **Admin-only purge** — clients cannot purge inboxes in production
-- 📊 **Public stats endpoint** — unauthenticated aggregate counters (v1 / v2 envelope request split, v2 health, packet totals); admin `/v1/admin/relay/stats` adds per-peer detail (see [`CURRENT-ENDPOINTS.md`](Docs/CURRENT-ENDPOINTS.md))
+### Relay Service
+- Production endpoint: `https://securechat.team`
+- Relay implementation and deployment configuration are operator-managed in a private repository.
+- The public iOS repository does not use relay-source secrecy as a security boundary.
+- Client requests use HTTPS, a client bearer token and peer-bound request signing where required.
+- Canonical public endpoints are documented in [`CURRENT-ENDPOINTS.md`](Docs/CURRENT-ENDPOINTS.md).
 
 ---
 
@@ -92,7 +94,8 @@ The project follows a phased development approach (current cycle: **Sprints 15�
 │  │  Features   │  │   Core       │  │    Persistence        │  │
 │  │ Chat/Pairing│  │ Models/Sec   │  │ EncryptedMessageStore │  │
 │  │ Settings    │  │ Transport    │  │ EncryptedDraftStore   │  │
-│  └─────────────┘  └──────┬───────┘  │ RelayPacketLedgerStore│  │
+│  └─────────────┘  └──────┬───────┘  │ EncryptedAttachmentStore││
+│                          │           │ RelayPacketLedgerStore│  │
 │                          │           └───────────────────────┘  │
 └──────────────────────────┼──────────────────────────────────────┘
                            │
@@ -169,7 +172,7 @@ The project follows a phased development approach (current cycle: **Sprints 15�
 - No advertising SDKs, trackers, or analytics third-parties
 - Diagnostic reports contain NO chat plaintext, NO private keys, NO tokens
 - Local stores excluded from iCloud backup
-- Camera permission ONLY for QR pairing
+- Camera permission for QR pairing and user-initiated chat media capture; microphone permission only for recorded chat videos
 - Biometric data never leaves Apple Secure Enclave
 
 ---
@@ -202,29 +205,16 @@ The project follows a phased development approach (current cycle: **Sprints 15�
 
 5. Build and run on iOS Simulator or physical device
 
-### Relay Server (Local Testing)
+### Production Relay
 
-```bash
-cd RelayServer
-cp .env.example .env
-# Edit .env with your tokens and domain
+The official TestFlight/Release client uses
+`https://securechat.team`. The relay server implementation is
+maintained separately in a private operator repository. This public
+repository contains the iOS client and its protocol-facing models,
+request signing and tests.
 
-docker compose up -d --build
-
-# Verify (Sprint 14A: /healthz is the public healthcheck; /health is operator-only)
-curl http://127.0.0.1:8080/healthz
-```
-
-### Production Relay Deployment
-
-See [`RelayServer/README_PRODUCTION.md`](RelayServer/README_PRODUCTION.md) for:
-- Recommended `.env` configuration
-- Caddy reverse proxy setup
-- Token generation (`openssl rand -base64 48`)
-- Hardened Docker controls
-- Admin API usage
-
-Production relay: `https://relay.securechat.team` (marketing site at `https://securechat.team`)
+For the MacBook release procedure, use
+[`Docs/IOS-TESTFLIGHT-RUNBOOK.md`](Docs/IOS-TESTFLIGHT-RUNBOOK.md).
 
 ---
 
@@ -330,12 +320,6 @@ SecureChat/
 │   │   └── Shared/            # Shared UI components
 │   ├── Assets.xcassets/       # App icons (universal + macOS sizes)
 │   └── PrivacyInfo.xcprivacy  # Apple privacy manifest
-├── RelayServer/               # TypeScript/Fastify relay backend
-│   ├── src/                   # Server source
-│   ├── Dockerfile
-│   ├── docker-compose.yml
-│   ├── Caddyfile
-│   └── README_PRODUCTION.md
 ├── Docs/                      # Changelogs, privacy policy, API docs, roadmap
 ├── Tests/                     # Unit tests (PrivateChatTests target)
 ├── Config/                    # Info.plist
@@ -367,13 +351,13 @@ See `Docs/PHASE*_CHANGELOG.md` for detailed per-phase notes.
 
 ## 🧪 Testing
 
-The `PrivateChatTests` target is present but still being expanded. Required before strong production claims:
+The `PrivateChatTests` target is active and GitHub pull requests now run Xcode tests plus a Release compile gate. Existing coverage includes crypto, encrypted stores, request signing, identity handling, relay-profile migration and experimental ratchet components.
 
-- [ ] `PrivateChat/Core/Security` unit tests
-- [ ] `PrivateChat/Core/Transport` tests
-- [ ] Encrypted store migration tests
-- [ ] Relay configuration migration tests
-- [ ] External security audit
+Still required before stronger production claims:
+
+- [ ] two-device physical-iPhone release validation
+- [ ] App Store privacy/export-compliance review
+- [ ] external security/cryptographic audit
 
 Run existing tests:
 ```bash
@@ -386,7 +370,7 @@ Run existing tests:
 
 - **Not independently audited** — suitable for moderate-risk messaging, not yet for high-sensitivity use.
 - **Custom KDF** — the password-channel KDF is documented as custom memory-hard, not Argon2id. Do not market as formally reviewed password hashing.
-- **No Double Ratchet yet** — the legacy Double Ratchet exists in history but is not integrated into the active `PrivateChat` target.
+- **Double Ratchet is experimental and disabled for TestFlight/Release** — the in-tree implementation remains available for engineering tests, but the active production path stays on protocolVersion 2 until dedicated cryptographic review is complete.
 - **No group sender keys yet** — group messaging is on the roadmap but not implemented in the active target.
 - **Test on physical hardware** — simulator behavior differs for keychain, biometric, and runtime security.
 
@@ -413,8 +397,11 @@ Run existing tests:
 
 - **Repository:** https://github.com/bigbadboy1010/SecureChat
 - **Marketing site:** https://securechat.team
-- **Production Relay:** https://relay.securechat.team
-- **Relay Docs:** [`RelayServer/README_PRODUCTION.md`](RelayServer/README_PRODUCTION.md)
+- **Production Relay:** https://securechat.team
+- **Endpoint source of truth:** [`Docs/CURRENT-ENDPOINTS.md`](Docs/CURRENT-ENDPOINTS.md)
+- **TestFlight runbook:** [`Docs/IOS-TESTFLIGHT-RUNBOOK.md`](Docs/IOS-TESTFLIGHT-RUNBOOK.md)
+- **TestFlight tester brief:** [`Docs/TESTFLIGHT_WHAT_TO_TEST.md`](Docs/TESTFLIGHT_WHAT_TO_TEST.md)
+- **Physical iPhone acceptance:** [`Docs/iphone-test-acceptance.md`](Docs/iphone-test-acceptance.md)
 
 ---
 

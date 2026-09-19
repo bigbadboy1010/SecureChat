@@ -19,7 +19,7 @@ struct DashboardView: View {
                 .padding()
             }
             .background(SecureChatDesign.pageGradient.ignoresSafeArea())
-            .navigationTitle("Status-Center")
+            .navigationTitle("Diagnose")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {

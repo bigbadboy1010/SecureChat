@@ -23,6 +23,21 @@ private enum ConversationFilter: String, CaseIterable, Identifiable {
             return "Archiv"
         }
     }
+
+    var systemImage: String {
+        switch self {
+        case .active:
+            return "message"
+        case .unread:
+            return "message.badge"
+        case .starred:
+            return "star"
+        case .muted:
+            return "bell.slash"
+        case .archived:
+            return "archivebox"
+        }
+    }
 }
 
 struct ConversationListView: View {
@@ -64,26 +79,6 @@ struct ConversationListView: View {
     var body: some View {
         NavigationStack {
             List {
-                dashboardHeader
-
-                if service.totalUnreadCount() > 0 {
-                    SwiftUI.Section {
-                        Button {
-                            service.markAllConversationsRead()
-                        } label: {
-                            Label("Alle Chats als gelesen markieren", systemImage: "checkmark.circle")
-                        }
-                    }
-                }
-
-                if let summary = service.lastRelaySyncSummary {
-                    RelaySyncSummaryRow(summary: summary)
-                }
-
-                if let summary = service.lastOutboxRetrySummary {
-                    OutboxRetrySummaryRow(summary: summary)
-                }
-
                 SwiftUI.Section {
                     if visibleConversations.isEmpty {
                         if service.conversations.isEmpty && filter == .active && isSearchActive == false {
@@ -162,7 +157,9 @@ struct ConversationListView: View {
                         }
                     }
                 } header: {
-                    Text(filter.title)
+                    if filter != .active {
+                        Text(filter.title)
+                    }
                 }
             }
             .listStyle(.plain)
@@ -172,32 +169,28 @@ struct ConversationListView: View {
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Chats und Nachrichten suchen")
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button {
-                        Task { await service.syncRelayInbox() }
-                    } label: {
-                        if service.isRelaySyncRunning {
-                            ProgressView()
-                        } else {
-                            Image(systemName: "arrow.down.circle")
+                    Menu {
+                        Picker("Chats anzeigen", selection: $filter) {
+                            ForEach(ConversationFilter.allCases) { filter in
+                                Label(filter.title, systemImage: filter.systemImage).tag(filter)
+                            }
                         }
+
+                        if service.totalUnreadCount() > 0 {
+                            Divider()
+                            Button {
+                                service.markAllConversationsRead()
+                            } label: {
+                                Label("Alle als gelesen markieren", systemImage: "checkmark.circle")
+                            }
+                        }
+                    } label: {
+                        Image(systemName: filter == .active ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
                     }
-                    .accessibilityLabel("Relay Inbox abrufen")
-                    .disabled(service.isRelaySyncRunning || service.securityState.transportMode != .relayAllowed)
+                    .accessibilityLabel("Chat-Filter: \(filter.title)")
                 }
 
-                ToolbarItemGroup(placement: .navigationBarTrailing) {
-                    Button {
-                        Task { await service.retryPendingOutboundMessages() }
-                    } label: {
-                        if service.isOutboxRetryRunning {
-                            ProgressView()
-                        } else {
-                            Image(systemName: "arrow.clockwise.circle")
-                        }
-                    }
-                    .accessibilityLabel("Outbox erneut senden")
-                    .disabled(service.isOutboxRetryRunning || service.pendingOutboxCount() == 0)
-
+                ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
                         showCreateSheet = true
                     } label: {
@@ -214,40 +207,6 @@ struct ConversationListView: View {
             }
             .privateChatErrorAlert(service: service)
         }
-    }
-
-    private var dashboardHeader: some View {
-        SwiftUI.Section {
-            VStack(alignment: .leading, spacing: 14) {
-                Picker("Filter", selection: $filter) {
-                    ForEach(ConversationFilter.allCases) { filter in
-                        Text(filter.title).tag(filter)
-                    }
-                }
-                .pickerStyle(.segmented)
-
-                HStack(spacing: 10) {
-                    MiniMetric(title: "Ungelesen", value: "\(service.totalUnreadCount())", systemImage: "bell.badge")
-                    MiniMetric(title: "Outbox", value: "\(service.pendingOutboxCount())", systemImage: "tray.and.arrow.up")
-                    MiniMetric(title: "Archiv", value: "\(service.archivedConversationCount())", systemImage: "archivebox")
-                }
-
-                HStack(spacing: 10) {
-                    MiniMetric(title: "Markiert", value: "\(service.starredMessageCount())", systemImage: "star")
-                    MiniMetric(title: "Stumm", value: "\(service.mutedConversationCount())", systemImage: "bell.slash")
-                    MiniMetric(title: "Fehler", value: "\(service.failedMessageCount())", systemImage: "exclamationmark.triangle")
-                }
-
-                if service.securityState.hideMessagePreviews {
-                    Label("Vorschau-Schutz aktiv", systemImage: "eye.slash")
-                        .font(.caption)
-                        .foregroundStyle(Color.secondary)
-                }
-            }
-            .padding(.vertical, 4)
-            .privateChatGlassCard(padding: 14, cornerRadius: 22, highlighted: service.totalUnreadCount() > 0 || service.pendingOutboxCount() > 0)
-        }
-        .listRowBackground(Color.clear)
     }
 
     private var createConversationSheet: some View {
@@ -293,31 +252,6 @@ struct ConversationListView: View {
     }
 }
 
-private struct MiniMetric: View {
-    let title: String
-    let value: String
-    let systemImage: String
-
-    var body: some View {
-        VStack(spacing: 6) {
-            Image(systemName: systemImage)
-                .foregroundStyle(Color.accentColor)
-            Text(value)
-                .font(.headline.weight(.bold))
-            Text(title)
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 11)
-        .background(Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(PrivateChatDesign.subtleBorder, lineWidth: 1)
-        }
-    }
-}
-
 private struct FirstRunConversationHint: View {
     let createSoloTestChat: () -> Void
 
@@ -331,26 +265,18 @@ private struct FirstRunConversationHint: View {
                     .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 
                 VStack(alignment: .leading, spacing: 5) {
-                    Text("Erster Test in 10 Sekunden")
+                    Text("Dein erster Chat")
                         .font(.headline.weight(.semibold))
-                    Text("Lege einen lokalen Solo-Test-Chat an, prüfe die verschlüsselte lokale Speicherung und teste die UI ohne zweites Gerät.")
+                    Text("Starte lokal oder füge unter Kontakte eine Person hinzu.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
             }
 
-            VStack(alignment: .leading, spacing: 6) {
-                Label("Pairing braucht zwei Geräte oder zwei TestFlight-Installationen.", systemImage: "qrcode.viewfinder")
-                Label("Relay ist optional und läuft über chatsecure.ddns.net.", systemImage: "network")
-                Label("Safety Number erst nach realem Kontaktvergleich bestätigen.", systemImage: "checkmark.shield")
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-
             Button {
                 createSoloTestChat()
             } label: {
-                Label("Solo-Test-Chat starten", systemImage: "message.badge")
+                Label("Lokalen Chat starten", systemImage: "message.badge")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
