@@ -209,7 +209,7 @@ struct TrustedPeer: Identifiable, Codable, Equatable {
     var displayName: String
     let keyAgreementPublicKeyBase64: String
     let signingPublicKeyBase64: String
-    let safetyNumber: String
+    var safetyNumber: String
     var trustState: TrustState
     let firstSeenAt: Date
     var lastVerifiedAt: Date?
