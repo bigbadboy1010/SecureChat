@@ -47,23 +47,21 @@ final class RelayTransport: RelayMessageTransporting {
     }
 
     func fetchInbox(recipientID: String, limit: Int) async throws -> [OutboundTransportPacket] {
-        let baseURL = try validatedBaseURL()
-        guard var components = URLComponents(url: baseURL.appendingPathComponent("v1/relay/messages"), resolvingAgainstBaseURL: false) else {
-            throw PrivateChatError.invalidRelayURL
-        }
-
-        components.queryItems = [
+        let queryItems = [
             URLQueryItem(name: "recipientID", value: recipientID),
             URLQueryItem(name: "limit", value: String(max(1, min(limit, 100))))
         ]
 
-        guard let endpointURL = components.url else {
-            throw PrivateChatError.invalidRelayURL
-        }
-
-        var request = URLRequest(url: endpointURL)
-        request.httpMethod = "GET"
-        applyDefaultHeaders(to: &request)
+        // Use the common request builder so inbox reads receive the
+        // same bearer token + peer-bound Ed25519 signature as writes,
+        // ACKs and deletes. Building the GET manually previously
+        // omitted X-Securechat-* signing headers and failed as soon
+        // as RELAY_REQUIRE_PEER_AUTH was enabled in production.
+        let request = try makeRequest(
+            path: "/v1/relay/messages",
+            method: "GET",
+            queryItems: queryItems
+        )
 
         let data = try await perform(request)
         let fetchResponse = try decoder.decode(RelayFetchResponse.self, from: data)
