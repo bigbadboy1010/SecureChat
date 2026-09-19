@@ -70,7 +70,7 @@ final class AppContainer: ObservableObject {
             // synchronous. Failures are logged in
             // `ConversationService.enrollLocalPeerIfNeeded`
             // and do not block app startup.
-            Task.detached(priority: .utility) {
+            Task(priority: .utility) {
                 await service.enrollLocalPeerIfNeeded()
             }
             return container
