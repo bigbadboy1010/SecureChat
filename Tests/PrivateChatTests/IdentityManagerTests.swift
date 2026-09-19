@@ -34,4 +34,22 @@ final class IdentityManagerTests: XCTestCase {
         XCTAssertEqual(identity.displayName, "François script")
     }
 
+    func testTwoPeersDeriveTheSameSafetyNumber() throws {
+        let aliceManager = IdentityManager(keychain: MockKeychainStore(), crypto: CryptoService())
+        let bobManager = IdentityManager(keychain: MockKeychainStore(), crypto: CryptoService())
+
+        let alice = try aliceManager.loadOrCreateLocalIdentity(displayName: "Alice")
+        let bob = try bobManager.loadOrCreateLocalIdentity(displayName: "Bob")
+
+        let alicePeerView = try aliceManager.importPairingPayload(
+            try bobManager.exportPairingPayload(identity: bob)
+        )
+        let bobPeerView = try bobManager.importPairingPayload(
+            try aliceManager.exportPairingPayload(identity: alice)
+        )
+
+        XCTAssertEqual(alicePeerView.safetyNumber, bobPeerView.safetyNumber)
+        XCTAssertTrue(alicePeerView.safetyNumber.hasPrefix("SC2 "))
+    }
+
 }
