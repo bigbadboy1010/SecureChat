@@ -167,3 +167,40 @@ final class CryptoService: CryptoServicing {
         return pem
     }
 }
+
+
+/// Symmetric out-of-band fingerprint for peer verification.
+///
+/// Both devices derive the exact same value because the two Ed25519
+/// public keys are sorted lexicographically before hashing. The SC2
+/// prefix is intentional: it lets the app distinguish the new
+/// pair-bound fingerprint from legacy remote-only fingerprints and
+/// force re-verification after migration.
+enum SafetyNumberV2 {
+    static func make(
+        localSigningPublicKeyData: Data,
+        remoteSigningPublicKeyData: Data
+    ) -> String {
+        let ordered = [localSigningPublicKeyData, remoteSigningPublicKeyData]
+            .sorted { lhs, rhs in
+                lhs.lexicographicallyPrecedes(rhs)
+            }
+
+        var material = Data("SecureChat/SafetyNumber/v2".utf8)
+        for key in ordered {
+            var length = UInt32(key.count).bigEndian
+            withUnsafeBytes(of: &length) { material.append(contentsOf: $0) }
+            material.append(key)
+        }
+
+        let hex = SHA256.hash(data: material)
+            .map { String(format: "%02X", $0) }
+            .joined()
+        let groups = stride(from: 0, to: hex.count, by: 4).map { offset -> String in
+            let start = hex.index(hex.startIndex, offsetBy: offset)
+            let end = hex.index(start, offsetBy: min(4, hex.distance(from: start, to: hex.endIndex)))
+            return String(hex[start..<end])
+        }
+        return "SC2 " + groups.joined(separator: " ")
+    }
+}
