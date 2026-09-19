@@ -39,6 +39,13 @@ private struct InboundPacketProcessResult {
 
 @MainActor
 final class ConversationService: ObservableObject {
+    // The Double-Ratchet implementation remains in-tree for continued
+    // development and unit testing, but it is deliberately disabled in
+    // the TestFlight/production message path until its session bootstrap,
+    // turn rotation and crash-persistence semantics have completed an
+    // external cryptographic review. Protocol v2 (packet version 2) stays
+    // active and retains signed-envelope + AES-GCM E2E protection.
+    private static let experimentalDoubleRatchetEnabled = false
     @Published private(set) var conversations: [StoredConversation]
     @Published private(set) var trustedPeers: [TrustedPeer]
     @Published private(set) var securityState: AppSecurityState
@@ -149,6 +156,7 @@ final class ConversationService: ObservableObject {
             conversations = try messageStore.load().sorted { $0.conversation.updatedAt > $1.conversation.updatedAt }
             resetInterruptedOutgoingMessages()
             trustedPeers = try peerTrustStore.loadPeers()
+            try migratePeerSafetyNumbersIfNeeded()
             securityState = try settingsStore.load()
             relayPacketLedger = try relayPacketLedgerStore.load()
             refreshRuntimeSecurityAssessment()
@@ -666,6 +674,9 @@ final class ConversationService: ObservableObject {
         _ peer: TrustedPeer,
         encodedPayload: String
     ) {
+        guard Self.experimentalDoubleRatchetEnabled else {
+            return
+        }
         // Skip v2 registration for blocked peers
         // (key-changed during re-pairing).
         guard peer.trustState != .blocked else {
@@ -681,7 +692,8 @@ final class ConversationService: ObservableObject {
         do {
             let normalized = encodedPayload
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-                .replacingOccurrences(of: "securechat://", with: "")
+                .replacingOccurrences(of: "privatechat://pairing/", with: "")
+                .replacingOccurrences(of: "securechat://pairing/", with: "")
             guard let payloadData = Base64URL.decode(normalized) else {
                 return
             }
@@ -735,6 +747,13 @@ final class ConversationService: ObservableObject {
         guard let index = trustedPeers.firstIndex(where: { $0.id == id }) else {
             return
         }
+        guard trustedPeers[index].safetyNumber.hasPrefix("SC2 ") else {
+            trustedPeers[index].trustState = .unverified
+            trustedPeers[index].lastVerifiedAt = nil
+            persistPeers()
+            lastErrorMessage = "Dieser Kontakt verwendet noch eine alte Safety Number. Bitte den Pairing-Code erneut importieren und die neue SC2 Safety Number vergleichen."
+            return
+        }
         trustedPeers[index].trustState = .verified
         trustedPeers[index].lastVerifiedAt = Date()
         persistPeers()
@@ -745,7 +764,9 @@ final class ConversationService: ObservableObject {
             return
         }
         trustedPeers[index].trustState = .blocked
+        trustedPeers[index].lastVerifiedAt = nil
         persistPeers()
+        revokeExperimentalRatchetState(peerID: id)
     }
 
     func unblockPeerAsUnverified(id: String) {
@@ -755,6 +776,7 @@ final class ConversationService: ObservableObject {
         trustedPeers[index].trustState = .unverified
         trustedPeers[index].lastVerifiedAt = nil
         persistPeers()
+        revokeExperimentalRatchetState(peerID: id)
     }
 
     func deletePeer(id: String) {
@@ -762,6 +784,7 @@ final class ConversationService: ObservableObject {
         conversations.removeAll { $0.conversation.peerID == id }
         persistPeers()
         persistConversations()
+        revokeExperimentalRatchetState(peerID: id)
     }
 
     func makeLocalPairingCode() throws -> String {
@@ -1292,15 +1315,20 @@ final class ConversationService: ObservableObject {
             // Privacy Sentinel can surface a
             // "session still on v1" finding.
             let v1Packet = try makeTransportPacket(payload: payload, recipientID: peerID)
-            let payloadData = try encoder.encode(payload)
             let packet: OutboundTransportPacket
-            if let ratchetResult = try ratchetRouter.makeRatchetPacket(
-                peerID: peerID,
-                plaintext: payloadData,
-                existingPacket: v1Packet
-            ) {
-                packet = ratchetResult.0
-                ratchetObservations.append(ratchetResult.1)
+            if Self.experimentalDoubleRatchetEnabled {
+                let payloadData = try encoder.encode(payload)
+                if let ratchetResult = try ratchetRouter.makeRatchetPacket(
+                    peerID: peerID,
+                    plaintext: payloadData,
+                    existingPacket: v1Packet
+                ) {
+                    packet = ratchetResult.0
+                    ratchetObservations.append(ratchetResult.1)
+                } else {
+                    packet = v1Packet
+                    ratchetObservations.append(ratchetRouter.v1FallbackObservation(peerID: peerID))
+                }
             } else {
                 packet = v1Packet
                 ratchetObservations.append(ratchetRouter.v1FallbackObservation(peerID: peerID))
@@ -1523,7 +1551,8 @@ final class ConversationService: ObservableObject {
         // their sealedPayloadBase64; the v1 path
         // continues to verify the Ed25519 envelope
         // signature against the trusted-peer key.
-        guard (packet.protocolVersion == 2 || packet.protocolVersion == 3),
+        guard (packet.protocolVersion == 2 ||
+               (Self.experimentalDoubleRatchetEnabled && packet.protocolVersion == 3)),
               packet.recipientID == localIdentity.id,
               packet.senderID != localIdentity.id else {
             throw PrivateChatError.invalidInboundPacket
@@ -1710,6 +1739,50 @@ final class ConversationService: ObservableObject {
         conversations[conversationIndex].conversation.updatedAt = max(Date(), payload.createdAt)
         sortConversations()
         persistConversations()
+    }
+
+    private func migratePeerSafetyNumbersIfNeeded() throws {
+        var didChange = false
+        let localSigningPublicKeyData = localIdentity.signingPublicKeyData
+
+        for index in trustedPeers.indices {
+            guard let remoteSigningPublicKeyData = Data(
+                base64Encoded: trustedPeers[index].signingPublicKeyBase64
+            ) else {
+                trustedPeers[index].trustState = .blocked
+                trustedPeers[index].lastVerifiedAt = nil
+                didChange = true
+                continue
+            }
+
+            let current = SafetyNumberV2.make(
+                localSigningPublicKeyData: localSigningPublicKeyData,
+                remoteSigningPublicKeyData: remoteSigningPublicKeyData
+            )
+            if trustedPeers[index].safetyNumber != current {
+                trustedPeers[index].safetyNumber = current
+                // A fingerprint algorithm change invalidates the old
+                // out-of-band verification. The user must compare the
+                // new SC2 value before messages can be sent again.
+                if trustedPeers[index].trustState == .verified {
+                    trustedPeers[index].trustState = .unverified
+                    trustedPeers[index].lastVerifiedAt = nil
+                }
+                didChange = true
+            }
+        }
+
+        if didChange {
+            try peerTrustStore.savePeers(trustedPeers)
+        }
+    }
+
+    private func revokeExperimentalRatchetState(peerID: String) {
+        do {
+            try ratchetStore.delete(peerID: peerID)
+        } catch {
+            lastErrorMessage = "Ratchet-Session für den Kontakt konnte nicht sicher gelöscht werden: \(error.localizedDescription)"
+        }
     }
 
     private func verifiedPeer(id: String) throws -> TrustedPeer {
