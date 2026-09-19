@@ -1,6 +1,6 @@
 # SecureChat Datenschutzrichtlinie
 
-Stand: 2026-06-22
+Stand: 2026-09-19
 
 SecureChat ist ein Ende-zu-Ende-verschlüsselter Messenger für iOS. Die
 App verwendet keine Werbe-SDKs, keine Tracker und keine
@@ -10,8 +10,8 @@ welche Daten der **Beta-Vertrieb** über TestFlight sieht.
 
 ## 1. Welche Daten lokal gespeichert werden
 
-Nachrichteninhalte, Drafts und technische Chat-Metadaten werden lokal
-im App-Container gespeichert. Nachrichten- und Draft-Stores sind
+Nachrichteninhalte, Drafts, gesendete und empfangene Medien sowie technische Chat-Metadaten werden lokal
+im App-Container gespeichert. Nachrichten-, Draft- und Medien-Stores sind
 AES-GCM-verschlüsselt. Die zugehörigen Schlüssel liegen im iOS-Keychain.
 Lokale Stores werden vom iCloud-Backup ausgeschlossen.
 
@@ -32,6 +32,16 @@ Empfänger-ID, Paket-ID, Ablaufzeit, ACKs und Zustellstatus. Der Relay
 bestimmter Absender ein bestimmtes Paket geschickt hat — die
 Signaturprüfung erfolgt auf dem Empfänger-Gerät (siehe
 `Docs/ADR-002-envelope-and-crypto.md` für das Vertrauensmodell).
+
+Fotos und Videos werden auf dem sendenden Gerät in kleine Teile zerlegt.
+Jeder Teil wird innerhalb des bestehenden Ende-zu-Ende-verschlüsselten
+Nachrichtenformats übertragen. Der Relay sieht daher weder Bild- noch
+Videoinhalte. Auf dem Empfangsgerät werden die Teile erst nach Prüfung von
+Dateigröße und SHA-256-Prüfsumme zusammengesetzt und verschlüsselt gespeichert.
+
+Kamera und Mikrofon werden nur nach einer von dir ausgelösten Aufnahme
+verwendet. Der Zugriff auf die Fotomediathek erfolgt über Apples systemeigenen
+Auswahldialog. SecureChat lädt keine Mediathek im Hintergrund aus.
 
 ## 3. Pairing
 

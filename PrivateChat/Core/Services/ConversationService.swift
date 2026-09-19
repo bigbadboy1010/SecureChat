@@ -5,6 +5,7 @@ import Foundation
 enum TransportPayloadKind: String, Codable, Equatable {
     case message
     case deliveryReceipt
+    case attachmentChunk
 }
 
 struct TransportMessagePayload: Codable, Equatable {
@@ -17,6 +18,43 @@ struct TransportMessagePayload: Codable, Equatable {
     let body: String?
     let createdAt: Date
     let deliveredMessageID: UUID?
+    let attachment: ChatAttachment?
+    let attachmentSHA256: String?
+    let chunkIndex: Int?
+    let totalChunks: Int?
+    let chunkDataBase64: String?
+
+    init(
+        version: Int,
+        kind: TransportPayloadKind,
+        messageID: UUID,
+        conversationID: UUID?,
+        senderID: String,
+        recipientID: String,
+        body: String?,
+        createdAt: Date,
+        deliveredMessageID: UUID?,
+        attachment: ChatAttachment? = nil,
+        attachmentSHA256: String? = nil,
+        chunkIndex: Int? = nil,
+        totalChunks: Int? = nil,
+        chunkDataBase64: String? = nil
+    ) {
+        self.version = version
+        self.kind = kind
+        self.messageID = messageID
+        self.conversationID = conversationID
+        self.senderID = senderID
+        self.recipientID = recipientID
+        self.body = body
+        self.createdAt = createdAt
+        self.deliveredMessageID = deliveredMessageID
+        self.attachment = attachment
+        self.attachmentSHA256 = attachmentSHA256
+        self.chunkIndex = chunkIndex
+        self.totalChunks = totalChunks
+        self.chunkDataBase64 = chunkDataBase64
+    }
 }
 
 private struct OutboundMessageContext {
@@ -46,6 +84,8 @@ final class ConversationService: ObservableObject {
     // external cryptographic review. Protocol v2 (packet version 2) stays
     // active and retains signed-envelope + AES-GCM E2E protection.
     private static let experimentalDoubleRatchetEnabled = false
+    static let maximumAttachmentBytes = 8 * 1_048_576
+    private static let attachmentChunkBytes = 48 * 1_024
     @Published private(set) var conversations: [StoredConversation]
     @Published private(set) var trustedPeers: [TrustedPeer]
     @Published private(set) var securityState: AppSecurityState
@@ -77,6 +117,7 @@ final class ConversationService: ObservableObject {
     private let identityManager: IdentityManaging
     private let crypto: CryptoServicing
     private let transportCoordinator: TransportCoordinating
+    private let attachmentStore: AttachmentStoring
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private var relayPacketLedger: RelayPacketLedger
@@ -100,7 +141,8 @@ final class ConversationService: ObservableObject {
         relayPacketLedgerStore: RelayPacketLedgerStoring,
         identityManager: IdentityManaging,
         crypto: CryptoServicing,
-        transportCoordinator: TransportCoordinating
+        transportCoordinator: TransportCoordinating,
+        attachmentStore: AttachmentStoring = InMemoryAttachmentStore()
     ) {
         self.localIdentity = localIdentity
         self.messageStore = messageStore
@@ -111,6 +153,7 @@ final class ConversationService: ObservableObject {
         self.identityManager = identityManager
         self.crypto = crypto
         self.transportCoordinator = transportCoordinator
+        self.attachmentStore = attachmentStore
         self.encoder = DateCoding.makeEncoder()
         self.decoder = DateCoding.makeDecoder()
         self.relayPacketLedger = .empty
@@ -328,6 +371,11 @@ final class ConversationService: ObservableObject {
     }
 
     func deleteConversation(id: UUID) {
+        if let conversation = conversations.first(where: { $0.id == id }) {
+            for attachment in conversation.messages.compactMap(\.attachment) {
+                try? attachmentStore.deleteAttachment(id: attachment.id)
+            }
+        }
         conversations.removeAll { $0.id == id }
         persistConversations()
     }
@@ -365,6 +413,9 @@ final class ConversationService: ObservableObject {
     func clearConversationMessages(id: UUID) {
         guard let index = conversations.firstIndex(where: { $0.id == id }) else {
             return
+        }
+        for attachment in conversations[index].messages.compactMap(\.attachment) {
+            try? attachmentStore.deleteAttachment(id: attachment.id)
         }
         conversations[index].messages.removeAll()
         conversations[index].conversation.updatedAt = Date()
@@ -432,6 +483,10 @@ final class ConversationService: ObservableObject {
         guard let conversationIndex = conversations.firstIndex(where: { $0.id == conversationID }) else {
             return
         }
+        if let attachmentID = conversations[conversationIndex].messages
+            .first(where: { $0.id == messageID })?.attachment?.id {
+            try? attachmentStore.deleteAttachment(id: attachmentID)
+        }
         conversations[conversationIndex].messages.removeAll { $0.id == messageID }
         conversations[conversationIndex].conversation.updatedAt = conversations[conversationIndex].messages.last?.createdAt ?? Date()
         sortConversations()
@@ -479,6 +534,70 @@ final class ConversationService: ObservableObject {
         } catch {
             lastErrorMessage = error.localizedDescription
         }
+    }
+
+    func sendAttachment(
+        conversationID: UUID,
+        body: String,
+        data: Data,
+        kind: ChatAttachmentKind,
+        fileName: String,
+        mimeType: String
+    ) async {
+        guard data.isEmpty == false else {
+            lastErrorMessage = PrivateChatError.attachmentUnavailable.localizedDescription
+            return
+        }
+        guard data.count <= Self.maximumAttachmentBytes else {
+            lastErrorMessage = PrivateChatError.attachmentTooLarge(
+                maximumBytes: Self.maximumAttachmentBytes
+            ).localizedDescription
+            return
+        }
+        guard let index = conversations.firstIndex(where: { $0.id == conversationID }) else {
+            return
+        }
+
+        let attachment = ChatAttachment(
+            id: UUID(),
+            kind: kind,
+            fileName: fileName,
+            mimeType: mimeType,
+            byteCount: data.count
+        )
+
+        do {
+            try attachmentStore.saveAttachment(id: attachment.id, data: data)
+        } catch {
+            lastErrorMessage = error.localizedDescription
+            return
+        }
+
+        let conversation = conversations[index].conversation
+        let message = ChatMessage(
+            conversationID: conversationID,
+            senderID: localIdentity.id,
+            recipientID: conversation.peerID,
+            body: body.trimmingCharacters(in: .whitespacesAndNewlines),
+            status: .queued,
+            isIncoming: false,
+            attachment: attachment
+        )
+        conversations[index].messages.append(message)
+        conversations[index].conversation.updatedAt = message.createdAt
+        sortConversations()
+        persistConversations()
+
+        do {
+            try await deliverOutboundMessage(messageID: message.id, conversationID: conversationID)
+            lastErrorMessage = nil
+        } catch {
+            lastErrorMessage = error.localizedDescription
+        }
+    }
+
+    func attachmentData(for attachment: ChatAttachment) throws -> Data {
+        try attachmentStore.loadAttachment(id: attachment.id)
     }
 
     func syncRelayInbox() async {
@@ -571,6 +690,12 @@ final class ConversationService: ObservableObject {
 
         for index in conversations.indices {
             let originalMessageCount = conversations[index].messages.count
+            let expiredAttachments = conversations[index].messages
+                .filter { $0.createdAt < cutoff }
+                .compactMap(\.attachment)
+            for attachment in expiredAttachments {
+                try? attachmentStore.deleteAttachment(id: attachment.id)
+            }
             conversations[index].messages.removeAll { $0.createdAt < cutoff }
             let newMessageCount = conversations[index].messages.count
             deletedMessages += originalMessageCount - newMessageCount
@@ -1296,55 +1421,57 @@ final class ConversationService: ObservableObject {
         markMessage(messageID, in: conversationID, status: .sending)
 
         do {
-            let payload = TransportMessagePayload(
-                version: 3,
-                kind: .message,
-                messageID: context.message.id,
-                conversationID: context.conversationID,
-                senderID: localIdentity.id,
-                recipientID: peerID,
-                body: context.message.body,
-                createdAt: context.message.createdAt,
-                deliveredMessageID: nil
-            )
-            // Sprint 9D: try the v2 (Double Ratchet)
-            // envelope first. The router returns a
-            // v2-style OutboundTransportPacket if a
-            // RatchetChannel is on file for this
-            // peer; otherwise we fall back to the v1
-            // makeTransportPacket path. The fallback
-            // observation is added to the
-            // ratchetObservations list so the
-            // Privacy Sentinel can surface a
-            // "session still on v1" finding.
-            let v1Packet = try makeTransportPacket(payload: payload, recipientID: peerID)
-            let packet: OutboundTransportPacket
-            if Self.experimentalDoubleRatchetEnabled {
-                let payloadData = try encoder.encode(payload)
-                if let ratchetResult = try ratchetRouter.makeRatchetPacket(
-                    peerID: peerID,
-                    plaintext: payloadData,
-                    existingPacket: v1Packet
-                ) {
-                    packet = ratchetResult.0
-                    ratchetObservations.append(ratchetResult.1)
-                } else {
-                    packet = v1Packet
-                    ratchetObservations.append(ratchetRouter.v1FallbackObservation(peerID: peerID))
+            if let attachment = context.message.attachment {
+                let data = try attachmentStore.loadAttachment(id: attachment.id)
+                guard data.count == attachment.byteCount,
+                      data.count <= Self.maximumAttachmentBytes else {
+                    throw PrivateChatError.attachmentUnavailable
+                }
+                let digest = RequestSigner.sha256Hex(data)
+                let totalChunks = max(
+                    1,
+                    Int(ceil(Double(data.count) / Double(Self.attachmentChunkBytes)))
+                )
+                for chunkIndex in 0..<totalChunks {
+                    let lowerBound = chunkIndex * Self.attachmentChunkBytes
+                    let upperBound = min(lowerBound + Self.attachmentChunkBytes, data.count)
+                    let chunk = data.subdata(in: lowerBound..<upperBound)
+                    let payload = TransportMessagePayload(
+                        version: 3,
+                        kind: .attachmentChunk,
+                        messageID: context.message.id,
+                        conversationID: context.conversationID,
+                        senderID: localIdentity.id,
+                        recipientID: peerID,
+                        body: context.message.body,
+                        createdAt: context.message.createdAt,
+                        deliveredMessageID: nil,
+                        attachment: attachment,
+                        attachmentSHA256: digest,
+                        chunkIndex: chunkIndex,
+                        totalChunks: totalChunks,
+                        chunkDataBase64: chunk.base64EncodedString()
+                    )
+                    try await sendTransportPayload(payload, peerID: peerID)
                 }
             } else {
-                packet = v1Packet
-                ratchetObservations.append(ratchetRouter.v1FallbackObservation(peerID: peerID))
+                let payload = TransportMessagePayload(
+                    version: 3,
+                    kind: .message,
+                    messageID: context.message.id,
+                    conversationID: context.conversationID,
+                    senderID: localIdentity.id,
+                    recipientID: peerID,
+                    body: context.message.body,
+                    createdAt: context.message.createdAt,
+                    deliveredMessageID: nil
+                )
+                try await sendTransportPayload(payload, peerID: peerID)
             }
-            try await transportCoordinator.send(
-                packet,
-                mode: securityState.transportMode,
-                relayConfiguration: securityState.relayConfiguration
-            )
             let finalStatus: MessageDeliveryStatus = securityState.transportMode == .relayAllowed ? .sentToRelay : .sent
             markMessage(messageID, in: conversationID, status: finalStatus)
             if securityState.transportMode == .relayAllowed {
-                registerRelaySuccess(message: "Nachricht wurde verschlüsselt an den Relay übergeben.")
+                registerRelaySuccess(message: "Nachricht wurde Ende-zu-Ende verschlüsselt an den Relay übergeben.")
             } else {
                 lastTransportDiagnosticMessage = "Nachricht wurde an den lokalen Transport übergeben."
             }
@@ -1353,6 +1480,33 @@ final class ConversationService: ObservableObject {
             registerRelayFailure(error, showUserFacingError: true, context: "Nachricht senden")
             throw error
         }
+    }
+
+    private func sendTransportPayload(_ payload: TransportMessagePayload, peerID: String) async throws {
+        let v1Packet = try makeTransportPacket(payload: payload, recipientID: peerID)
+        let packet: OutboundTransportPacket
+        if Self.experimentalDoubleRatchetEnabled {
+            let payloadData = try encoder.encode(payload)
+            if let ratchetResult = try ratchetRouter.makeRatchetPacket(
+                peerID: peerID,
+                plaintext: payloadData,
+                existingPacket: v1Packet
+            ) {
+                packet = ratchetResult.0
+                ratchetObservations.append(ratchetResult.1)
+            } else {
+                packet = v1Packet
+                ratchetObservations.append(ratchetRouter.v1FallbackObservation(peerID: peerID))
+            }
+        } else {
+            packet = v1Packet
+            ratchetObservations.append(ratchetRouter.v1FallbackObservation(peerID: peerID))
+        }
+        try await transportCoordinator.send(
+            packet,
+            mode: securityState.transportMode,
+            relayConfiguration: securityState.relayConfiguration
+        )
     }
 
     private func outboundMessageContext(messageID: UUID, conversationID: UUID) -> OutboundMessageContext? {
@@ -1614,6 +1768,60 @@ final class ConversationService: ObservableObject {
             let newReceiptContext = relayPacketLedger.wasDeliveryReceiptSent(for: payload.messageID) ? nil : receiptContext
             return InboundPacketProcessResult(didProcessMessage: true, isDuplicate: wasSeenBefore, deliveryReceiptContext: newReceiptContext)
 
+        case .attachmentChunk:
+            guard let conversationID = payload.conversationID,
+                  let attachment = payload.attachment,
+                  let digest = payload.attachmentSHA256,
+                  let chunkIndex = payload.chunkIndex,
+                  let totalChunks = payload.totalChunks,
+                  let encodedChunk = payload.chunkDataBase64,
+                  let chunk = Data(base64Encoded: encodedChunk),
+                  attachment.byteCount <= Self.maximumAttachmentBytes else {
+                throw PrivateChatError.invalidInboundPacket
+            }
+
+            let receiptContext = DeliveryReceiptContext(
+                originalMessageID: payload.messageID,
+                originalConversationID: conversationID,
+                originalSenderID: payload.senderID
+            )
+            if hasMessage(id: payload.messageID) {
+                let duplicateReceipt = relayPacketLedger.wasDeliveryReceiptSent(for: payload.messageID)
+                    ? nil
+                    : receiptContext
+                return InboundPacketProcessResult(
+                    didProcessMessage: false,
+                    isDuplicate: true,
+                    deliveryReceiptContext: duplicateReceipt
+                )
+            }
+
+            let completed = try attachmentStore.storeIncomingChunk(
+                attachmentID: attachment.id,
+                index: chunkIndex,
+                totalChunks: totalChunks,
+                data: chunk,
+                expectedByteCount: attachment.byteCount,
+                expectedSHA256: digest
+            )
+            guard completed else {
+                return InboundPacketProcessResult(
+                    didProcessMessage: true,
+                    isDuplicate: wasSeenBefore,
+                    deliveryReceiptContext: nil
+                )
+            }
+
+            appendInboundMessage(payload: payload, peer: peer)
+            let completedReceipt = relayPacketLedger.wasDeliveryReceiptSent(for: payload.messageID)
+                ? nil
+                : receiptContext
+            return InboundPacketProcessResult(
+                didProcessMessage: true,
+                isDuplicate: wasSeenBefore,
+                deliveryReceiptContext: completedReceipt
+            )
+
         case .deliveryReceipt:
             guard let deliveredMessageID = payload.deliveredMessageID else {
                 throw PrivateChatError.invalidInboundPacket
@@ -1736,7 +1944,8 @@ final class ConversationService: ObservableObject {
             createdAt: payload.createdAt,
             status: .delivered,
             isIncoming: true,
-            readAt: nil
+            readAt: nil,
+            attachment: payload.attachment
         )
         conversations[conversationIndex].messages.append(message)
         conversations[conversationIndex].conversation.updatedAt = max(Date(), payload.createdAt)

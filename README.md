@@ -13,11 +13,11 @@
 | Component | Version | Source |
 |-----------|---------|--------|
 | **iOS app** (`MARKETING_VERSION`) | **1.4.2** | `PrivateChat.xcodeproj/project.pbxproj` |
-| **iOS app** (`CURRENT_PROJECT_VERSION`, Build) | **13** | `PrivateChat.xcodeproj/project.pbxproj` |
+| **iOS app** (`CURRENT_PROJECT_VERSION`, Build) | **14** | `PrivateChat.xcodeproj/project.pbxproj` |
 | **Relay implementation** | operator-managed | private repository |
 | **Relay endpoint** | **https://securechat.team** | `Docs/CURRENT-ENDPOINTS.md` |
 | **Phase / Sprint (current)** | **Sprint 27** (was Phase 14.6.2 before Sprint 14 transition) | `CHANGELOG.md` |
-| **TestFlight candidate build** | **13** | `PrivateChat.xcodeproj/project.pbxproj` |
+| **TestFlight candidate build** | **14** | `PrivateChat.xcodeproj/project.pbxproj` |
 | **Latest commit on `main`** | auto-synced | `git log --oneline -1` |
 
 The relay uses its own versioning (`0.1.0+<build-sha>`) while the iOS app uses a marketing-style versioning (`1.4.2`). The canonical live build is always on [`/healthz`](https://securechat.team/healthz); this README mirrors the values as of the latest commit on `main`.
@@ -49,6 +49,7 @@ The project follows a phased development approach (current cycle: **Sprints 15�
 - 🛡️ **Safety Number verification** — manual fingerprint comparison for out-of-band trust establishment
 - 🔄 **Relay transport** — encrypted packet dropbox for offline/remote messaging
 - 📬 **Delivery receipts & ACK tombstones** — reliable delivery tracking with deduplication
+- 📷 **Encrypted photo and video messages** — library picker, camera capture, chunked relay delivery and local encrypted storage (8 MiB per attachment)
 - 🔍 **Chat search, drafts, export** — local-only, encrypted-at-rest
 
 ### Security & Privacy
@@ -65,6 +66,7 @@ The project follows a phased development approach (current cycle: **Sprints 15�
 - 🧭 **Three user-facing tabs** — `Chats`, `Kontakte`, `Einstellungen`
 - 🔎 **Focused conversation list** — search, filters, unread counters, swipe actions, pin, mute and archive without operational dashboards
 - ✍️ **Minimal composer** — message field and send action; technical details stay out of the normal conversation flow
+- ➕ **Media composer** — attach a photo/video from the library or capture it with the device camera
 - 🔗 **Contact pairing** — scan or share QR pairing codes and compare the Safety Number before verification
 - 🛠️ **Diagnostics remain available** — relay, runtime and security status are under `Einstellungen → Diagnose & Sicherheitsstatus`
 - 🎨 **Modern glass-card design system** — professional iOS 16+ UI without turning the messenger into an admin console
@@ -92,7 +94,8 @@ The project follows a phased development approach (current cycle: **Sprints 15�
 │  │  Features   │  │   Core       │  │    Persistence        │  │
 │  │ Chat/Pairing│  │ Models/Sec   │  │ EncryptedMessageStore │  │
 │  │ Settings    │  │ Transport    │  │ EncryptedDraftStore   │  │
-│  └─────────────┘  └──────┬───────┘  │ RelayPacketLedgerStore│  │
+│  └─────────────┘  └──────┬───────┘  │ EncryptedAttachmentStore││
+│                          │           │ RelayPacketLedgerStore│  │
 │                          │           └───────────────────────┘  │
 └──────────────────────────┼──────────────────────────────────────┘
                            │
@@ -169,7 +172,7 @@ The project follows a phased development approach (current cycle: **Sprints 15�
 - No advertising SDKs, trackers, or analytics third-parties
 - Diagnostic reports contain NO chat plaintext, NO private keys, NO tokens
 - Local stores excluded from iCloud backup
-- Camera permission ONLY for QR pairing
+- Camera permission for QR pairing and user-initiated chat media capture; microphone permission only for recorded chat videos
 - Biometric data never leaves Apple Secure Enclave
 
 ---

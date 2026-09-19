@@ -42,6 +42,9 @@ enum PrivateChatError: LocalizedError, Equatable {
     case runtimeIntegrityBlocked(String)
     case encryptionFailed
     case decryptionFailed
+    case attachmentTooLarge(maximumBytes: Int)
+    case attachmentUnavailable
+    case unsupportedAttachment
 
     var errorDescription: String? {
         switch self {
@@ -124,6 +127,12 @@ enum PrivateChatError: LocalizedError, Equatable {
             return "Verschlüsselung fehlgeschlagen."
         case .decryptionFailed:
             return "Entschlüsselung fehlgeschlagen."
+        case .attachmentTooLarge(let maximumBytes):
+            return "Anhang ist zu groß. Maximal erlaubt sind \(maximumBytes / 1_048_576) MB."
+        case .attachmentUnavailable:
+            return "Anhang konnte nicht sicher geladen oder gespeichert werden."
+        case .unsupportedAttachment:
+            return "Dieses Bild- oder Videoformat wird nicht unterstützt."
         }
     }
 }

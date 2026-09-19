@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-09-19 — Readable chat bubbles and encrypted photo/video messages
+
+- Increased chat-bubble contrast with explicit light foregrounds, brighter
+  incoming surfaces, borders, and a darker outgoing cyan that remains readable.
+- Added photo/video selection from the system library plus direct camera capture
+  for iPhone and iPad (and compatible camera-equipped Mac environments).
+- Added encrypted attachment persistence with a separate Keychain-backed AES-GCM
+  key; attachment files and temporary chunk files are excluded from backup.
+- Media is split into 48 KiB plaintext chunks before the existing signed,
+  end-to-end-encrypted packet envelope is applied, keeping packets below the
+  production relay's 128 KiB ceiling. Reassembly verifies byte count and SHA-256.
+- Added inline image previews, video cards, Quick Look playback/preview, attachment
+  search metadata, deletion/retention cleanup, and an explicit 8 MiB media limit.
+- Added camera/microphone purpose strings and encrypted attachment-store tests.
+
 ## 2026-09-19 — Align iOS peer-auth wire format with production relay
 
 - Corrected the iOS peer-auth headers to match the deployed relay verifier:

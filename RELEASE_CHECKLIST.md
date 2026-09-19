@@ -16,10 +16,10 @@ dedicated cryptographic review is complete.
 - [x] Target / scheme: `PrivateChat`
 - [x] Bundle ID: `org.francois.PrivateChat`
 - [x] Marketing version: `1.4.2`
-- [x] TestFlight build: `13`
+- [x] TestFlight build: `14`
 - [x] Deployment target: iOS 16+
 - [ ] Archive succeeds on the MacBook with Release configuration
-- [ ] Build 13 tested on at least two physical iPhones
+- [ ] Build 14 tested on at least two physical iPhones
 
 ## Chat-first UI
 
@@ -30,6 +30,15 @@ dedicated cryptographic review is complete.
 - [x] Diagnostics remain available under Settings
 - [ ] Chat-first navigation smoke-tested on a physical iPhone
 - [ ] Dynamic Type, VoiceOver labels and dark-mode contrast checked on device
+
+## Encrypted media
+
+- [x] Photo/video library picker and device-camera capture implemented
+- [x] Attachments are chunked below the production relay packet ceiling
+- [x] Inbound media is accepted only after byte-count and SHA-256 verification
+- [x] Complete attachments and pending chunks are encrypted locally and excluded from backup
+- [ ] Photo and short-video send/receive tested in both directions on physical devices
+- [ ] Camera photo/video capture tested on a physical iPhone and iPad
 
 ## Relay configuration
 
@@ -56,7 +65,7 @@ dedicated cryptographic review is complete.
 ## Local security
 
 - [x] Identity and trust records stored in iOS Keychain
-- [x] Message and draft stores encrypted with AES-GCM
+- [x] Message, draft and attachment stores encrypted with AES-GCM
 - [x] Sensitive local stores excluded from backup
 - [x] Critical Keychain/store bootstrap failure is fail-closed
 - [x] Privacy manifest present
@@ -79,15 +88,16 @@ dedicated cryptographic review is complete.
 
 ## App Store Connect
 
-- [x] Camera usage description for QR pairing
+- [x] Camera usage description for QR pairing and chat media capture
+- [x] Microphone usage description for user-initiated video capture
 - [x] Face ID usage description
 - [x] Privacy manifest added
 - [ ] App Privacy answers reviewed against the current relay metadata model
 - [ ] Export-compliance answers reviewed
 - [ ] Privacy Policy and Support URLs verified publicly
-- [x] TestFlight “What to Test” text updated for Build 13 and chat-first navigation
+- [x] TestFlight “What to Test” text updated for Build 14, chat-first navigation and encrypted media
 - [x] iPhone acceptance guide aligned with the current SecureChat UI and relay
-- [ ] Public status page updated from Build 11 to 1.4.2 (Build 13)
+- [ ] Public status page updated from Build 11 to 1.4.2 (Build 14)
 - [ ] Public status-page crypto claim aligned with the active protocolVersion 2
       Release path; experimental Double Ratchet must not be marked enforced
 

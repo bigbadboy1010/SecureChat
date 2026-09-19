@@ -10,7 +10,7 @@
 > regression.
 
 > ⚠️ **Drift alert — repository copy reviewed 19 September 2026
-> (Build 13 candidate).**
+> (Build 14 candidate).**
 > The current TestFlight description in App Store Connect reads
 > the placeholder from the Loupe-era listing.
 > The reviewer-recommended replacement is in the **Description** block
@@ -21,7 +21,7 @@
 **App Store Connect app name:** `SecureChat`
 **Primary locale:** `en-US`
 **Last updated:** 2026-09-19
-**Current TestFlight build (target):** 13
+**Current TestFlight build (target):** 14
 **Pre-flight requirement:** `./scripts/preflight-testflight.sh` passes from a clean release checkout
 
 ---
@@ -70,6 +70,8 @@ bodies.
   HTTPS relay at securechat.team.
 • Local-first. Messages are stored encrypted on your device; iCloud
   backup is explicitly excluded for sensitive stores.
+• Encrypted media. Select or capture photos and short videos; media is
+  chunked, end-to-end encrypted, and stored encrypted on device.
 • Safety Number verification. Compare a 60-digit fingerprint with
   your peer out of band to defend against key substitution.
 • Biometric app lock. Face ID / Touch ID gate on launch.
@@ -112,17 +114,17 @@ https://securechat.team/
 https://securechat.team/privacy.html
 ```
 
-## What's New (Build 13 — 2026-09-19)
+## What's New (Build 14 — 2026-09-19)
 
 > Keep tight — App Store Connect caps this at 4000 chars but the
 > visible area on TestFlight is ~150 chars before "more".
 
 ```
-Build 13 introduces a chat-first interface with Chats,
-Contacts, and Settings. The conversation list and composer
-are cleaner, while diagnostics remain available in Settings.
-It also hardens pairing, Safety Number verification, encrypted
-local storage, relay configuration, and release checks.
+Build 14 improves chat readability and adds encrypted photo
+and short-video messages from the library or camera. Media is
+split into relay-safe encrypted packets, verified on receipt,
+and stored encrypted on device. Relay authentication and release
+checks are also hardened.
 ```
 
 ## What's New (Build 10 — 2026-06-22)

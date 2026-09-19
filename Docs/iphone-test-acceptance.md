@@ -1,6 +1,6 @@
 # SecureChat iPhone acceptance test
 
-Repeatable acceptance test for the SecureChat 1.4.2 (Build 13)
+Repeatable acceptance test for the SecureChat 1.4.2 (Build 14)
 TestFlight candidate. Execute the full two-device section before external
 distribution.
 
@@ -14,6 +14,7 @@ This test verifies:
 - biometric unlock and encrypted local persistence;
 - QR pairing and SC2 Safety Number verification;
 - production-relay enrollment, delivery and acknowledgement;
+- encrypted photo/video selection, camera capture and preview;
 - offline recovery and contact lifecycle behavior.
 
 It does not constitute an independent cryptographic or security audit.
@@ -21,7 +22,7 @@ It does not constitute an independent cryptographic or security audit.
 ## Prerequisites
 
 - Two physical iPhones running iOS 16 or newer.
-- SecureChat 1.4.2 (Build 13) installed from the same candidate build.
+- SecureChat 1.4.2 (Build 14) installed from the same candidate build.
 - Production relay reachable at `https://securechat.team`.
 - A valid client `RELAY_AUTH_TOKEN` provided through the controlled tester
   channel. Never paste the token into screenshots, issues or feedback.
@@ -44,7 +45,7 @@ Acceptance criteria:
 - the reviewed release commit is checked out;
 - preflight reports bundle ID `org.francois.PrivateChat`;
 - preflight reports team `355NB9T8RJ`;
-- preflight reports version `1.4.2 (13)`;
+- preflight reports version `1.4.2 (14)`;
 - preflight ends with `Preflight passed.`.
 
 ## 2. First launch and navigation

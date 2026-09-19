@@ -49,6 +49,7 @@ final class AppContainer: ObservableObject {
             let identity = try identityManager.loadOrCreateLocalIdentity(displayName: UIDeviceNameProvider.defaultDisplayName)
             let messageStore = try EncryptedMessageStore(keychain: keychain, crypto: crypto)
             let draftStore = try EncryptedDraftStore(keychain: keychain, crypto: crypto)
+            let attachmentStore = try EncryptedAttachmentStore(keychain: keychain, crypto: crypto)
             let service = ConversationService(
                 localIdentity: identity,
                 messageStore: messageStore,
@@ -58,7 +59,8 @@ final class AppContainer: ObservableObject {
                 relayPacketLedgerStore: relayPacketLedgerStore,
                 identityManager: identityManager,
                 crypto: crypto,
-                transportCoordinator: transportCoordinator
+                transportCoordinator: transportCoordinator,
+                attachmentStore: attachmentStore
             )
             guard service.load() else {
                 throw PrivateChatError.persistenceFailed(

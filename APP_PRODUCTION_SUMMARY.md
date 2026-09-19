@@ -3,7 +3,7 @@
 **App target:** `PrivateChat`  
 **Bundle ID:** `org.francois.PrivateChat`  
 **Marketing version:** `1.4.2`  
-**Build:** `13`  
+**Build:** `14`
 **Production relay:** `https://securechat.team`
 **Status:** TestFlight candidate; external security audit still open
 
@@ -17,7 +17,7 @@ protocolVersion 2 envelope:
 - AES-GCM authenticated encryption
 - Ed25519 signed transport envelopes
 - Keychain-backed long-term identity keys
-- encrypted local message and draft stores
+- encrypted local message, draft and attachment stores
 - peer-bound relay request signatures
 
 The newer Double Ratchet implementation remains available in the
@@ -45,7 +45,7 @@ cryptographic review.
 - Block/unverify/delete removes stored experimental ratchet state.
 - GitHub CI now builds/tests the actual root Xcode project instead
   of the removed public RelayServer tree.
-- Build number bumped to 13.
+- Build number bumped to 14.
 - The user-facing navigation is chat-first: `Chats`, `Kontakte` and
   `Einstellungen`. Diagnostics are available from Settings instead of
   occupying the launch tab.
@@ -54,10 +54,14 @@ cryptographic review.
   normal messaging.
 - The TestFlight preflight now reads the exact bundle identifier and
   permits obsolete relay strings only inside the explicit migration list.
+- Photo and short-video messages can be selected or captured in the chat.
+  Attachments are split into relay-safe encrypted packets, integrity-checked
+  on receipt and stored locally with a separate Keychain-backed AES-GCM key.
+- Chat bubbles use explicit high-contrast foreground and background colors.
 
 ## Remaining release checks
 
-Before distributing Build 13 beyond a small internal TestFlight
+Before distributing Build 14 beyond a small internal TestFlight
 group:
 
 1. GitHub iOS CI must be green.
@@ -71,5 +75,7 @@ group:
 8. Review App Store privacy and export-compliance answers.
 9. Keep the external security/cryptographic audit as an explicit
    precondition for stronger security claims.
-10. Update the public status page: it still reports Build 11 and an enforced
-    Double Ratchet, which does not match this Build 13 candidate.
+10. Send and open a photo and short video in both directions; test direct
+    camera capture on physical hardware.
+11. Update the public status page: it still reports Build 11 and an enforced
+    Double Ratchet, which does not match this Build 14 candidate.

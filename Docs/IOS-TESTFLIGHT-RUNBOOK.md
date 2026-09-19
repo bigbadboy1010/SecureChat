@@ -85,7 +85,7 @@ In Xcode:
 3. **Product → Archive**.
 4. Wait for Organizer to open.
 5. Select the newest SecureChat / PrivateChat archive.
-6. Confirm version **1.4.2 (13)** and bundle
+6. Confirm version **1.4.2 (14)** and bundle
    `org.francois.PrivateChat`.
 
 If Archive fails, do not change bundle IDs or signing identities to
@@ -103,10 +103,10 @@ In Organizer:
 5. Review validation warnings.
 6. Upload.
 
-After App Store Connect finishes processing, add Build 13 only to the
+After App Store Connect finishes processing, add Build 14 only to the
 small internal TestFlight group first.
 
-## 6. Mandatory Build 13 device checks
+## 6. Mandatory Build 14 device checks
 
 Use two physical iPhones, preferably on different networks.
 
@@ -120,6 +120,10 @@ Use two physical iPhones, preferably on different networks.
 - Same SC2 Safety Number displayed on both devices.
 - No direct verification without the Safety Number flow.
 - Send/receive in both directions.
+- Send a photo and a short video from the library in both directions;
+  open each received attachment.
+- Capture and send a photo and a short video from a physical device camera.
+- Verify chat text remains clearly readable in light and dark appearance.
 - App kill/relaunch between messages.
 - Offline → reconnect → inbox delivery.
 - Duplicate/retry behavior.
@@ -137,5 +141,5 @@ Complete the remaining items in `RELEASE_CHECKLIST.md`, including
 App Store privacy answers, export compliance and the external security
 review requirement for stronger security claims.
 
-Do not describe Build 13 as externally audited, Signal-protocol
+Do not describe Build 14 as externally audited, Signal-protocol
 compatible, or as using a reviewed production Double Ratchet.

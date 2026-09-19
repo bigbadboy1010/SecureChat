@@ -9,9 +9,9 @@ independent external security audit.
 - Product: SecureChat
 - Xcode target / scheme: `PrivateChat`
 - Bundle ID: `org.francois.PrivateChat`
-- Current TestFlight candidate: 1.4.2 (Build 13)
+- Current TestFlight candidate: 1.4.2 (Build 14)
 - Minimum iOS: 16
-- Canonical relay: `https://relay.securechat.team`
+- Canonical relay: `https://securechat.team`
 
 The relay implementation and deployment configuration are maintained
 in a private operator repository. The public client repository must

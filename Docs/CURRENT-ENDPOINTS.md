@@ -56,7 +56,7 @@ client only.
 - Display name: SecureChat
 - Xcode target / scheme: `PrivateChat`
 - Bundle ID: `org.francois.PrivateChat`
-- Current candidate: 1.4.2 (Build 13)
+- Current candidate: 1.4.2 (Build 14)
 
 ## Operational rule
 
