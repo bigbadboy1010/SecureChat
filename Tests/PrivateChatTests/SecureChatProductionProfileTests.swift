@@ -16,6 +16,21 @@ final class SecureChatProductionProfileTests: XCTestCase {
         XCTAssertNil(migrated.registrationToken)
     }
 
+
+    func testLegacyDDNSRelayMigratesToCanonicalProductionHost() {
+        let legacy = RelayConfiguration(
+            isEnabled: true,
+            baseURLString: "https://chatsecure.ddns.net/",
+            registrationToken: String(repeating: "b", count: 64)
+        )
+
+        let migrated = SecureChatProductionProfile.migratedConfiguration(legacy)
+
+        XCTAssertEqual(migrated.baseURLString, "https://relay.securechat.team")
+        XCTAssertTrue(migrated.isEnabled)
+        XCTAssertNil(migrated.readinessIssue)
+    }
+
     func testProductionRelayIsReadyWithUsableToken() {
         let config = RelayConfiguration(
             isEnabled: true,
