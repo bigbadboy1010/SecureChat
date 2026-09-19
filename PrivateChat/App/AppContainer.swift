@@ -9,11 +9,22 @@ final class AppContainer: ObservableObject {
 
     let conversationService: ConversationService
     private let biometricGate: BiometricGating
+    private let hasCriticalStartupFailure: Bool
 
-    private init(conversationService: ConversationService, biometricGate: BiometricGating, startupErrorMessage: String?) {
+    var canUnlock: Bool {
+        hasCriticalStartupFailure == false
+    }
+
+    private init(
+        conversationService: ConversationService,
+        biometricGate: BiometricGating,
+        startupErrorMessage: String?,
+        hasCriticalStartupFailure: Bool = false
+    ) {
         self.conversationService = conversationService
         self.biometricGate = biometricGate
         self.startupErrorMessage = startupErrorMessage
+        self.hasCriticalStartupFailure = hasCriticalStartupFailure
         self.isUnlocked = false
     }
 
@@ -75,11 +86,20 @@ final class AppContainer: ObservableObject {
                 transportCoordinator: transportCoordinator
             )
             service.load()
-            return AppContainer(conversationService: service, biometricGate: biometricGate, startupErrorMessage: error.localizedDescription)
+            return AppContainer(
+                conversationService: service,
+                biometricGate: biometricGate,
+                startupErrorMessage: "Sicherheitskritischer Startfehler: \(error.localizedDescription)",
+                hasCriticalStartupFailure: true
+            )
         }
     }
 
     func unlock() async {
+        guard hasCriticalStartupFailure == false else {
+            return
+        }
+
         if conversationService.securityState.requireBiometricUnlock == false {
             isUnlocked = true
             return
