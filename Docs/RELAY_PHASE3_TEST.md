@@ -15,7 +15,7 @@ In SecureChat:
 
 1. Open `Einstellungen`.
 2. Select relay transport.
-3. Use `https://relay.securechat.team`.
+3. Use `https://securechat.team`.
 4. Enter only the client `RELAY_AUTH_TOKEN` value.
 5. Save the configuration.
 6. Open `Einstellungen → Diagnose & Sicherheitsstatus` and refresh.

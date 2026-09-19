@@ -15,7 +15,7 @@
 | **iOS app** (`MARKETING_VERSION`) | **1.4.2** | `PrivateChat.xcodeproj/project.pbxproj` |
 | **iOS app** (`CURRENT_PROJECT_VERSION`, Build) | **13** | `PrivateChat.xcodeproj/project.pbxproj` |
 | **Relay implementation** | operator-managed | private repository |
-| **Relay endpoint** | **https://relay.securechat.team** | `Docs/CURRENT-ENDPOINTS.md` |
+| **Relay endpoint** | **https://securechat.team** | `Docs/CURRENT-ENDPOINTS.md` |
 | **Phase / Sprint (current)** | **Sprint 27** (was Phase 14.6.2 before Sprint 14 transition) | `CHANGELOG.md` |
 | **TestFlight candidate build** | **13** | `PrivateChat.xcodeproj/project.pbxproj` |
 | **Latest commit on `main`** | auto-synced | `git log --oneline -1` |
@@ -70,7 +70,7 @@ The project follows a phased development approach (current cycle: **Sprints 15â€
 - ðŸŽ¨ **Modern glass-card design system** â€” professional iOS 16+ UI without turning the messenger into an admin console
 
 ### Relay Service
-- Production endpoint: `https://relay.securechat.team`
+- Production endpoint: `https://securechat.team`
 - Relay implementation and deployment configuration are operator-managed in a private repository.
 - The public iOS repository does not use relay-source secrecy as a security boundary.
 - Client requests use HTTPS, a client bearer token and peer-bound request signing where required.
@@ -205,7 +205,7 @@ The project follows a phased development approach (current cycle: **Sprints 15â€
 ### Production Relay
 
 The official TestFlight/Release client uses
-`https://relay.securechat.team`. The relay server implementation is
+`https://securechat.team`. The relay server implementation is
 maintained separately in a private operator repository. This public
 repository contains the iOS client and its protocol-facing models,
 request signing and tests.
@@ -394,7 +394,7 @@ Run existing tests:
 
 - **Repository:** https://github.com/bigbadboy1010/SecureChat
 - **Marketing site:** https://securechat.team
-- **Production Relay:** https://relay.securechat.team
+- **Production Relay:** https://securechat.team
 - **Endpoint source of truth:** [`Docs/CURRENT-ENDPOINTS.md`](Docs/CURRENT-ENDPOINTS.md)
 - **TestFlight runbook:** [`Docs/IOS-TESTFLIGHT-RUNBOOK.md`](Docs/IOS-TESTFLIGHT-RUNBOOK.md)
 - **TestFlight tester brief:** [`Docs/TESTFLIGHT_WHAT_TO_TEST.md`](Docs/TESTFLIGHT_WHAT_TO_TEST.md)

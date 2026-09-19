@@ -12,7 +12,7 @@ This document describes the active `PrivateChat` baseline and the hardened Relay
 - Store keys, trust state and Relay ledger metadata are stored via Keychain-backed stores.
 - Relay packets are signed and payloads are AEAD-protected before upload.
 - Relay server is a blind relay and does not receive message plaintext.
-- Public production Relay is `https://relay.securechat.team` behind the
+- Public production Relay is `https://securechat.team` behind the
   operator-managed HTTPS edge.
 - `/v1/relay/*` requires `RELAY_AUTH_TOKEN`.
 - `/v1/admin/*` requires `RELAY_ADMIN_TOKEN` and must never be configured in the app.
@@ -38,7 +38,7 @@ infrastructure. Before stronger public security claims:
 ## Relay production configuration
 
 ```text
-Relay URL: https://relay.securechat.team
+Relay URL: https://securechat.team
 Client token: RELAY_AUTH_TOKEN
 Admin token: RELAY_ADMIN_TOKEN, server only
 ```

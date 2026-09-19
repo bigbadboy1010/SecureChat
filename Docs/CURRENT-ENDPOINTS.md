@@ -11,14 +11,14 @@ by the iOS client and release documentation.
 | Status | `https://securechat.team/status.html` | none |
 | Privacy | `https://securechat.team/privacy.html` | none |
 | Known issues | `https://securechat.team/known-issues.html` | none |
-| Relay public health | `https://relay.securechat.team/healthz` | none |
-| Relay client API | `https://relay.securechat.team/v1/relay/*` | client bearer token plus peer-bound signing where required |
-| Relay admin API | `https://relay.securechat.team/v1/admin/*` | operator/admin credentials |
+| Relay public health | `https://securechat.team/healthz` | none |
+| Relay client API | `https://securechat.team/v1/relay/*` | client bearer token plus peer-bound signing where required |
+| Relay admin API | `https://securechat.team/v1/admin/*` | operator/admin credentials |
 
 The iOS production profile must use exactly:
 
 ```text
-https://relay.securechat.team
+https://securechat.team
 ```
 
 ## Legacy endpoints
@@ -26,13 +26,16 @@ https://relay.securechat.team
 The following values are obsolete and must never be used by a
 Release/TestFlight build:
 
+- `https://relay.securechat.team`
+- `http://relay.securechat.team`
 - `https://chatsecure.ddns.net`
 - `http://chatsecure.ddns.net`
 - `http://192.168.178.229:8080`
 - `http://localhost:8080`
 - `http://127.0.0.1:8080`
 
-The client migration layer converts the old DDNS/LAN configuration to
+The client migration layer converts the broken relay subdomain and old
+DDNS/LAN configuration to
 the canonical production relay and blocks insecure production HTTP.
 
 ## Distribution and source locations

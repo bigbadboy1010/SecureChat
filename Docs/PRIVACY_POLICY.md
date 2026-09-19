@@ -23,7 +23,7 @@ Wenn der Relay-Modus aktiviert ist, überträgt die App verschlüsselte
 Pakete an:
 
 ```text
-https://relay.securechat.team
+https://securechat.team
 ```
 
 Der Relay verarbeitet **technische Zustellmetadaten** wie Sender-ID,
@@ -43,7 +43,7 @@ geteilt.
 ## 4. Relay-Betrieb
 
 Die offizielle SecureChat-App verwendet den vom Betreiber verwalteten
-Relay unter `https://relay.securechat.team`. Der produktive
+Relay unter `https://securechat.team`. Der produktive
 Relay-Servercode und die Deployment-Konfiguration liegen nicht im
 öffentlichen iOS-Repository. Ein eigener Relay ist für die offizielle
 TestFlight-Version derzeit kein unterstützter Betriebsmodus.

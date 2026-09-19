@@ -8,7 +8,7 @@ Current candidate:
 - Scheme / target: `PrivateChat`
 - Bundle ID: `org.francois.PrivateChat`
 - Minimum iOS: 16
-- Production relay: `https://relay.securechat.team`
+- Production relay: `https://securechat.team`
 
 This runbook intentionally uses **Xcode Organizer** for distribution.
 No command-line uploader is required.
@@ -66,7 +66,7 @@ In Xcode:
    rows and that the composer shows only the message field and send action.
 6. Verify under `Einstellungen → Diagnose & Sicherheitsstatus` that the app
    shows the canonical relay
-   `https://relay.securechat.team`.
+   `https://securechat.team`.
 7. Use a fresh/re-paired contact and compare the same **SC2 Safety
    Number** on both devices.
 8. Verify SEND → receive → ACK in both directions.

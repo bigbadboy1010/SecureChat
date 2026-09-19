@@ -37,8 +37,12 @@ public-beta trust regression.
 - Simplified the lock screen and empty-chat copy without changing
   biometric unlock, encrypted persistence, Safety Number verification
   or transport security.
-- Corrected stale Security Sentinel recommendations to use the canonical
-  `https://relay.securechat.team` endpoint.
+- Corrected stale Security Sentinel recommendations to use the live canonical
+  `https://securechat.team` endpoint.
+- A physical-iPhone test exposed a server-side TLS failure on the previously
+  configured `https://relay.securechat.team` host. The production profile now
+  follows the live status/health surface at `https://securechat.team`; stored
+  subdomain configurations migrate automatically.
 - Fixed `scripts/preflight-testflight.sh`: its build-settings parser now
   matches the exact `PRODUCT_BUNDLE_IDENTIFIER` key instead of reading
   `DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = NO`.
@@ -46,9 +50,9 @@ public-beta trust regression.
   `SecureChatProductionProfile.swift`; active UI and runtime text must not
   reference obsolete relay endpoints.
 
-**Security impact:** UI-only reduction plus release-gate corrections. No
-cryptographic primitive, envelope, Keychain, persistence or relay request
-behavior changed.
+**Security impact:** UI reduction, release-gate corrections and canonical
+relay-host migration. No cryptographic primitive, envelope, Keychain or
+encrypted-persistence behavior changed.
 
 ### Sprint 15 + 16: peer-bound request signing (iOS + relay, opt-in) (2026-06-23)
 

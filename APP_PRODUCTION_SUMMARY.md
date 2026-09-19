@@ -4,7 +4,7 @@
 **Bundle ID:** `org.francois.PrivateChat`  
 **Marketing version:** `1.4.2`  
 **Build:** `13`  
-**Production relay:** `https://relay.securechat.team`  
+**Production relay:** `https://securechat.team`
 **Status:** TestFlight candidate; external security audit still open
 
 ## Active security posture
@@ -29,7 +29,7 @@ cryptographic review.
 
 ## TestFlight hardening completed
 
-- Canonical relay moved to `https://relay.securechat.team`.
+- Canonical relay moved to `https://securechat.team`.
 - The legacy `chatsecure.ddns.net` value is migrated away.
 - Production `TransportCoordinator` now receives the real
   `IdentityManager` signing context and `CryptoService`.
@@ -71,3 +71,5 @@ group:
 8. Review App Store privacy and export-compliance answers.
 9. Keep the external security/cryptographic audit as an explicit
    precondition for stronger security claims.
+10. Update the public status page: it still reports Build 11 and an enforced
+    Double Ratchet, which does not match this Build 13 candidate.

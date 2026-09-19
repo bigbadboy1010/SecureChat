@@ -5,10 +5,10 @@
 > significantly behind the live relay and the
 > `CURRENT-ENDPOINTS.md` source of truth. This
 > document is now the canonical public contract
-> for the `relay.securechat.team` surface.
+> for the `securechat.team` surface.
 
 This contract covers the **public** relay
-surface served by `https://relay.securechat.team`
+surface served by `https://securechat.team`
 behind a Caddy TLS terminator. The single source
 of truth for endpoint names, host names, and
 auth requirements is
@@ -26,7 +26,7 @@ back here for the wire-format details.
 
 | Surface      | URL                                          |
 | ------------ | -------------------------------------------- |
-| Public prod  | `https://relay.securechat.team`              |
+| Public prod  | `https://securechat.team`              |
 | Public prod  | `https://securechat.team/v2-stats.html`      |
 | Local dev    | `http://localhost:8080` (only in Debug)      |
 
@@ -101,7 +101,7 @@ for the migration plan.
 
 ```http
 GET /healthz HTTP/1.1
-Host: relay.securechat.team
+Host: securechat.team
 ```
 
 Response (200):

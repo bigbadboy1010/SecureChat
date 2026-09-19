@@ -33,14 +33,14 @@ dedicated cryptographic review is complete.
 
 ## Relay configuration
 
-- [x] Canonical relay URL is `https://relay.securechat.team`
+- [x] Canonical relay URL is `https://securechat.team`
 - [x] Legacy `chatsecure.ddns.net` migrates to the canonical relay
 - [x] Plain HTTP / LAN relay URLs are blocked for Release
 - [x] App contains only the client `RELAY_AUTH_TOKEN`
 - [x] App does not contain `RELAY_ADMIN_TOKEN`
 - [x] Production `TransportCoordinator` is wired to the Keychain identity
 - [x] Inbox GET requests use the same peer-bound signature path as writes/ACKs
-- [ ] `https://relay.securechat.team/healthz` returns HTTP 200
+- [ ] `https://securechat.team/healthz` returns HTTP 200
 - [ ] Peer enrollment succeeds from a fresh physical-device install
 - [ ] SEND → GET inbox → ACK works between two physical devices
 
@@ -87,6 +87,9 @@ dedicated cryptographic review is complete.
 - [ ] Privacy Policy and Support URLs verified publicly
 - [x] TestFlight “What to Test” text updated for Build 13 and chat-first navigation
 - [x] iPhone acceptance guide aligned with the current SecureChat UI and relay
+- [ ] Public status page updated from Build 11 to 1.4.2 (Build 13)
+- [ ] Public status-page crypto claim aligned with the active protocolVersion 2
+      Release path; experimental Double Ratchet must not be marked enforced
 
 ## Final gate
 

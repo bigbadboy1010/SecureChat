@@ -42,7 +42,7 @@ ok "Bundle ID: $BUNDLE"
 ok "Team: $TEAM"
 ok "Version: $MARKETING ($BUILD)"
 
-if grep -R --line-number --exclude-dir=.git --exclude='*.md' --exclude='SecureChatProductionProfile.swift' 'chatsecure\.ddns\.net\|192\.168\.178\.229:8080' "$REPO_ROOT/PrivateChat" "$REPO_ROOT/Config" >/tmp/securechat-legacy-relay.txt 2>/dev/null; then
+if grep -R --line-number --exclude-dir=.git --exclude='*.md' --exclude='SecureChatProductionProfile.swift' 'relay\.securechat\.team\|chatsecure\.ddns\.net\|192\.168\.178\.229:8080' "$REPO_ROOT/PrivateChat" "$REPO_ROOT/Config" >/tmp/securechat-legacy-relay.txt 2>/dev/null; then
   cat /tmp/securechat-legacy-relay.txt >&2
   fail "legacy relay address remains in active client code"
 fi

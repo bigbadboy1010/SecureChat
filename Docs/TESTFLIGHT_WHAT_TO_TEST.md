@@ -8,7 +8,7 @@ Bitte testen:
 4. Suche, Filter, ungelesene Markierung, Fixieren, Stummschalten und Archivieren testen.
 5. Unter „Kontakte“ den Anzeigenamen ändern, den eigenen QR-Code neu laden und einen Kontakt per QR importieren.
 6. Auf zwei Geräten die gleiche Safety Number vergleichen, den Kontakt verifizieren und Nachrichten in beide Richtungen senden.
-7. Unter „Einstellungen“ den Production Relay https://relay.securechat.team mit dem separat bereitgestellten RELAY_AUTH_TOKEN aktivieren.
+7. Unter „Einstellungen“ den Production Relay https://securechat.team mit dem separat bereitgestellten RELAY_AUTH_TOKEN aktivieren.
 8. Unter „Einstellungen → Diagnose & Sicherheitsstatus“ Relay-Zustand, Inbox-Sync und Diagnosebericht prüfen.
 9. Offline senden, Verbindung wiederherstellen und Zustellung/ACK kontrollieren.
 

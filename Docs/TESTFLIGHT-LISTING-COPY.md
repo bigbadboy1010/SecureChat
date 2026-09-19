@@ -67,7 +67,7 @@ bodies.
 • No analytics. No tracking. No third-party SDKs. No push-notification
   content reaches the relay; only opaque packets.
 • Hardened relay profile. The current beta uses the operator-managed
-  HTTPS relay at relay.securechat.team.
+  HTTPS relay at securechat.team.
 • Local-first. Messages are stored encrypted on your device; iCloud
   backup is explicitly excluded for sensitive stores.
 • Safety Number verification. Compare a 60-digit fingerprint with
@@ -81,7 +81,7 @@ bodies.
 The relay is built on Fastify (Node 22) and stores sealed packets
 for at most 24 hours. The protocol is documented at
 https://securechat.team/docs/architecture.html. The current public
-beta runs at https://relay.securechat.team.
+beta runs at https://securechat.team.
 
 Status, current build, and known issues are listed on
 https://securechat.team/status.html. To report a vulnerability,
@@ -131,7 +131,7 @@ local storage, relay configuration, and release checks.
 Build 10 — first public beta of SecureChat for iOS. Pair
 with another iPhone via Safety Number verification, send
 sealed messages through the public relay at
-relay.securechat.team, or self-host the relay on your own
+securechat.team, or self-host the relay on your own
 VPS. See https://securechat.team/status.html.
 ```
 

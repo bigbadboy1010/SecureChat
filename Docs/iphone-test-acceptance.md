@@ -22,7 +22,7 @@ It does not constitute an independent cryptographic or security audit.
 
 - Two physical iPhones running iOS 16 or newer.
 - SecureChat 1.4.2 (Build 13) installed from the same candidate build.
-- Production relay reachable at `https://relay.securechat.team`.
+- Production relay reachable at `https://securechat.team`.
 - A valid client `RELAY_AUTH_TOKEN` provided through the controlled tester
   channel. Never paste the token into screenshots, issues or feedback.
 - Xcode device console available for the engineering run.
@@ -108,7 +108,7 @@ Acceptance criteria:
 On both devices:
 
 1. Open `Einstellungen` and select relay transport.
-2. Set the relay URL to `https://relay.securechat.team`.
+2. Set the relay URL to `https://securechat.team`.
 3. Enter only the client `RELAY_AUTH_TOKEN` value.
 4. Save the configuration.
 5. Open `Einstellungen → Diagnose & Sicherheitsstatus` and refresh the relay

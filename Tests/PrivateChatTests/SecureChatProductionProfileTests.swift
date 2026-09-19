@@ -26,7 +26,21 @@ final class SecureChatProductionProfileTests: XCTestCase {
 
         let migrated = SecureChatProductionProfile.migratedConfiguration(legacy)
 
-        XCTAssertEqual(migrated.baseURLString, "https://relay.securechat.team")
+        XCTAssertEqual(migrated.baseURLString, SecureChatProductionProfile.relayBaseURLString)
+        XCTAssertTrue(migrated.isEnabled)
+        XCTAssertNil(migrated.readinessIssue)
+    }
+
+    func testBrokenRelaySubdomainMigratesToCanonicalProductionHost() {
+        let legacy = RelayConfiguration(
+            isEnabled: true,
+            baseURLString: "https://relay.securechat.team/",
+            registrationToken: String(repeating: "c", count: 64)
+        )
+
+        let migrated = SecureChatProductionProfile.migratedConfiguration(legacy)
+
+        XCTAssertEqual(migrated.baseURLString, SecureChatProductionProfile.relayBaseURLString)
         XCTAssertTrue(migrated.isEnabled)
         XCTAssertNil(migrated.readinessIssue)
     }
