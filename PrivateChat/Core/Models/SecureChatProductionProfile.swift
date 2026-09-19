@@ -1,11 +1,13 @@
 import Foundation
 
 enum SecureChatProductionProfile {
-    static let relayBaseURLString = "https://chatsecure.ddns.net"
-    static let relayHost = "chatsecure.ddns.net"
+    static let relayBaseURLString = "https://relay.securechat.team"
+    static let relayHost = "relay.securechat.team"
     static let relayTokenLocationHint = "/opt/securechat/.env → RELAY_AUTH_TOKEN"
 
     static let obsoleteLocalRelayHints: [String] = [
+        "https://chatsecure.ddns.net",
+        "http://chatsecure.ddns.net",
         "http://192.168.178.229:8080",
         "http://localhost:8080",
         "http://127.0.0.1:8080"
