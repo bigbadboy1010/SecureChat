@@ -32,7 +32,9 @@ final class RelayTransport: RelayMessageTransporting {
         self.clientVersion = clientVersion
             ?? "org.francois.PrivateChat/\(marketingVersion)/\(buildVersion)"
         self.urlSession = urlSession ?? RelayTransport.makeDefaultURLSession()
-        self.encoder = DateCoding.makeEncoder()
+        let requestEncoder = DateCoding.makeEncoder()
+        requestEncoder.outputFormatting.insert(.withoutEscapingSlashes)
+        self.encoder = requestEncoder
         self.decoder = DateCoding.makeDecoder()
     }
 

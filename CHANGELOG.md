@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-09-19 — Align iOS peer-auth wire format with production relay
+
+- Corrected the iOS peer-auth headers to match the deployed relay verifier:
+  RFC3339 timestamps, unpadded Base64URL nonces generated from 16 random bytes,
+  and unpadded Base64URL Ed25519 signatures.
+- Relay JSON requests are encoded with recursively sorted keys and without
+  escaped slashes, matching the relay's `stableSortKeys` plus `JSON.stringify`
+  body canonicalization before SHA-256 hashing.
+- Canonical query encoding now matches JavaScript `encodeURIComponent` rather
+  than Foundation's broader `.urlQueryAllowed` character set.
+- Updated signing tests to decode the actual Base64URL wire representation and
+  validate nonce length, timestamp format, deterministic Ed25519 output, and
+  the signature over the final transmitted method/body.
+
 ## 2026-09-19 — Peer-auth request-signing hotfix
 
 - Relay mutations now pass their final HTTP method and encoded body into the
@@ -182,12 +196,9 @@ lines):**
     round-trip: the produced signature
     verifies under the peer's public key
     over the canonical string.
-  - `testSignedHeadersDifferAcrossCalls` —
-    CryptoKit Ed25519 is non-deterministic
-    (each call to
-    `signingKey.signature(for:)` uses a
-    fresh random nonce); the relay's
-    nonce cache prevents replay.
+  - `testSignedHeadersAreStableForIdenticalCanonicalInput` —
+    Ed25519 produces the same signature for identical canonical input;
+    replay protection is provided by the request nonce.
   - `testSignedHeadersDifferForDifferentNonces`
     — a fresh `nonce` produces a
     different signature.

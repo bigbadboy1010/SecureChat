@@ -82,21 +82,21 @@ final class RequestSignerTests: XCTestCase {
         XCTAssertEqual(canonical, "a=2&z=1")
     }
 
-    func testCanonicalQueryStringSortsByValueWhenNameEqual() {
+    func testCanonicalQueryStringCombinesRepeatedValuesLikeRelay() {
         let items = [
             URLQueryItem(name: "tag", value: "z"),
             URLQueryItem(name: "tag", value: "a")
         ]
         let canonical = RequestSigner.canonicalQueryString(from: items)
-        XCTAssertEqual(canonical, "tag=a&tag=z")
+        XCTAssertEqual(canonical, "tag=z%2Ca")
     }
 
     func testCanonicalQueryStringPercentEncodesValues() {
         let items = [
-            URLQueryItem(name: "q", value: "hello world")
+            URLQueryItem(name: "q&scope", value: "hello world/+?")
         ]
         let canonical = RequestSigner.canonicalQueryString(from: items)
-        XCTAssertEqual(canonical, "q=hello%20world")
+        XCTAssertEqual(canonical, "q%26scope=hello%20world%2F%2B%3F")
     }
 
     func testCanonicalQueryStringNilValueTreatedAsEmpty() {
@@ -131,12 +131,10 @@ final class RequestSignerTests: XCTestCase {
             nonce: "abcd",
             peerID: peerID
         )
-        // Decode the hex-encoded signature
-        // and verify it against the public
-        // key — this is exactly what the
-        // relay does server-side.
-        guard let signatureBytes = Data(hexString: signed.signature) else {
-            XCTFail("signature is not valid hex")
+        // Decode the unpadded Base64URL signature and verify it against the
+        // public key exactly as the production relay does server-side.
+        guard let signatureBytes = Data(base64URLEncoded: signed.signature) else {
+            XCTFail("signature is not valid Base64URL")
             return
         }
         let isValid = signingKey.publicKey.isValidSignature(
@@ -146,21 +144,36 @@ final class RequestSignerTests: XCTestCase {
         XCTAssertTrue(isValid, "the signature produced by sign() must verify under the public key")
     }
 
-    func testSignedHeadersDifferAcrossCalls() {
-        // CryptoKit's Ed25519 implementation
-        // is non-deterministic: each call to
-        // `signingKey.signature(for:)`
-        // generates a fresh random nonce.
-        // Two calls with the exact same
-        // inputs must therefore produce
-        // *different* signature bytes, even
-        // though both are valid. The relay
-        // does not depend on the signature
-        // being deterministic — it depends
-        // on the signature being verifiable
-        // by the registered public key
-        // (covered by
-        // `testSignProducesVerifiableSignature`).
+    func testSignMatchesProductionRelayWireVector() throws {
+        let signingKey = try Curve25519.Signing.PrivateKey(
+            rawRepresentation: Data((0..<32).map { UInt8($0) })
+        )
+        let peerID = RequestSigner.sha256Hex(signingKey.publicKey.rawRepresentation)
+        XCTAssertEqual(
+            peerID,
+            "56475aa75463474c0285df5dbf2bcab73da651358839e9b77481b2eab107708c"
+        )
+
+        let signed = RequestSigner.sign(
+            method: "POST",
+            path: "/v1/relay/messages",
+            queryStringCanonicalized: "",
+            body: Data("{\"a\":\"////\",\"z\":1}".utf8),
+            timestamp: "2026-09-19T14:00:00Z",
+            nonce: "AAECAwQFBgcICQoLDA0ODw",
+            peerID: peerID,
+            signingKey: signingKey
+        )
+
+        XCTAssertEqual(
+            signed.signature,
+            "_70CaBdgtnjqhXPIFwl6h5XW_nqaJGJXQGM91yoJb9b4gHOGcq8J2w2gqaJY-Lx809bscKQYl8Qxn1LDcAonCQ"
+        )
+    }
+
+    func testSignedHeadersAreStableForIdenticalCanonicalInput() {
+        // Ed25519 is deterministic. Replay protection comes from generating
+        // a fresh request nonce, not from randomness inside the signature.
         let signingKey = Curve25519.Signing.PrivateKey()
         let peerID = "peer-1"
         let body = Data("body".utf8)
@@ -176,7 +189,7 @@ final class RequestSignerTests: XCTestCase {
             timestamp: "1700000000", nonce: "n1", peerID: peerID,
             signingKey: signingKey
         )
-        XCTAssertNotEqual(a, b, "CryptoKit Ed25519 is non-deterministic; the nonce cache on the relay side prevents replay")
+        XCTAssertEqual(a, b)
     }
 
     func testSignedHeadersDifferForDifferentNonces() {
@@ -200,47 +213,31 @@ final class RequestSignerTests: XCTestCase {
 
     // MARK: - nonce + timestamp
 
-    func testMakeNonceIs64HexChars() {
+    func testMakeNonceIsUnpaddedBase64URLOf16RandomBytes() throws {
         let nonce = RequestSigner.makeNonce()
-        XCTAssertEqual(nonce.count, 64, "nonce should be 32 random bytes hex-encoded (64 chars)")
-        // must be lowercase hex
-        let lowerHex = CharacterSet(charactersIn: "0123456789abcdef")
-        XCTAssertTrue(
-            nonce.unicodeScalars.allSatisfy { lowerHex.contains($0) },
-            "nonce should be lowercase hex"
-        )
+        XCTAssertEqual(nonce.count, 22)
+        XCTAssertFalse(nonce.contains("="))
+        XCTAssertFalse(nonce.contains("+"))
+        XCTAssertFalse(nonce.contains("/"))
+        let decoded = try XCTUnwrap(Data(base64URLEncoded: nonce))
+        XCTAssertEqual(decoded.count, 16)
     }
 
-    func testCurrentTimestampIsTenDigits() {
+    func testCurrentTimestampIsCurrentRFC3339() throws {
         let timestamp = RequestSigner.currentTimestamp()
-        XCTAssertEqual(timestamp.count, 10, "unix seconds fit in 10 digits (until year 2286)")
-        XCTAssertTrue(
-            Int(timestamp) != nil,
-            "currentTimestamp must be a parseable integer"
-        )
+        let parsed = try XCTUnwrap(DateCoding.iso8601Formatter.date(from: timestamp))
+        XCTAssertLessThan(abs(parsed.timeIntervalSinceNow), 2)
     }
 }
 
-// MARK: - Data hex-decoding helper (test-only)
+// MARK: - Base64URL decoding helper (test-only)
 
 private extension Data {
-    /// Decode a hex string ("2cf2...") into
-    /// a `Data` blob. Returns nil if the
-    /// string is not valid hex.
-    init?(hexString: String) {
-        let length = hexString.count
-        guard length % 2 == 0 else { return nil }
-        var bytes = [UInt8]()
-        bytes.reserveCapacity(length / 2)
-        var index = hexString.startIndex
-        for _ in 0 ..< (length / 2) {
-            let next = hexString.index(index, offsetBy: 2)
-            guard let byte = UInt8(hexString[index ..< next], radix: 16) else {
-                return nil
-            }
-            bytes.append(byte)
-            index = next
-        }
-        self.init(bytes)
+    init?(base64URLEncoded value: String) {
+        let normalized = value
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        let padded = normalized + String(repeating: "=", count: (4 - normalized.count % 4) % 4)
+        self.init(base64Encoded: padded)
     }
 }

@@ -95,35 +95,26 @@ public enum RequestSigner {
         ].joined(separator: "\n")
     }
 
-    /// Build the canonical query string
-    /// from a `[URLQueryItem]` array:
-    /// pairs are sorted by name, then by
-    /// value, joined with `&`, each
-    /// pair formatted as `name=value`
-    /// (percent-encoded). This matches
-    /// the relay's `canonical-query-string`
-    /// helper (see
-    /// `RelayServer/src/peerAuth.ts`).
+    /// Build the canonical query string from a `[URLQueryItem]` array.
+    /// The relay sorts parameters by name and applies JavaScript's
+    /// `encodeURIComponent` character set before joining them with `&`.
     public static func canonicalQueryString(
         from items: [URLQueryItem]
     ) -> String {
-        let pairs = items
-            .compactMap { item -> (String, String)? in
-                guard
-                    let name = item.name.addingPercentEncoding(
-                        withAllowedCharacters: .urlQueryAllowed
-                    )
-                else { return nil }
-                let value = item.value ?? ""
-                let encodedValue = value.addingPercentEncoding(
-                    withAllowedCharacters: .urlQueryAllowed
-                ) ?? ""
-                return (name, encodedValue)
+        let groupedItems = Dictionary(grouping: items, by: \URLQueryItem.name)
+        let pairs = groupedItems.compactMap { name, grouped -> (String, String)? in
+            guard let encodedName = name.addingPercentEncoding(
+                withAllowedCharacters: encodeURIComponentAllowedCharacters
+            ) else {
+                return nil
             }
-            .sorted { lhs, rhs in
-                if lhs.0 == rhs.0 { return lhs.1 < rhs.1 }
-                return lhs.0 < rhs.0
-            }
+            let combinedValue = grouped.map { $0.value ?? "" }.joined(separator: ",")
+            let encodedValue = combinedValue.addingPercentEncoding(
+                withAllowedCharacters: encodeURIComponentAllowedCharacters
+            ) ?? ""
+            return (encodedName, encodedValue)
+        }
+        .sorted { $0.0 < $1.0 }
         return pairs
             .map { "\($0.0)=\($0.1)" }
             .joined(separator: "&")
@@ -134,8 +125,7 @@ public enum RequestSigner {
     /// and `nonce` are passed in by the
     /// caller; the production `RelayTransport`
     /// pipeline generates them per request
-    /// (timestamp = now, nonce = 32 random
-    /// bytes).
+    /// (timestamp = RFC3339 now, nonce = Base64URL of 16 random bytes).
     public static func sign(
         method: String,
         path: String,
@@ -158,14 +148,12 @@ public enum RequestSigner {
         let signature = try? signingKey.signature(
             for: Data(canonical.utf8)
         )
-        let signatureHex = signature?
-            .map { String(format: "%02x", $0) }
-            .joined() ?? ""
+        let signatureBase64URL = signature.map(base64URLEncoded) ?? ""
         return SignedHeaders(
             peerID: peerID,
             timestamp: timestamp,
             nonce: nonce,
-            signature: signatureHex
+            signature: signatureBase64URL
         )
     }
 
@@ -181,12 +169,10 @@ public enum RequestSigner {
             .joined()
     }
 
-    /// 32 random bytes, hex encoded. Used
-    /// for the `X-Securechat-Nonce` value
-    /// (the relay caches seen nonces for
-    /// ~10 minutes).
+    /// 16 random bytes, unpadded Base64URL encoded. This is the exact
+    /// wire format consumed by `RelayServer/src/peerAuth.ts`.
     public static func makeNonce() -> String {
-        var bytes = [UInt8](repeating: 0, count: 32)
+        var bytes = [UInt8](repeating: 0, count: 16)
         let status = SecRandomCopyBytes(
             kSecRandomDefault,
             bytes.count,
@@ -208,17 +194,23 @@ public enum RequestSigner {
                 )
             }
         }
-        return bytes
-            .map { String(format: "%02x", $0) }
-            .joined()
+        return base64URLEncoded(Data(bytes))
     }
 
-    /// Current unix epoch in seconds,
-    /// as a string. The relay requires the
-    /// timestamp to be within
-    /// ±`maxClockSkewSeconds` (default 300s).
+    /// Current RFC3339 timestamp. The relay parses this value with
+    /// JavaScript `Date.parse` and requires it to be within ±5 minutes.
     public static func currentTimestamp() -> String {
-        let seconds = Int(Date().timeIntervalSince1970)
-        return String(seconds)
+        DateCoding.string(from: Date())
     }
+
+    static func base64URLEncoded(_ data: Data) -> String {
+        data.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+
+    private static let encodeURIComponentAllowedCharacters = CharacterSet(
+        charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.!~*'()"
+    )
 }

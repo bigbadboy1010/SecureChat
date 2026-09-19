@@ -18,7 +18,7 @@ final class RelayTransportRequestSigningTests: XCTestCase {
             id: packetID,
             senderID: peerID,
             recipientID: String(repeating: "b", count: 64),
-            sealedPayloadBase64: "c2VhbGVk",
+            sealedPayloadBase64: "////",
             signatureBase64: "c2lnbmF0dXJl",
             createdAt: Date(timeIntervalSince1970: 1_700_000_000),
             expiresAt: Date(timeIntervalSince1970: 1_700_086_400)
@@ -33,8 +33,13 @@ final class RelayTransportRequestSigningTests: XCTestCase {
             let body = try XCTUnwrap(request.httpBody)
             let timestamp = try XCTUnwrap(request.value(forHTTPHeaderField: "X-Securechat-Timestamp"))
             let nonce = try XCTUnwrap(request.value(forHTTPHeaderField: "X-Securechat-Nonce"))
-            let signatureHex = try XCTUnwrap(request.value(forHTTPHeaderField: "X-Securechat-Signature"))
-            let signature = try XCTUnwrap(Data(hexString: signatureHex))
+            let signatureBase64URL = try XCTUnwrap(
+                request.value(forHTTPHeaderField: "X-Securechat-Signature")
+            )
+            let signature = try XCTUnwrap(Data(base64URLEncoded: signatureBase64URL))
+            XCTAssertNotNil(DateCoding.iso8601Formatter.date(from: timestamp))
+            XCTAssertEqual(try XCTUnwrap(Data(base64URLEncoded: nonce)).count, 16)
+            XCTAssertFalse(String(decoding: body, as: UTF8.self).contains("\\/"))
             let canonical = RequestSigner.canonicalString(
                 method: "POST",
                 path: "/v1/relay/messages",
@@ -183,24 +188,11 @@ private final class RelayURLProtocolStub: URLProtocol, @unchecked Sendable {
 }
 
 private extension Data {
-    init?(hexString: String) {
-        guard hexString.count.isMultiple(of: 2) else {
-            return nil
-        }
-
-        var bytes: [UInt8] = []
-        bytes.reserveCapacity(hexString.count / 2)
-        var index = hexString.startIndex
-
-        while index < hexString.endIndex {
-            let nextIndex = hexString.index(index, offsetBy: 2)
-            guard let byte = UInt8(hexString[index..<nextIndex], radix: 16) else {
-                return nil
-            }
-            bytes.append(byte)
-            index = nextIndex
-        }
-
-        self.init(bytes)
+    init?(base64URLEncoded value: String) {
+        let normalized = value
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        let padded = normalized + String(repeating: "=", count: (4 - normalized.count % 4) % 4)
+        self.init(base64Encoded: padded)
     }
 }

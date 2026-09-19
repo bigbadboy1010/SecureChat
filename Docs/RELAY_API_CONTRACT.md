@@ -70,10 +70,10 @@ peer-bound signing code, every request will
 additionally carry:
 
 ```text
-X-Securechat-Peer-ID:    <hex-encoded Curve25519 public peer ID>
-X-Securechat-Timestamp:  <unix epoch seconds, integer>
-X-Securechat-Nonce:      <32 random bytes, hex>
-X-Securechat-Signature:  <hex-encoded Ed25519 signature>
+X-Securechat-Peer-ID:    <hex SHA-256 of Ed25519 public key>
+X-Securechat-Timestamp:  <RFC3339 timestamp>
+X-Securechat-Nonce:      <base64url of 16 random bytes, unpadded>
+X-Securechat-Signature:  <base64url Ed25519 signature, unpadded>
 ```
 
 The signature is computed over a canonical
