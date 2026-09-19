@@ -127,6 +127,8 @@ Use two physical iPhones, preferably on different networks.
 - Capture and send a photo and a short video from a physical device camera.
 - Confirm a larger attachment does not trigger HTTP 429 while its paced chunk
   transfer is running.
+- Retry one deliberately interrupted attachment and confirm the recipient queue
+  does not grow by a second complete set of chunks.
 - Verify chat text remains clearly readable in light and dark appearance.
 - App kill/relaunch between messages.
 - Offline → reconnect → inbox delivery.
@@ -138,6 +140,21 @@ Use two physical iPhones, preferably on different networks.
   `Einstellungen → Diagnose & Sicherheitsstatus`.
 - Xcode/device logs contain no calls to `chatsecure.ddns.net`,
   `192.168.*:8080` or other legacy relay addresses.
+
+### Recovering a full recipient queue
+
+`Recipient relay queue limit exceeded` means the target peer has reached the
+relay's stored-packet cap; it is not a camera or attachment-picker failure.
+First leave SecureChat open on the receiving device and run
+`Einstellungen → Diagnose & Sicherheitsstatus → Inbox synchronisieren` until
+the relay packet count falls. ACKs and delivery receipts are paced so this
+cleanup stays below the production request-rate limit.
+
+For a test identity whose pending encrypted packets may be discarded, an
+operator can instead call `POST /v1/admin/relay/messages/purge` with that
+recipient's 64-character peer ID and `RELAY_ADMIN_TOKEN`. This is destructive:
+all undelivered relay packets for that recipient are removed. Never place the
+admin token in the app.
 
 ## 7. Before external testers
 

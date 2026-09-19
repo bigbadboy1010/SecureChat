@@ -234,6 +234,10 @@ assigned `packetID`; duplicate sends return
 the original `packetID` (idempotent within
 the TTL window).
 
+Attachment clients derive a stable packet ID from message ID, chunk index and
+recipient ID. Retrying a partially uploaded attachment therefore reuses the
+same relay entries instead of consuming additional recipient-queue capacity.
+
 #### Encrypted attachments (client payload)
 
 The relay remains attachment-agnostic: photos, videos and documents are never
@@ -289,7 +293,7 @@ plus per-peer counters and last-seen
 timestamps. Requires
 `Authorization: Bearer $RELAY_ADMIN_TOKEN`.
 
-### 5.2 `POST /v1/admin/relay/purge`
+### 5.2 `POST /v1/admin/relay/messages/purge`
 
 Purge all packets for a `recipientID`. Requires
 admin token. Body: `{recipientID: string}`.

@@ -11,7 +11,7 @@ Bitte testen:
 7. In einem verifizierten Zwei-Geräte-Chat über `+` ein Foto und ein kurzes Video aus der Mediathek senden. Danach auf dem Empfänger beide Anhänge antippen und prüfen, dass Foto beziehungsweise Video geöffnet werden.
 8. Auf einem physischen iPhone oder iPad über `+ → Kamera öffnen` ein Foto und ein kurzes Video aufnehmen und senden. Kamera- und Mikrofonabfrage müssen verständlich erscheinen; Abbrechen darf keine leere Nachricht erzeugen.
 9. Über `+ → Datei oder Dokument auswählen` je eine PDF- und Textdatei bis maximal 8 MB senden, auf dem Empfänger öffnen und nach einem App-Neustart erneut öffnen.
-10. Bei einem größeren Anhang kontrollieren, dass während des Versands kein HTTP 429 im Log erscheint. Der Versand darf wegen der Relay-sicheren Taktung länger dauern.
+10. Bei einem größeren Anhang kontrollieren, dass während des Versands kein HTTP 429 im Log erscheint. Einen unterbrochenen Versand einmal erneut versuchen; die Empfänger-Queue darf dadurch nicht um einen zweiten vollständigen Satz Chunks wachsen. Der Versand und Inbox-ACK dürfen wegen der Relay-sicheren Taktung länger dauern.
 11. Im hellen und dunklen Erscheinungsbild prüfen, dass eingehende und ausgehende Nachrichtentexte klar lesbar bleiben.
 12. Unter „Einstellungen“ den Production Relay https://securechat.team mit dem separat bereitgestellten RELAY_AUTH_TOKEN aktivieren.
 13. Unter „Einstellungen → Diagnose & Sicherheitsstatus“ Relay-Zustand, Inbox-Sync und Diagnosebericht prüfen.

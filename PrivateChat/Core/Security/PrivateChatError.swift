@@ -98,6 +98,10 @@ enum PrivateChatError: LocalizedError, Equatable {
                 return "Relay-Server hat HTTP 401 Unauthorized zurückgegeben. Prüfe Bearer-Token, Peer-Registrierung und Request-Signatur."
             }
             if statusCode == 429 {
+                if let message,
+                   message.localizedCaseInsensitiveContains("recipient relay queue limit exceeded") {
+                    return "Die Relay-Warteschlange des Empfängers ist voll. Der Empfänger muss SecureChat öffnen und die Relay-Inbox synchronisieren. Versuche danach diese fehlgeschlagene Nachricht erneut."
+                }
                 if let message, message.isEmpty == false {
                     return "Relay-Limit erreicht: \(message). Der Versand wird begrenzt; warte kurz und versuche die fehlgeschlagene Nachricht erneut."
                 }

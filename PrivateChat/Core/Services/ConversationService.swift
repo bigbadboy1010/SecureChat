@@ -57,6 +57,34 @@ struct TransportMessagePayload: Codable, Equatable {
     }
 }
 
+/// Produces stable relay packet identifiers for attachment chunks.
+///
+/// Retrying an attachment must reuse the same packet IDs. Otherwise every
+/// attempt consumes another set of recipient-queue slots even though the
+/// encrypted attachment message itself has not changed.
+enum AttachmentPacketIdentifier {
+    nonisolated static func make(
+        messageID: UUID,
+        chunkIndex: Int,
+        recipientID: String
+    ) -> UUID {
+        let input = "securechat/attachment-packet/v1/\(messageID.uuidString.lowercased())/\(chunkIndex)/\(recipientID)"
+        var bytes = Array(SHA256.hash(data: Data(input.utf8)).prefix(16))
+
+        // Keep the identifier compatible with relay validators that accept
+        // version-4 UUIDs while deriving its payload deterministically.
+        bytes[6] = (bytes[6] & 0x0F) | 0x40
+        bytes[8] = (bytes[8] & 0x3F) | 0x80
+
+        return UUID(uuid: (
+            bytes[0], bytes[1], bytes[2], bytes[3],
+            bytes[4], bytes[5], bytes[6], bytes[7],
+            bytes[8], bytes[9], bytes[10], bytes[11],
+            bytes[12], bytes[13], bytes[14], bytes[15]
+        ))
+    }
+}
+
 private struct OutboundMessageContext {
     let conversationID: UUID
     let peerID: String?
@@ -86,7 +114,7 @@ final class ConversationService: ObservableObject {
     private static let experimentalDoubleRatchetEnabled = false
     static let maximumAttachmentBytes = 8 * 1_048_576
     private static let attachmentChunkBytes = 64 * 1_024
-    private static let attachmentChunkIntervalSeconds: TimeInterval = 0.65
+    private static let relayBulkRequestIntervalSeconds: TimeInterval = 0.65
     @Published private(set) var conversations: [StoredConversation]
     @Published private(set) var trustedPeers: [TrustedPeer]
     @Published private(set) var securityState: AppSecurityState
@@ -132,7 +160,7 @@ final class ConversationService: ObservableObject {
     private let ratchetStore: DoubleRatchetStoring
     private var ratchetObservations: [RatchetSentinelObservation] = []
     private var relayAutoSyncTask: Task<Void, Never>?
-    private var nextAttachmentChunkSendAt = Date.distantPast
+    private var nextRelayBulkRequestAt = Date.distantPast
 
     init(
         localIdentity: LocalIdentity,
@@ -1299,6 +1327,7 @@ final class ConversationService: ObservableObject {
                 }
 
                 do {
+                    try await waitForRelayBulkRequestRateSlot()
                     _ = try await transportCoordinator.deleteRelayPacket(packetID: packet.id, relayConfiguration: securityState.relayConfiguration)
                     acknowledgedCount += 1
                     relayPacketLedger.registerAcknowledged(packetID: packet.id)
@@ -1464,7 +1493,7 @@ final class ConversationService: ObservableObject {
                         chunkDataBase64: chunk.base64EncodedString()
                     )
                     if securityState.transportMode == .relayAllowed {
-                        try await waitForAttachmentChunkRateSlot()
+                        try await waitForRelayBulkRequestRateSlot()
                     }
                     try await sendTransportPayload(payload, peerID: peerID)
                 }
@@ -1497,7 +1526,21 @@ final class ConversationService: ObservableObject {
     }
 
     private func sendTransportPayload(_ payload: TransportMessagePayload, peerID: String) async throws {
-        let v1Packet = try makeTransportPacket(payload: payload, recipientID: peerID)
+        let stablePacketID: UUID?
+        if payload.kind == .attachmentChunk, let chunkIndex = payload.chunkIndex {
+            stablePacketID = AttachmentPacketIdentifier.make(
+                messageID: payload.messageID,
+                chunkIndex: chunkIndex,
+                recipientID: peerID
+            )
+        } else {
+            stablePacketID = nil
+        }
+        let v1Packet = try makeTransportPacket(
+            payload: payload,
+            recipientID: peerID,
+            packetID: stablePacketID
+        )
         let packet: OutboundTransportPacket
         if Self.experimentalDoubleRatchetEnabled {
             let payloadData = try encoder.encode(payload)
@@ -1523,11 +1566,11 @@ final class ConversationService: ObservableObject {
         )
     }
 
-    private func waitForAttachmentChunkRateSlot() async throws {
+    private func waitForRelayBulkRequestRateSlot() async throws {
         let now = Date()
-        let scheduledAt = max(now, nextAttachmentChunkSendAt)
-        nextAttachmentChunkSendAt = scheduledAt.addingTimeInterval(
-            Self.attachmentChunkIntervalSeconds
+        let scheduledAt = max(now, nextRelayBulkRequestAt)
+        nextRelayBulkRequestAt = scheduledAt.addingTimeInterval(
+            Self.relayBulkRequestIntervalSeconds
         )
         let waitSeconds = scheduledAt.timeIntervalSince(now)
         guard waitSeconds > 0 else { return }
@@ -1682,7 +1725,11 @@ final class ConversationService: ObservableObject {
         }
     }
 
-    private func makeTransportPacket(payload: TransportMessagePayload, recipientID: String) throws -> OutboundTransportPacket {
+    private func makeTransportPacket(
+        payload: TransportMessagePayload,
+        recipientID: String,
+        packetID requestedPacketID: UUID? = nil
+    ) throws -> OutboundTransportPacket {
         let peer = try verifiedPeer(id: recipientID)
         guard let peerPublicKeyData = Data(base64Encoded: peer.keyAgreementPublicKeyBase64) else {
             throw PrivateChatError.invalidKeyMaterial
@@ -1691,7 +1738,7 @@ final class ConversationService: ObservableObject {
         let peerPublicKey = try Curve25519.KeyAgreement.PublicKey(rawRepresentation: peerPublicKeyData)
         let key = try makePairwiseKey(peerID: recipientID, peerPublicKey: peerPublicKey)
         let payloadData = try encoder.encode(payload)
-        let packetID = UUID()
+        let packetID = requestedPacketID ?? UUID()
         let createdAt = Date()
         let expiresAt = createdAt.addingTimeInterval(86_400)
         let unsignedPacket = OutboundTransportPacket(
@@ -1883,6 +1930,7 @@ final class ConversationService: ObservableObject {
             deliveredMessageID: context.originalMessageID
         )
         let packet = try makeTransportPacket(payload: payload, recipientID: context.originalSenderID)
+        try await waitForRelayBulkRequestRateSlot()
         try await transportCoordinator.send(packet, mode: .relayAllowed, relayConfiguration: securityState.relayConfiguration)
         relayPacketLedger.registerDeliveryReceiptSent(for: context.originalMessageID)
         persistRelayPacketLedger()
