@@ -30,23 +30,26 @@ jobs:
           plutil -lint Config/Info.plist
           plutil -lint PrivateChat/PrivacyInfo.xcprivacy
 
-      - name: Select available iPhone simulator
+      - name: Select scheme-compatible iPhone simulator
         shell: bash
         run: |
-          UDID="$(python3 - <<'PY'
-          import json, subprocess
-          data = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"]))
-          for devices in data["devices"].values():
-              for device in devices:
-                  if device.get("isAvailable") and device["name"].startswith("iPhone"):
-                      print(device["udid"])
-                      raise SystemExit
-          raise SystemExit("no available iPhone simulator")
-          PY
+          DESTINATIONS="$(xcodebuild -project PrivateChat.xcodeproj -scheme PrivateChat -showdestinations 2>&1)"
+          printf '%s\n' "$DESTINATIONS"
+          UDID="$(printf '%s\n' "$DESTINATIONS" | awk -F',' '
+            /platform:iOS Simulator/ && /name:iPhone/ {
+              for (i = 1; i <= NF; i++) {
+                if ($i ~ /id:/) {
+                  gsub(/^.*id:[[:space:]]*/, "", $i)
+                  gsub(/[[:space:]{}]/, "", $i)
+                  print $i
+                  exit
+                }
+              }
+            }'
           )"
+          test -n "$UDID" || { echo "No scheme-compatible iPhone simulator found" >&2; exit 1; }
           echo "SIMULATOR_UDID=$UDID" >> "$GITHUB_ENV"
-          xcrun simctl boot "$UDID" || true
-          xcrun simctl bootstatus "$UDID" -b
+          echo "Using iPhone simulator $UDID"
 
       - name: Build and test on simulator
         shell: bash
