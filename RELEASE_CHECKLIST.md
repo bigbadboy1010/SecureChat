@@ -21,6 +21,16 @@ dedicated cryptographic review is complete.
 - [ ] Archive succeeds on the MacBook with Release configuration
 - [ ] Build 13 tested on at least two physical iPhones
 
+## Chat-first UI
+
+- [x] App opens on the conversation list, not the diagnostics dashboard
+- [x] Top-level tabs are `Chats`, `Kontakte`, `Einstellungen`
+- [x] Operational metrics and relay summaries are removed from the chat list
+- [x] Composer is limited to message entry, send action and actionable warnings
+- [x] Diagnostics remain available under Settings
+- [ ] Chat-first navigation smoke-tested on a physical iPhone
+- [ ] Dynamic Type, VoiceOver labels and dark-mode contrast checked on device
+
 ## Relay configuration
 
 - [x] Canonical relay URL is `https://relay.securechat.team`
@@ -62,6 +72,8 @@ dedicated cryptographic review is complete.
 - [x] Production-profile migration tests exist
 - [x] Pull requests run Xcode unit tests and a Release compile gate
 - [x] Public-repo SBOM job no longer depends on the private relay repository
+- [x] TestFlight preflight reads the exact bundle-ID build setting
+- [x] Legacy relay scan permits only the explicit migration compatibility list
 - [ ] GitHub CI green for the TestFlight hardening PR
 - [ ] Protect `main` and require the iOS CI check before merge
 
@@ -73,7 +85,8 @@ dedicated cryptographic review is complete.
 - [ ] App Privacy answers reviewed against the current relay metadata model
 - [ ] Export-compliance answers reviewed
 - [ ] Privacy Policy and Support URLs verified publicly
-- [ ] TestFlight “What to Test” text updated for Build 13
+- [x] TestFlight “What to Test” text updated for Build 13 and chat-first navigation
+- [x] iPhone acceptance guide aligned with the current SecureChat UI and relay
 
 ## Final gate
 

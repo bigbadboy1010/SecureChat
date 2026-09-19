@@ -60,13 +60,14 @@ The project follows a phased development approach (current cycle: **Sprints 15�
 - 📋 **Diagnostics reports** — technical summary without chat plaintext, shareable for support
 - 🧹 **Local retention cleanup** — manual purge controls for messages and relay ledger
 
-### UI / UX (Phase 14)
-- 🎨 **Modern glass-card design system** — professional iOS 16+ UI
-- 📊 **Command Center Dashboard** — relay stats, security score, privacy status at a glance
-- 💬 **Refined chat bubbles** — with message actions, quick reply, editing history
-- 📌 **Pinned & archived chats** — with unread counters
-- 🔗 **QR pairing** — scan or share pairing codes for contact discovery
-- 🗂️ **Chat organization** — searchable list, chat details, local rename, mute
+### UI / UX (Chat-first)
+- 💬 **Chats are the primary screen** — the app opens directly on the conversation list
+- 🧭 **Three user-facing tabs** — `Chats`, `Kontakte`, `Einstellungen`
+- 🔎 **Focused conversation list** — search, filters, unread counters, swipe actions, pin, mute and archive without operational dashboards
+- ✍️ **Minimal composer** — message field and send action; technical details stay out of the normal conversation flow
+- 🔗 **Contact pairing** — scan or share QR pairing codes and compare the Safety Number before verification
+- 🛠️ **Diagnostics remain available** — relay, runtime and security status are under `Einstellungen → Diagnose & Sicherheitsstatus`
+- 🎨 **Modern glass-card design system** — professional iOS 16+ UI without turning the messenger into an admin console
 
 ### Relay Service
 - Production endpoint: `https://relay.securechat.team`
@@ -396,6 +397,8 @@ Run existing tests:
 - **Production Relay:** https://relay.securechat.team
 - **Endpoint source of truth:** [`Docs/CURRENT-ENDPOINTS.md`](Docs/CURRENT-ENDPOINTS.md)
 - **TestFlight runbook:** [`Docs/IOS-TESTFLIGHT-RUNBOOK.md`](Docs/IOS-TESTFLIGHT-RUNBOOK.md)
+- **TestFlight tester brief:** [`Docs/TESTFLIGHT_WHAT_TO_TEST.md`](Docs/TESTFLIGHT_WHAT_TO_TEST.md)
+- **Physical iPhone acceptance:** [`Docs/iphone-test-acceptance.md`](Docs/iphone-test-acceptance.md)
 
 ---
 

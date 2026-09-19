@@ -18,9 +18,12 @@ No command-line uploader is required.
 ```bash
 cd ~/Desktop/Xcode/SecureChat
 git fetch origin
-git checkout main
-git pull --ff-only origin main
+git switch fix/testflight-prod-gate-20260919
+git pull --ff-only origin fix/testflight-prod-gate-20260919
 ```
+
+After the reviewed branch is merged, use `main` for the final archive.
+Never archive an uncommitted or locally divergent checkout.
 
 Confirm that the expected release is present:
 
@@ -39,7 +42,10 @@ cd ~/Desktop/Xcode/SecureChat
 ```
 
 The preflight validates the project, scheme, plist/privacy manifest,
-bundle identifier, team and build number. It does not upload anything.
+exact bundle identifier, team, build number and active-code references to
+obsolete relay endpoints. It does not upload anything. The legacy endpoint
+values retained exclusively for automatic configuration migration are
+intentionally permitted.
 
 ## 3. Build and test before Archive
 
@@ -54,11 +60,16 @@ In Xcode:
 1. Select scheme **PrivateChat**.
 2. Select a physical iPhone and run the app once.
 3. **Product → Test**.
-4. Verify that the app shows the canonical relay
+4. Confirm that SecureChat opens on `Chats` and shows exactly three tabs:
+   `Chats`, `Kontakte`, `Einstellungen`.
+5. Confirm that the chat list has no operational dashboard or relay-result
+   rows and that the composer shows only the message field and send action.
+6. Verify under `Einstellungen → Diagnose & Sicherheitsstatus` that the app
+   shows the canonical relay
    `https://relay.securechat.team`.
-5. Use a fresh/re-paired contact and compare the same **SC2 Safety
+7. Use a fresh/re-paired contact and compare the same **SC2 Safety
    Number** on both devices.
-6. Verify SEND → receive → ACK in both directions.
+8. Verify SEND → receive → ACK in both directions.
 
 The active TestFlight message path is protocolVersion 2
 (X25519/HKDF/AES-GCM + Ed25519 signed envelope). The experimental
@@ -101,7 +112,11 @@ Use two physical iPhones, preferably on different networks.
 
 - Fresh install and existing-install upgrade.
 - Face ID / Touch ID unlock.
-- Pairing by QR.
+- Launch destination is `Chats`; tabs are `Chats`, `Kontakte`,
+  `Einstellungen`.
+- Local chat creation, message send, encrypted persistence after relaunch
+  and draft restoration.
+- Pairing by QR under `Kontakte`.
 - Same SC2 Safety Number displayed on both devices.
 - No direct verification without the Safety Number flow.
 - Send/receive in both directions.
@@ -111,6 +126,8 @@ Use two physical iPhones, preferably on different networks.
 - Block → unblock → re-pair.
 - Delete contact → re-pair.
 - Relay peer enrollment works after fresh install.
+- Diagnostics remain reachable under
+  `Einstellungen → Diagnose & Sicherheitsstatus`.
 - Xcode/device logs contain no calls to `chatsecure.ddns.net`,
   `192.168.*:8080` or other legacy relay addresses.
 

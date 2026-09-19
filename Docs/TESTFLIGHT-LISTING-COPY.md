@@ -9,19 +9,20 @@
 > in the same change. Drift between the two is a public-beta trust
 > regression.
 
-> ⚠️ **Drift alert — last verified 23 June 2026 (Build 11 candidate).**
+> ⚠️ **Drift alert — repository copy reviewed 19 September 2026
+> (Build 13 candidate).**
 > The current TestFlight description in App Store Connect reads
 > the placeholder from the Loupe-era listing.
 > The reviewer-recommended replacement is in the **Description** block
 > below. The action item is in App Store Connect (UI), not in the
 > repo. Apply it, then update the verification line above.
 
-**Bundle ID:** `org.francois.securechat`
+**Bundle ID:** `org.francois.PrivateChat`
 **App Store Connect app name:** `SecureChat`
 **Primary locale:** `en-US`
-**Last updated:** 2026-06-23
-**Current TestFlight build (target):** 11
-**Pre-flight verified locally:** 11/11 checks pass, 60/60 iOS tests grün
+**Last updated:** 2026-09-19
+**Current TestFlight build (target):** 13
+**Pre-flight requirement:** `./scripts/preflight-testflight.sh` passes from a clean release checkout
 
 ---
 
@@ -65,8 +66,8 @@ bodies.
 • No phone number. No email. Your identity is your Curve25519 keypair.
 • No analytics. No tracking. No third-party SDKs. No push-notification
   content reaches the relay; only opaque packets.
-• Source-available. Self-host the relay on a $5/month VPS and point
-  the app at it. About 20 minutes if DNS and firewall are ready.
+• Hardened relay profile. The current beta uses the operator-managed
+  HTTPS relay at relay.securechat.team.
 • Local-first. Messages are stored encrypted on your device; iCloud
   backup is explicitly excluded for sensitive stores.
 • Safety Number verification. Compare a 60-digit fingerprint with
@@ -111,17 +112,17 @@ https://securechat.team/
 https://securechat.team/privacy.html
 ```
 
-## What's New (Build 11 — 2026-06-23)
+## What's New (Build 13 — 2026-09-19)
 
 > Keep tight — App Store Connect caps this at 4000 chars but the
 > visible area on TestFlight is ~150 chars before "more".
 
 ```
-Build 11 — peer-bound request signing. Every message now
-carries an Ed25519 signature bound to the sender's public
-key, and the relay verifies it before forwarding. No new
-user-facing settings. Full changelog at
-https://securechat.team/CHANGELOG.md
+Build 13 introduces a chat-first interface with Chats,
+Contacts, and Settings. The conversation list and composer
+are cleaner, while diagnostics remain available in Settings.
+It also hardens pairing, Safety Number verification, encrypted
+local storage, relay configuration, and release checks.
 ```
 
 ## What's New (Build 10 — 2026-06-22)

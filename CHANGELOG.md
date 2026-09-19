@@ -22,6 +22,34 @@ public-beta trust regression.
 
 ## Unreleased
 
+### Chat-first UI and TestFlight preflight correction (2026-09-19)
+
+- The primary navigation now opens on `Chats` and contains only
+  `Chats`, `Kontakte` and `Einstellungen`.
+- The former operations dashboard is no longer a top-level tab. It
+  remains available as `Einstellungen → Diagnose & Sicherheitsstatus`.
+- Removed six operational metric cards and relay/outbox result rows
+  from the conversation list. Search, filters, unread state, swipe
+  actions and pull-to-refresh remain available.
+- Reduced the conversation composer to the message field, send action
+  and actionable relay warnings. Quick replies, character counters and
+  persistent implementation-detail banners were removed.
+- Simplified the lock screen and empty-chat copy without changing
+  biometric unlock, encrypted persistence, Safety Number verification
+  or transport security.
+- Corrected stale Security Sentinel recommendations to use the canonical
+  `https://relay.securechat.team` endpoint.
+- Fixed `scripts/preflight-testflight.sh`: its build-settings parser now
+  matches the exact `PRODUCT_BUNDLE_IDENTIFIER` key instead of reading
+  `DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = NO`.
+- The legacy-relay preflight excludes only the explicit migration list in
+  `SecureChatProductionProfile.swift`; active UI and runtime text must not
+  reference obsolete relay endpoints.
+
+**Security impact:** UI-only reduction plus release-gate corrections. No
+cryptographic primitive, envelope, Keychain, persistence or relay request
+behavior changed.
+
 ### Sprint 15 + 16: peer-bound request signing (iOS + relay, opt-in) (2026-06-23)
 
 Sprint 15 + 16 wire the relay's peer-bound

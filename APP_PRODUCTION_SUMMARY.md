@@ -46,6 +46,14 @@ cryptographic review.
 - GitHub CI now builds/tests the actual root Xcode project instead
   of the removed public RelayServer tree.
 - Build number bumped to 13.
+- The user-facing navigation is chat-first: `Chats`, `Kontakte` and
+  `Einstellungen`. Diagnostics are available from Settings instead of
+  occupying the launch tab.
+- The conversation list and composer no longer expose operational
+  counters, relay summaries or implementation-detail banners during
+  normal messaging.
+- The TestFlight preflight now reads the exact bundle identifier and
+  permits obsolete relay strings only inside the explicit migration list.
 
 ## Remaining release checks
 
