@@ -48,13 +48,13 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          xcodebuild -project PrivateChat.xcodeproj -scheme PrivateChat -configuration Debug -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" CODE_SIGNING_ALLOWED=NO clean test | tee build-test.log
+          xcodebuild -project PrivateChat.xcodeproj -scheme PrivateChat -configuration Debug -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" CODE_SIGNING_ALLOWED=NO clean test 2>&1 | tee build-test.log
 
       - name: Release compile gate
         shell: bash
         run: |
           set -o pipefail
-          xcodebuild -project PrivateChat.xcodeproj -scheme PrivateChat -configuration Release -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build | tee build-release.log
+          xcodebuild -project PrivateChat.xcodeproj -scheme PrivateChat -configuration Release -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build 2>&1 | tee build-release.log
 
       - name: Upload Xcode logs
         if: always()
