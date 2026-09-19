@@ -728,7 +728,7 @@ final class ConversationService: ObservableObject {
                 rawRepresentation: remoteSigningPubData
             )
             let localKAPriv = localIdentity.keyAgreementPrivateKey
-            try RatchetChannel.register(
+            _ = try RatchetChannel.register(
                 peerID: peer.id,
                 localKeyAgreementPrivateKey: localKAPriv,
                 remoteKeyAgreementPublicKey: remoteKAPub,
