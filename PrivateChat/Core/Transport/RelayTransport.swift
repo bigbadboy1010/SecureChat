@@ -17,13 +17,20 @@ final class RelayTransport: RelayMessageTransporting {
         configuration: RelayConfiguration,
         signingContext: PeerBoundSigningContext? = nil,
         crypto: CryptoServicing? = nil,
-        clientVersion: String = "org.francois.PrivateChat/1.4.2/12",
+        clientVersion: String? = nil,
         urlSession: URLSession? = nil
     ) {
         self.configuration = configuration
         self.signingContext = signingContext
         self.crypto = crypto
+        let marketingVersion = Bundle.main.object(
+            forInfoDictionaryKey: "CFBundleShortVersionString"
+        ) as? String ?? "unknown"
+        let buildVersion = Bundle.main.object(
+            forInfoDictionaryKey: "CFBundleVersion"
+        ) as? String ?? "unknown"
         self.clientVersion = clientVersion
+            ?? "org.francois.PrivateChat/\(marketingVersion)/\(buildVersion)"
         self.urlSession = urlSession ?? RelayTransport.makeDefaultURLSession()
         self.encoder = DateCoding.makeEncoder()
         self.decoder = DateCoding.makeDecoder()
