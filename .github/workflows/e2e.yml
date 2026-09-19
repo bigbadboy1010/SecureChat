@@ -30,25 +30,33 @@ jobs:
           plutil -lint Config/Info.plist
           plutil -lint PrivateChat/PrivacyInfo.xcprivacy
 
-      - name: Select scheme-compatible iPhone simulator
+      - name: Select Xcode-SDK-compatible iPhone simulator
         shell: bash
         run: |
-          DESTINATIONS="$(xcodebuild -project PrivateChat.xcodeproj -scheme PrivateChat -showdestinations 2>&1)"
-          printf '%s\n' "$DESTINATIONS"
-          UDID="$(printf '%s\n' "$DESTINATIONS" | awk -F',' '
-            /platform:iOS Simulator/ && /name:iPhone/ {
-              for (i = 1; i <= NF; i++) {
-                if ($i ~ /id:/) {
-                  gsub(/^.*id:[[:space:]]*/, "", $i)
-                  gsub(/[[:space:]{}]/, "", $i)
-                  print $i
-                  exit
-                }
-              }
-            }'
+          SDK_VERSION="$(xcodebuild -version -sdk iphonesimulator SDKVersion | tail -1 | tr -d '[:space:]')"
+          echo "iOS Simulator SDK: $SDK_VERSION"
+          UDID="$(SDK_VERSION="$SDK_VERSION" python3 - <<'PY'
+          import json, os, subprocess
+          sdk = os.environ["SDK_VERSION"]
+          runtime_suffix = "SimRuntime.iOS-" + sdk.replace(".", "-")
+          data = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"]))
+          candidates = []
+          for runtime, devices in data["devices"].items():
+              if runtime_suffix not in runtime:
+                  continue
+              for device in devices:
+                  if device.get("isAvailable") and device["name"].startswith("iPhone"):
+                      candidates.append(device)
+          if not candidates:
+              raise SystemExit(f"no available iPhone simulator for iOS {sdk}")
+          preferred = next((d for d in candidates if "Pro" in d["name"]), candidates[0])
+          print(preferred["udid"])
+          PY
           )"
-          test -n "$UDID" || { echo "No scheme-compatible iPhone simulator found" >&2; exit 1; }
           echo "SIMULATOR_UDID=$UDID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          xcodebuild -project PrivateChat.xcodeproj -scheme PrivateChat -showdestinations
           echo "Using iPhone simulator $UDID"
 
       - name: Build and test on simulator
