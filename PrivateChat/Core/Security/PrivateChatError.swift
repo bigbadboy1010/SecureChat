@@ -58,7 +58,7 @@ enum PrivateChatError: LocalizedError, Equatable {
         case .invalidPairingPayload:
             return "Ungültiger Pairing-Code."
         case .invalidRelayURL:
-            return "Ungültige Relay-Server-URL. Production: https://chatsecure.ddns.net."
+            return "Ungültige Relay-Server-URL. Production: https://relay.securechat.team."
         case .invalidSignature:
             return "Paket-Signatur ist ungültig."
         case .keychainReadFailed(let status):
@@ -76,13 +76,13 @@ enum PrivateChatError: LocalizedError, Equatable {
         case .relayDisabled:
             return "Relay-Modus ist deaktiviert. Aktiviere in Security > Transport das Production-Relay."
         case .relayNotConfigured:
-            return "Relay ist nicht konfiguriert. Verwende Production https://chatsecure.ddns.net mit RELAY_AUTH_TOKEN aus /opt/securechat/.env."
+            return "Relay ist nicht konfiguriert. Verwende Production https://relay.securechat.team mit RELAY_AUTH_TOKEN aus /opt/securechat/.env."
         case .relayMissingClientToken:
             return "RELAY_AUTH_TOKEN fehlt oder ist ungültig. Trage nur den Wert aus /opt/securechat/.env ein, nicht RELAY_ADMIN_TOKEN und nicht den kompletten KEY=VALUE-Text."
         case .relayObsoleteLocalConfiguration(let url):
-            return "Alte lokale Relay-Konfiguration blockiert: \(url). Verwende https://chatsecure.ddns.net und RELAY_AUTH_TOKEN."
+            return "Alte lokale Relay-Konfiguration blockiert: \(url). Verwende https://relay.securechat.team und RELAY_AUTH_TOKEN."
         case .relayLocalhostUnavailableOnDevice:
-            return "localhost/127.0.0.1 ist keine Production-Konfiguration. Verwende https://chatsecure.ddns.net mit RELAY_AUTH_TOKEN."
+            return "localhost/127.0.0.1 ist keine Production-Konfiguration. Verwende https://relay.securechat.team mit RELAY_AUTH_TOKEN."
         case .insecureRelayURL:
             return "Plain HTTP ist in TestFlight / Release nicht erlaubt. Verwende https://relay.securechat.team."
         case .relayHealthCheckFailed(let message):
@@ -92,21 +92,21 @@ enum PrivateChatError: LocalizedError, Equatable {
                 return "Relay-Server hat HTTP 401 Unauthorized zurückgegeben. Der Server ist erreichbar, aber der RELAY_AUTH_TOKEN fehlt oder passt nicht."
             }
             if let message, message.isEmpty == false {
-                return "Relay-Server hat HTTP \(statusCode) zurückgegeben: \(message). Prüfe https://chatsecure.ddns.net, Caddy und den SecureChat-Container."
+                return "Relay-Server hat HTTP \(statusCode) zurückgegeben: \(message). Prüfe https://relay.securechat.team, Caddy und den SecureChat-Container."
             }
-            return "Relay-Server hat HTTP \(statusCode) zurückgegeben. Prüfe https://chatsecure.ddns.net, Caddy und den SecureChat-Container."
+            return "Relay-Server hat HTTP \(statusCode) zurückgegeben. Prüfe https://relay.securechat.team, Caddy und den SecureChat-Container."
         case .relayInvalidResponse:
-            return "Relay hat keine gültige HTTP-Antwort geliefert. Prüfe die Relay-URL und ob wirklich der PrivateChat-Relay auf Port 8080 läuft."
+            return "Relay hat keine gültige HTTP-Antwort geliefert. Prüfe die Relay-URL und ob wirklich der SecureChat-Relay läuft."
         case .relayTimedOut:
-            return "Relay-Zeitüberschreitung. Prüfe https://chatsecure.ddns.net, Caddy, Docker-Container und Netzwerk/VPN."
+            return "Relay-Zeitüberschreitung. Prüfe https://relay.securechat.team, Caddy, Docker-Container und Netzwerk/VPN."
         case .relayNoNetwork:
-            return "Keine Netzwerkverbindung zum Relay. Prüfe WLAN/Mobilnetz, VPN und ob https://chatsecure.ddns.net erreichbar ist."
+            return "Keine Netzwerkverbindung zum Relay. Prüfe WLAN/Mobilnetz, VPN und ob https://relay.securechat.team erreichbar ist."
         case .relayCannotFindHost(let host):
-            return "Relay-Host nicht gefunden: \(host). Production muss https://chatsecure.ddns.net verwenden."
+            return "Relay-Host nicht gefunden: \(host). Production muss https://relay.securechat.team verwenden."
         case .relayCannotConnectToHost(let host):
-            return "Verbindung zum Relay-Host fehlgeschlagen: \(host). Prüfe DNS, Caddy und den SecureChat-Container hinter https://chatsecure.ddns.net."
+            return "Verbindung zum Relay-Host fehlgeschlagen: \(host). Prüfe DNS, Caddy und den SecureChat-Container hinter https://relay.securechat.team."
         case .relayConnectionLost:
-            return "Relay-Verbindung wurde unterbrochen. Prüfe WLAN-Stabilität, Mac-Ruhezustand und Firewall."
+            return "Relay-Verbindung wurde unterbrochen. Prüfe WLAN-Stabilität, Netzwerk, Reverse Proxy und Firewall."
         case .relayATSBlocked:
             return "iOS hat die unsichere HTTP-Verbindung blockiert. Für lokale Tests ist nur eine lokale IP erlaubt; produktiv muss HTTPS verwendet werden."
         case .relayRequestFailed(let message):
