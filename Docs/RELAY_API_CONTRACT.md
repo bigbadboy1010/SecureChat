@@ -234,11 +234,11 @@ assigned `packetID`; duplicate sends return
 the original `packetID` (idempotent within
 the TTL window).
 
-#### Media attachments (client payload)
+#### Encrypted attachments (client payload)
 
-The relay remains attachment-agnostic: photos and videos are never uploaded as
-plaintext or to a separate media endpoint. The sender splits an attachment into
-48 KiB chunks and sends each chunk inside the existing signed and
+The relay remains attachment-agnostic: photos, videos and documents are never
+uploaded as plaintext or to a separate media endpoint. The sender splits an
+attachment into 64 KiB chunks and sends each chunk inside the existing signed and
 end-to-end-encrypted packet envelope. The decrypted client payload uses
 `kind = attachmentChunk` and includes attachment metadata, zero-based
 `chunkIndex`, `totalChunks`, the complete-file SHA-256 digest and the Base64
@@ -247,9 +247,11 @@ chunk bytes.
 The receiving client persists incomplete chunks encrypted at rest, assembles
 only when every chunk is present, and verifies both the declared byte count and
 SHA-256 digest before exposing the attachment. Current clients enforce an
-8 MiB attachment ceiling and at most 256 chunks. The 48 KiB chunk size leaves
+8 MiB attachment ceiling and at most 256 chunks. The 64 KiB chunk size leaves
 headroom beneath the production relay's 128 KiB packet limit after JSON,
-Base64, AES-GCM and envelope overhead.
+Base64, AES-GCM and envelope overhead. Relay-bound attachment chunks are paced
+at 650 ms or slower per app instance to avoid exhausting the production
+120-requests-per-minute abuse limit during a larger transfer.
 
 ### 4.3 `GET /v1/relay/messages?recipientID=...`
 

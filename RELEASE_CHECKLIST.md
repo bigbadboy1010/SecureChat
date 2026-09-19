@@ -31,13 +31,15 @@ dedicated cryptographic review is complete.
 - [ ] Chat-first navigation smoke-tested on a physical iPhone
 - [ ] Dynamic Type, VoiceOver labels and dark-mode contrast checked on device
 
-## Encrypted media
+## Encrypted attachments
 
-- [x] Photo/video library picker and device-camera capture implemented
+- [x] Photo/video library picker, device-camera capture and Files document picker implemented
 - [x] Attachments are chunked below the production relay packet ceiling
-- [x] Inbound media is accepted only after byte-count and SHA-256 verification
+- [x] Inbound attachments are accepted only after byte-count and SHA-256 verification
 - [x] Complete attachments and pending chunks are encrypted locally and excluded from backup
 - [ ] Photo and short-video send/receive tested in both directions on physical devices
+- [ ] PDF and text-document send/receive/relaunch tested in both directions
+- [ ] Larger attachment transfer completes without HTTP 429
 - [ ] Camera photo/video capture tested on a physical iPhone and iPad
 
 ## Relay configuration

@@ -28,12 +28,12 @@ final class EncryptedAttachmentStoreTests: XCTestCase {
         let attachmentID = UUID()
         let completeData = Data((0..<150_000).map { UInt8($0 % 251) })
         let digest = RequestSigner.sha256Hex(completeData)
-        let chunkSize = 48 * 1_024
+        let chunkSize = 64 * 1_024
         let chunks = stride(from: 0, to: completeData.count, by: chunkSize).map { start in
             completeData.subdata(in: start..<min(start + chunkSize, completeData.count))
         }
 
-        for index in [3, 0, 2] {
+        for index in [2, 0] {
             let store = try EncryptedAttachmentStore(
                 keychain: keychain,
                 crypto: CryptoService(),

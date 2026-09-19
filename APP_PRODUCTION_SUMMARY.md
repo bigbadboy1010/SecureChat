@@ -54,9 +54,10 @@ cryptographic review.
   normal messaging.
 - The TestFlight preflight now reads the exact bundle identifier and
   permits obsolete relay strings only inside the explicit migration list.
-- Photo and short-video messages can be selected or captured in the chat.
-  Attachments are split into relay-safe encrypted packets, integrity-checked
-  on receipt and stored locally with a separate Keychain-backed AES-GCM key.
+- Photos, short videos and documents can be selected or captured in the chat.
+  Attachments are split into relay-safe paced encrypted packets,
+  integrity-checked on receipt and stored locally with a separate
+  Keychain-backed AES-GCM key.
 - Chat bubbles use explicit high-contrast foreground and background colors.
 
 ## Remaining release checks
@@ -75,7 +76,8 @@ group:
 8. Review App Store privacy and export-compliance answers.
 9. Keep the external security/cryptographic audit as an explicit
    precondition for stronger security claims.
-10. Send and open a photo and short video in both directions; test direct
-    camera capture on physical hardware.
+10. Send and open a photo, short video, PDF and text document in both
+    directions; test direct camera capture on physical hardware and confirm
+    larger transfers do not trigger HTTP 429.
 11. Update the public status page: it still reports Build 11 and an enforced
     Double Ratchet, which does not match this Build 14 candidate.

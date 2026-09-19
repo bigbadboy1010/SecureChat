@@ -1,18 +1,23 @@
 # Changelog
 
-## 2026-09-19 — Readable chat bubbles and encrypted photo/video messages
+## 2026-09-19 — Readable chat bubbles and encrypted attachments
 
 - Increased chat-bubble contrast with explicit light foregrounds, brighter
   incoming surfaces, borders, and a darker outgoing cyan that remains readable.
-- Added photo/video selection from the system library plus direct camera capture
-  for iPhone and iPad (and compatible camera-equipped Mac environments).
+- Added photo/video selection from the system library, direct camera capture
+  and document/file selection through the system file picker.
 - Added encrypted attachment persistence with a separate Keychain-backed AES-GCM
   key; attachment files and temporary chunk files are excluded from backup.
-- Media is split into 48 KiB plaintext chunks before the existing signed,
+- Attachments are split into 64 KiB plaintext chunks before the existing signed,
   end-to-end-encrypted packet envelope is applied, keeping packets below the
-  production relay's 128 KiB ceiling. Reassembly verifies byte count and SHA-256.
-- Added inline image previews, video cards, Quick Look playback/preview, attachment
-  search metadata, deletion/retention cleanup, and an explicit 8 MiB media limit.
+  production relay's 128 KiB ceiling. Chunk sends are globally paced per app
+  instance to stay below the production rate limit. Reassembly verifies byte
+  count and SHA-256.
+- Added inline image previews, video/document cards, Quick Look playback/preview,
+  attachment search metadata, deletion/retention cleanup, and an explicit
+  8 MiB attachment limit.
+- Removed Swift default-actor-isolation violations in the attachment-store
+  dependency default and Base64URL request-signing helper.
 - Added camera/microphone purpose strings and encrypted attachment-store tests.
 
 ## 2026-09-19 — Align iOS peer-auth wire format with production relay

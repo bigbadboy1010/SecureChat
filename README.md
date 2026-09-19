@@ -49,7 +49,7 @@ The project follows a phased development approach (current cycle: **Sprints 15�
 - 🛡️ **Safety Number verification** — manual fingerprint comparison for out-of-band trust establishment
 - 🔄 **Relay transport** — encrypted packet dropbox for offline/remote messaging
 - 📬 **Delivery receipts & ACK tombstones** — reliable delivery tracking with deduplication
-- 📷 **Encrypted photo and video messages** — library picker, camera capture, chunked relay delivery and local encrypted storage (8 MiB per attachment)
+- 📎 **Encrypted attachments** — photos, short videos, files and documents with chunked relay delivery and local encrypted storage (8 MiB per attachment)
 - 🔍 **Chat search, drafts, export** — local-only, encrypted-at-rest
 
 ### Security & Privacy
@@ -66,7 +66,7 @@ The project follows a phased development approach (current cycle: **Sprints 15�
 - 🧭 **Three user-facing tabs** — `Chats`, `Kontakte`, `Einstellungen`
 - 🔎 **Focused conversation list** — search, filters, unread counters, swipe actions, pin, mute and archive without operational dashboards
 - ✍️ **Minimal composer** — message field and send action; technical details stay out of the normal conversation flow
-- ➕ **Media composer** — attach a photo/video from the library or capture it with the device camera
+- ➕ **Attachment composer** — select photos/videos, capture with the device camera, or choose a document from Files
 - 🔗 **Contact pairing** — scan or share QR pairing codes and compare the Safety Number before verification
 - 🛠️ **Diagnostics remain available** — relay, runtime and security status are under `Einstellungen → Diagnose & Sicherheitsstatus`
 - 🎨 **Modern glass-card design system** — professional iOS 16+ UI without turning the messenger into an admin console

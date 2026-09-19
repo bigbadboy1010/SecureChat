@@ -96,10 +96,10 @@ final class EncryptedAttachmentStore: AttachmentStoring {
               index >= 0,
               index < totalChunks,
               data.isEmpty == false,
-              data.count <= 48 * 1_024,
+              data.count <= 64 * 1_024,
               expectedByteCount > 0,
               expectedByteCount <= 8 * 1_048_576,
-              totalChunks == Int(ceil(Double(expectedByteCount) / Double(48 * 1_024))),
+              totalChunks == Int(ceil(Double(expectedByteCount) / Double(64 * 1_024))),
               expectedSHA256.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil else {
             throw PrivateChatError.invalidInboundPacket
         }
@@ -230,10 +230,10 @@ final class InMemoryAttachmentStore: AttachmentStoring {
               index >= 0,
               index < totalChunks,
               data.isEmpty == false,
-              data.count <= 48 * 1_024,
+              data.count <= 64 * 1_024,
               expectedByteCount > 0,
               expectedByteCount <= 8 * 1_048_576,
-              totalChunks == Int(ceil(Double(expectedByteCount) / Double(48 * 1_024))),
+              totalChunks == Int(ceil(Double(expectedByteCount) / Double(64 * 1_024))),
               expectedSHA256.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil else {
             throw PrivateChatError.invalidInboundPacket
         }

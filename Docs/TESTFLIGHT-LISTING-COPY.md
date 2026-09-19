@@ -70,8 +70,9 @@ bodies.
   HTTPS relay at securechat.team.
 • Local-first. Messages are stored encrypted on your device; iCloud
   backup is explicitly excluded for sensitive stores.
-• Encrypted media. Select or capture photos and short videos; media is
-  chunked, end-to-end encrypted, and stored encrypted on device.
+• Encrypted attachments. Select or capture photos and short videos, or
+  choose documents from Files. Attachments are chunked, end-to-end
+  encrypted, and stored encrypted on device.
 • Safety Number verification. Compare a 60-digit fingerprint with
   your peer out of band to defend against key substitution.
 • Biometric app lock. Face ID / Touch ID gate on launch.
@@ -120,11 +121,10 @@ https://securechat.team/privacy.html
 > visible area on TestFlight is ~150 chars before "more".
 
 ```
-Build 14 improves chat readability and adds encrypted photo
-and short-video messages from the library or camera. Media is
-split into relay-safe encrypted packets, verified on receipt,
-and stored encrypted on device. Relay authentication and release
-checks are also hardened.
+Build 14 improves chat readability and adds encrypted photos,
+short videos, files, and documents. Attachments are split into
+relay-safe paced packets, verified on receipt, and stored encrypted
+on device. Relay authentication and release checks are also hardened.
 ```
 
 ## What's New (Build 10 — 2026-06-22)

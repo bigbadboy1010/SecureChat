@@ -17,6 +17,7 @@ struct ChatView: View {
     @State private var selectedLibraryItem: PhotosPickerItem?
     @State private var pendingMedia: PendingMedia?
     @State private var showCamera = false
+    @State private var showDocumentPicker = false
     @State private var mediaErrorMessage: String?
     @State private var previewAttachment: ChatAttachment?
 
@@ -136,7 +137,14 @@ struct ChatView: View {
         .sheet(item: $previewAttachment) { attachment in
             AttachmentPreviewSheet(service: service, attachment: attachment)
         }
-        .alert("Medien konnten nicht vorbereitet werden", isPresented: Binding(
+        .fileImporter(
+            isPresented: $showDocumentPicker,
+            allowedContentTypes: [.item],
+            allowsMultipleSelection: false
+        ) { result in
+            handleDocumentSelection(result)
+        }
+        .alert("Anhang konnte nicht vorbereitet werden", isPresented: Binding(
             get: { mediaErrorMessage != nil },
             set: { if $0 == false { mediaErrorMessage = nil } }
         )) {
@@ -170,7 +178,7 @@ struct ChatView: View {
 
             if let pendingMedia {
                 HStack(spacing: 10) {
-                    Image(systemName: pendingMedia.kind == .image ? "photo.fill" : "video.fill")
+                    Image(systemName: pendingMedia.kind.systemImageName)
                         .foregroundStyle(PrivateChatDesign.brandCyan)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(pendingMedia.fileName)
@@ -210,13 +218,19 @@ struct ChatView: View {
                     } label: {
                         Label("Kamera öffnen", systemImage: "camera")
                     }
+
+                    Button {
+                        showDocumentPicker = true
+                    } label: {
+                        Label("Datei oder Dokument auswählen", systemImage: "doc.badge.plus")
+                    }
                 } label: {
                     Image(systemName: "plus.circle.fill")
                         .font(.system(size: 30, weight: .semibold))
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(PrivateChatDesign.brandCyan)
-                .accessibilityLabel("Foto oder Video hinzufügen")
+                .accessibilityLabel("Anhang hinzufügen")
 
                 composerInput
 
@@ -345,6 +359,48 @@ struct ChatView: View {
                     fileName: "Kamera-\(Self.mediaTimestamp()).mov"
                 )
             }
+        } catch {
+            mediaErrorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func handleDocumentSelection(_ result: Result<[URL], Error>) {
+        do {
+            guard let url = try result.get().first else {
+                return
+            }
+            let hasSecurityScope = url.startAccessingSecurityScopedResource()
+            defer {
+                if hasSecurityScope {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
+
+            let resourceValues = try url.resourceValues(forKeys: [
+                .contentTypeKey,
+                .fileSizeKey,
+                .isDirectoryKey
+            ])
+            guard resourceValues.isDirectory != true else {
+                throw PrivateChatError.unsupportedAttachment
+            }
+            if let fileSize = resourceValues.fileSize,
+               fileSize > ConversationService.maximumAttachmentBytes {
+                throw PrivateChatError.attachmentTooLarge(
+                    maximumBytes: ConversationService.maximumAttachmentBytes
+                )
+            }
+
+            let data = try Data(contentsOf: url)
+            let contentType = resourceValues.contentType
+                ?? UTType(filenameExtension: url.pathExtension)
+                ?? .data
+            pendingMedia = try PendingMedia.document(
+                data: data,
+                fileName: url.lastPathComponent,
+                mimeType: contentType.preferredMIMEType ?? "application/octet-stream"
+            )
         } catch {
             mediaErrorMessage = error.localizedDescription
         }
@@ -487,7 +543,7 @@ private struct MessageBubble: View {
                             attachmentLabel(attachment)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("\(attachment.kind == .image ? "Foto" : "Video") öffnen")
+                        .accessibilityLabel("\(attachment.kind.localizedTitle) öffnen")
                     }
 
                     if message.body.isEmpty == false {
@@ -587,7 +643,7 @@ private struct MessageBubble: View {
                 .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
         } else {
             HStack(spacing: 12) {
-                Image(systemName: attachment.kind == .image ? "photo" : "play.rectangle.fill")
+                Image(systemName: attachment.kind.systemImageName)
                     .font(.title2)
                     .frame(width: 36, height: 36)
                     .background(Color.white.opacity(0.12), in: Circle())
@@ -624,7 +680,7 @@ private struct MessageDetailView: View {
                         .textSelection(.enabled)
                     if let attachment = message.attachment {
                         LabeledContent("Anhang", value: attachment.fileName)
-                        LabeledContent("Medientyp", value: attachment.kind == .image ? "Foto" : "Video")
+                        LabeledContent("Anhangstyp", value: attachment.kind.localizedTitle)
                         LabeledContent(
                             "Größe",
                             value: ByteCountFormatter.string(fromByteCount: Int64(attachment.byteCount), countStyle: .file)
@@ -741,6 +797,60 @@ private struct PendingMedia: Identifiable {
         }
         return PendingMedia(data: data, kind: .video, fileName: fileName, mimeType: mimeType)
     }
+
+    static func document(data: Data, fileName: String, mimeType: String) throws -> PendingMedia {
+        guard data.isEmpty == false else {
+            throw PrivateChatError.attachmentUnavailable
+        }
+        guard data.count <= ConversationService.maximumAttachmentBytes else {
+            throw PrivateChatError.attachmentTooLarge(maximumBytes: ConversationService.maximumAttachmentBytes)
+        }
+        let normalizedName = fileName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalizedName.isEmpty == false else {
+            throw PrivateChatError.unsupportedAttachment
+        }
+        return PendingMedia(
+            data: data,
+            kind: .document,
+            fileName: normalizedName,
+            mimeType: mimeType
+        )
+    }
+}
+
+private extension ChatAttachmentKind {
+    var localizedTitle: String {
+        switch self {
+        case .image:
+            return "Foto"
+        case .video:
+            return "Video"
+        case .document:
+            return "Datei"
+        }
+    }
+
+    var systemImageName: String {
+        switch self {
+        case .image:
+            return "photo.fill"
+        case .video:
+            return "play.rectangle.fill"
+        case .document:
+            return "doc.fill"
+        }
+    }
+
+    var fallbackFileExtension: String {
+        switch self {
+        case .image:
+            return "jpg"
+        case .video:
+            return "mov"
+        case .document:
+            return "bin"
+        }
+    }
 }
 
 private struct VideoTransfer: Transferable {
@@ -841,7 +951,7 @@ private struct AttachmentPreviewSheet: View {
                     }
                     .padding()
                 } else {
-                    ProgressView("Medium wird entschlüsselt …")
+                    ProgressView("Anhang wird entschlüsselt …")
                 }
             }
             .navigationTitle(attachment.fileName)
@@ -864,7 +974,7 @@ private struct AttachmentPreviewSheet: View {
         do {
             let data = try service.attachmentData(for: attachment)
             let fileExtension = URL(fileURLWithPath: attachment.fileName).pathExtension
-            let suffix = fileExtension.isEmpty ? (attachment.kind == .image ? "jpg" : "mov") : fileExtension
+            let suffix = fileExtension.isEmpty ? attachment.kind.fallbackFileExtension : fileExtension
             let url = FileManager.default.temporaryDirectory
                 .appendingPathComponent("PrivateChatPreview-\(UUID().uuidString)")
                 .appendingPathExtension(suffix)

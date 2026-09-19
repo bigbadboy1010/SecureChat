@@ -85,7 +85,8 @@ final class ConversationService: ObservableObject {
     // active and retains signed-envelope + AES-GCM E2E protection.
     private static let experimentalDoubleRatchetEnabled = false
     static let maximumAttachmentBytes = 8 * 1_048_576
-    private static let attachmentChunkBytes = 48 * 1_024
+    private static let attachmentChunkBytes = 64 * 1_024
+    private static let attachmentChunkIntervalSeconds: TimeInterval = 0.65
     @Published private(set) var conversations: [StoredConversation]
     @Published private(set) var trustedPeers: [TrustedPeer]
     @Published private(set) var securityState: AppSecurityState
@@ -131,6 +132,7 @@ final class ConversationService: ObservableObject {
     private let ratchetStore: DoubleRatchetStoring
     private var ratchetObservations: [RatchetSentinelObservation] = []
     private var relayAutoSyncTask: Task<Void, Never>?
+    private var nextAttachmentChunkSendAt = Date.distantPast
 
     init(
         localIdentity: LocalIdentity,
@@ -142,7 +144,7 @@ final class ConversationService: ObservableObject {
         identityManager: IdentityManaging,
         crypto: CryptoServicing,
         transportCoordinator: TransportCoordinating,
-        attachmentStore: AttachmentStoring = InMemoryAttachmentStore()
+        attachmentStore: AttachmentStoring? = nil
     ) {
         self.localIdentity = localIdentity
         self.messageStore = messageStore
@@ -153,7 +155,7 @@ final class ConversationService: ObservableObject {
         self.identityManager = identityManager
         self.crypto = crypto
         self.transportCoordinator = transportCoordinator
-        self.attachmentStore = attachmentStore
+        self.attachmentStore = attachmentStore ?? InMemoryAttachmentStore()
         self.encoder = DateCoding.makeEncoder()
         self.decoder = DateCoding.makeDecoder()
         self.relayPacketLedger = .empty
@@ -544,6 +546,8 @@ final class ConversationService: ObservableObject {
         fileName: String,
         mimeType: String
     ) async {
+        let normalizedFileName = fileName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedMIMEType = mimeType.trimmingCharacters(in: .whitespacesAndNewlines)
         guard data.isEmpty == false else {
             lastErrorMessage = PrivateChatError.attachmentUnavailable.localizedDescription
             return
@@ -554,6 +558,13 @@ final class ConversationService: ObservableObject {
             ).localizedDescription
             return
         }
+        guard normalizedFileName.isEmpty == false,
+              normalizedFileName.utf8.count <= 255,
+              normalizedMIMEType.isEmpty == false,
+              normalizedMIMEType.utf8.count <= 128 else {
+            lastErrorMessage = PrivateChatError.unsupportedAttachment.localizedDescription
+            return
+        }
         guard let index = conversations.firstIndex(where: { $0.id == conversationID }) else {
             return
         }
@@ -561,8 +572,8 @@ final class ConversationService: ObservableObject {
         let attachment = ChatAttachment(
             id: UUID(),
             kind: kind,
-            fileName: fileName,
-            mimeType: mimeType,
+            fileName: normalizedFileName,
+            mimeType: normalizedMIMEType,
             byteCount: data.count
         )
 
@@ -1452,6 +1463,9 @@ final class ConversationService: ObservableObject {
                         totalChunks: totalChunks,
                         chunkDataBase64: chunk.base64EncodedString()
                     )
+                    if securityState.transportMode == .relayAllowed {
+                        try await waitForAttachmentChunkRateSlot()
+                    }
                     try await sendTransportPayload(payload, peerID: peerID)
                 }
             } else {
@@ -1506,6 +1520,19 @@ final class ConversationService: ObservableObject {
             packet,
             mode: securityState.transportMode,
             relayConfiguration: securityState.relayConfiguration
+        )
+    }
+
+    private func waitForAttachmentChunkRateSlot() async throws {
+        let now = Date()
+        let scheduledAt = max(now, nextAttachmentChunkSendAt)
+        nextAttachmentChunkSendAt = scheduledAt.addingTimeInterval(
+            Self.attachmentChunkIntervalSeconds
+        )
+        let waitSeconds = scheduledAt.timeIntervalSince(now)
+        guard waitSeconds > 0 else { return }
+        try await Task.sleep(
+            nanoseconds: UInt64(waitSeconds * 1_000_000_000)
         )
     }
 
@@ -1776,7 +1803,12 @@ final class ConversationService: ObservableObject {
                   let totalChunks = payload.totalChunks,
                   let encodedChunk = payload.chunkDataBase64,
                   let chunk = Data(base64Encoded: encodedChunk),
-                  attachment.byteCount <= Self.maximumAttachmentBytes else {
+                  attachment.byteCount > 0,
+                  attachment.byteCount <= Self.maximumAttachmentBytes,
+                  attachment.fileName.isEmpty == false,
+                  attachment.fileName.utf8.count <= 255,
+                  attachment.mimeType.isEmpty == false,
+                  attachment.mimeType.utf8.count <= 128 else {
                 throw PrivateChatError.invalidInboundPacket
             }
 

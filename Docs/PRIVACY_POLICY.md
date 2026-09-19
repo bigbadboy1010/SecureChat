@@ -33,7 +33,7 @@ bestimmter Absender ein bestimmtes Paket geschickt hat — die
 Signaturprüfung erfolgt auf dem Empfänger-Gerät (siehe
 `Docs/ADR-002-envelope-and-crypto.md` für das Vertrauensmodell).
 
-Fotos und Videos werden auf dem sendenden Gerät in kleine Teile zerlegt.
+Fotos, Videos und Dokumente werden auf dem sendenden Gerät in kleine Teile zerlegt.
 Jeder Teil wird innerhalb des bestehenden Ende-zu-Ende-verschlüsselten
 Nachrichtenformats übertragen. Der Relay sieht daher weder Bild- noch
 Videoinhalte. Auf dem Empfangsgerät werden die Teile erst nach Prüfung von

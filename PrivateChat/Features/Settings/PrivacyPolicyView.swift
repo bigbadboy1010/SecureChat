@@ -123,7 +123,7 @@ PrivateChat ist ein Ende-zu-Ende-verschlüsselter Messenger-Kern. Die App verwen
 
 Nachrichteninhalte, Drafts sowie gesendete und empfangene Medien werden lokal auf dem Gerät verschlüsselt gespeichert. Nachrichten-, Draft- und Medienstores verwenden AES-GCM und separate Schlüssel aus dem iOS-Keychain. Lokale Stores werden vom iCloud-Backup ausgeschlossen. Private Schlüssel verlassen das Gerät nicht.
 
-Wenn der Relay-Modus aktiviert ist, überträgt die App verschlüsselte Pakete an den SecureChat Relay unter https://securechat.team. Der Relay verarbeitet technische Zustellmetadaten wie Sender-ID, Empfänger-ID, Paket-ID, Ablaufzeit, ACKs und Zustellstatus. Fotos und Videos werden in kleine Teile zerlegt und innerhalb derselben Ende-zu-Ende-verschlüsselten Pakete übertragen. Der Relay kann Nachrichten- oder Medieninhalte nicht lesen.
+Wenn der Relay-Modus aktiviert ist, überträgt die App verschlüsselte Pakete an den SecureChat Relay unter https://securechat.team. Der Relay verarbeitet technische Zustellmetadaten wie Sender-ID, Empfänger-ID, Paket-ID, Ablaufzeit, ACKs und Zustellstatus. Fotos, Videos und Dokumente werden in kleine Teile zerlegt und innerhalb derselben Ende-zu-Ende-verschlüsselten Pakete übertragen. Der Relay kann Nachrichten- oder Anhangsinhalte nicht lesen.
 
 Pairing-Codes enthalten öffentliche Identity-Keys, Anzeigename und Erstellungszeitpunkt. Der lokale Anzeigename kann vom Nutzer geändert werden und wird bei neu erzeugten Pairing-Codes als öffentlicher Name geteilt.
 

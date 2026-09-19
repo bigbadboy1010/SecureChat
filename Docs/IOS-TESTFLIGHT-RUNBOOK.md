@@ -122,7 +122,11 @@ Use two physical iPhones, preferably on different networks.
 - Send/receive in both directions.
 - Send a photo and a short video from the library in both directions;
   open each received attachment.
+- Send a PDF and a text document from Files in both directions; open each
+  received attachment and verify it remains available after relaunch.
 - Capture and send a photo and a short video from a physical device camera.
+- Confirm a larger attachment does not trigger HTTP 429 while its paced chunk
+  transfer is running.
 - Verify chat text remains clearly readable in light and dark appearance.
 - App kill/relaunch between messages.
 - Offline → reconnect → inbox delivery.

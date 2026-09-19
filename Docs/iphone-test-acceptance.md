@@ -14,7 +14,7 @@ This test verifies:
 - biometric unlock and encrypted local persistence;
 - QR pairing and SC2 Safety Number verification;
 - production-relay enrollment, delivery and acknowledgement;
-- encrypted photo/video selection, camera capture and preview;
+- encrypted photo/video/document selection, camera capture and preview;
 - offline recovery and contact lifecycle behavior.
 
 It does not constitute an independent cryptographic or security audit.

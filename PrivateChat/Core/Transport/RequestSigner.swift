@@ -148,7 +148,7 @@ public enum RequestSigner {
         let signature = try? signingKey.signature(
             for: Data(canonical.utf8)
         )
-        let signatureBase64URL = signature.map(base64URLEncoded) ?? ""
+        let signatureBase64URL = signature.map { base64URLEncoded($0) } ?? ""
         return SignedHeaders(
             peerID: peerID,
             timestamp: timestamp,
@@ -203,7 +203,7 @@ public enum RequestSigner {
         DateCoding.string(from: Date())
     }
 
-    static func base64URLEncoded(_ data: Data) -> String {
+    nonisolated static func base64URLEncoded(_ data: Data) -> String {
         data.base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")

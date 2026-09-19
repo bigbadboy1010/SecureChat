@@ -97,6 +97,12 @@ enum PrivateChatError: LocalizedError, Equatable {
                 }
                 return "Relay-Server hat HTTP 401 Unauthorized zurückgegeben. Prüfe Bearer-Token, Peer-Registrierung und Request-Signatur."
             }
+            if statusCode == 429 {
+                if let message, message.isEmpty == false {
+                    return "Relay-Limit erreicht: \(message). Der Versand wird begrenzt; warte kurz und versuche die fehlgeschlagene Nachricht erneut."
+                }
+                return "Relay-Limit erreicht. Der Versand wird begrenzt; warte kurz und versuche die fehlgeschlagene Nachricht erneut."
+            }
             if let message, message.isEmpty == false {
                 return "Relay-Server hat HTTP \(statusCode) zurückgegeben: \(message). Prüfe \(SecureChatProductionProfile.relayBaseURLString), Caddy und den SecureChat-Container."
             }
@@ -132,7 +138,7 @@ enum PrivateChatError: LocalizedError, Equatable {
         case .attachmentUnavailable:
             return "Anhang konnte nicht sicher geladen oder gespeichert werden."
         case .unsupportedAttachment:
-            return "Dieses Bild- oder Videoformat wird nicht unterstützt."
+            return "Dieses Anhangsformat wird nicht unterstützt."
         }
     }
 }

@@ -57,6 +57,7 @@ enum TransportMode: String, Codable, Equatable, CaseIterable {
 enum ChatAttachmentKind: String, Codable, Equatable {
     case image
     case video
+    case document
 }
 
 struct ChatAttachment: Codable, Equatable, Identifiable {
