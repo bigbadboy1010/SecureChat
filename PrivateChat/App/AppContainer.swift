@@ -60,7 +60,11 @@ final class AppContainer: ObservableObject {
                 crypto: crypto,
                 transportCoordinator: transportCoordinator
             )
-            service.load()
+            guard service.load() else {
+                throw PrivateChatError.persistenceFailed(
+                    service.lastErrorMessage ?? "Sicherheitszustand konnte nicht geladen werden"
+                )
+            }
             let container = AppContainer(conversationService: service, biometricGate: biometricGate, startupErrorMessage: nil)
             // Sprint 27 (2026-06-24): enroll the local
             // peer with the relay after the
