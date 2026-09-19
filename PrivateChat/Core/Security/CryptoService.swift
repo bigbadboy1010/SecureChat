@@ -188,8 +188,8 @@ enum SafetyNumberV2 {
 
         var material = Data("SecureChat/SafetyNumber/v2".utf8)
         for key in ordered {
-            var length = UInt32(key.count).bigEndian
-            withUnsafeBytes(of: &length) { material.append(contentsOf: $0) }
+            let length = UInt32(key.count).bigEndian
+            withUnsafeBytes(of: length) { material.append(contentsOf: $0) }
             material.append(key)
         }
 
