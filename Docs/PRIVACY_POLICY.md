@@ -40,13 +40,13 @@ Erstellungszeitpunkt. Der lokale Anzeigename kann vom Nutzer geändert
 werden und wird bei neu erzeugten Pairing-Codes als öffentlicher Name
 geteilt.
 
-## 4. Self-hosting
+## 4. Relay-Betrieb
 
-Nutzer können ihren eigenen Relay betreiben. Die offizielle
-Self-host-Anleitung liegt unter
-`https://securechat.team/docs/self-host.html` und in `Docs/`.
-Ein Self-host-Relay erhält nur die Pakete, die seine Nutzer explizit
-über ihn leiten.
+Die offizielle SecureChat-App verwendet den vom Betreiber verwalteten
+Relay unter `https://relay.securechat.team`. Der produktive
+Relay-Servercode und die Deployment-Konfiguration liegen nicht im
+öffentlichen iOS-Repository. Ein eigener Relay ist für die offizielle
+TestFlight-Version derzeit kein unterstützter Betriebsmodus.
 
 ## 5. TestFlight Beta (Public Beta Phase)
 
