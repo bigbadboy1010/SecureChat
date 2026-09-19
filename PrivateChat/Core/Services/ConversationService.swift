@@ -151,7 +151,8 @@ final class ConversationService: ObservableObject {
         self.securityAISnapshot = .empty
     }
 
-    func load() {
+    @discardableResult
+    func load() -> Bool {
         do {
             conversations = try messageStore.load().sorted { $0.conversation.updatedAt > $1.conversation.updatedAt }
             resetInterruptedOutgoingMessages()
@@ -164,8 +165,10 @@ final class ConversationService: ObservableObject {
             lastRelayHealthMessage = nil
             lastTransportDiagnosticMessage = transportDiagnosticSummary()
             lastErrorMessage = nil
+            return true
         } catch {
             lastErrorMessage = error.localizedDescription
+            return false
         }
     }
 
