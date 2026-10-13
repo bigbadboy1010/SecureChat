@@ -1,6 +1,6 @@
-# PrivateRoom public endpoints and candidate client contract
+# PrivateRoom public endpoints and owner-beta client contract
 
-Updated 13 October 2026 for the **PrivateRoom 1.5.0 (15)** integration candidate. The new hardened relay/site contract is being evaluated in an isolated canary. This document does not claim that the public deployment has already changed; final cutover and acceptance must be recorded in the [dated review](PRIVATEROOM-REVIEW-2026-10-13.md).
+Updated 13 October 2026 for the **PrivateRoom 1.5.0 (15)** integration candidate. The hardened approved-owner-beta relay and redesigned project site went live at **12:00:14 UTC**. Eleven public HTTPS routes passed acceptance and all 15 static source files matched their served bytes. Client simulator and unsigned device-target Release checks passed; physical owner-device and native GUI acceptance remain pending. See the [dated review](PRIVATEROOM-REVIEW-2026-10-13.md) for the exact verification boundaries. A live backend is not an Apple release.
 
 ## Canonical public URLs
 
@@ -26,11 +26,13 @@ The ordinary candidate client uses exactly the public base URL:
 https://securechat.team
 ```
 
-Connecting is an explicit user action. The canonical-host candidate can be configured without a shared bearer token: signed enrollment proves possession of the device's advertised signing key, and subsequent client requests use peer-bound Ed25519 signatures. Access remains subject to the approved owner-beta relay policy. This is not a public open-registration or anonymity promise.
+Connecting is an explicit user action. The canonical-host candidate uses no consumer or operator bearer token: signed enrollment proves possession of the device's advertised signing key, and subsequent client requests use peer-bound Ed25519 signatures. The deployed relay requires approved owner-beta identities and rejects unsigned or mismatched client requests. This is not a public open-registration or anonymity promise.
 
 The signature binds the HTTP method, path, canonical query, body hash, timestamp, nonce and public peer identifier. Existing `X-Securechat-*` wire names may remain for compatibility with the technical code name. Peer identifiers and protocol syntax are public-format data; actual production identity lists and private signing keys are not publishable fixtures.
 
-Sender/recipient authorization, bounded timestamp/nonce replay checks and rejection of unsigned or mismatched requests are acceptance requirements for the hardened relay. A successful `/healthz` response alone does not prove that enrollment, SEND, inbox or acknowledgement work correctly or are properly isolated.
+Sender/recipient authorization, bounded timestamp/nonce replay checks and rejection of unsigned or mismatched requests passed the isolated contract checks and 26 backend regressions. Actual Swift signed enrollment, text/media transfer, inbox reads and acknowledgements passed against the exact deployed contract in isolation. A successful `/healthz` response alone does not prove those properties, and these fixture checks do not establish physical two-device acceptance.
+
+New routine backups exclude live queues, acknowledgement tombstones and nonce state. Historical encrypted backup/recovery copies remain and are outside immediate deletion. The shared reverse proxy's global error logging may retain network or routing metadata; the deployment does not promise metadata-free operation.
 
 ## Custom relay rules
 
@@ -49,20 +51,18 @@ Any narrowly scoped loopback fixture used by a debug test is not a production ex
 - Public name: **PrivateRoom**.
 - Technical target/scheme and existing source directory: `PrivateChat`.
 - Existing bundle: `org.francois.PrivateChat`.
-- Integration candidate: **1.5.0 (15)**; final acceptance pending.
+- Integration candidate: **1.5.0 (15)**; final 141-test simulator run and unsigned device-target Release build passed. Physical owner-device and native GUI acceptance remain pending.
 - Active message envelope: **protocol 2**, static pairwise agreement; signed contact-code format **3** and fingerprint **SC3** are distinct versions.
 - Experimental ratchet code is disabled. A format-version number is not proof of forward secrecy.
 
 Obsolete host/subdomain/LAN configurations must not be copied into new release settings. Any required migration retains private configuration only under the owner-controlled client path and must be tested without publishing real infrastructure addresses.
 
-## Publication gates
+## Deployment acceptance and remaining distribution checks
 
-Before describing a changed contract as live:
+The controlled public switch completed with a verified rollback/recovery path. The 89 pre-existing containers retained their identities, start times and restart counts; central server process IDs were unchanged. Recovery copies were verified on the owner's Mac and separate backup server.
 
-1. Record a preserved rollback path and confirm the isolated candidate's health and authentication behavior.
-2. Test signed enrollment, genuine two-identity text/media delivery, inbox ownership and acknowledgements; also test unsigned, forged, replayed and wrong-recipient requests.
-3. Confirm the narrowly scoped public switch and unrelated-service continuity.
-4. Update this document, website copy and the dated acceptance record with the observed deployed state.
-5. Complete physical device and distribution acceptance separately; a public backend change is not an Apple upload.
+The isolated Swift wire fixture transferred a full 8 MiB attachment in 128 × 64 KiB chunks, reassembled its SHA-256 digest and completed acknowledgements. Sender and receiver ran serially with 0.65-second request pacing against the same 120-request-per-minute IP budget. This proves the tested contract; it does not claim that simultaneously competing traffic or real phones have passed acceptance.
 
-The public source repository does not contain production deployment secrets. Historical endpoint/runbook descriptions do not supersede this candidate contract or [SECURITY.md](../SECURITY.md).
+Physical owner-device and native GUI acceptance, physical iOS Data Protection verification, distribution acceptance and independent audit remain separate outstanding checks. No Apple upload, TestFlight release or App Store submission has been performed for this candidate.
+
+The public source repository does not contain production deployment secrets. Historical endpoint/runbook descriptions do not supersede this observed owner-beta contract or [SECURITY.md](../SECURITY.md).

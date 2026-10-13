@@ -2,7 +2,7 @@
 
 ## Status and scope
 
-This is the public, sanitized record of the 13 October review. Candidate identity: **PrivateRoom 1.5.0 (15)**, existing technical scheme `PrivateChat` and bundle `org.francois.PrivateChat`. Distribution is a **closed owner beta**. Final integrated acceptance is pending; no new Apple upload, TestFlight availability, App Store submission, independent audit or public relay cutover is established by this document.
+This is the public, sanitized record of the 13 October review. Candidate identity: **PrivateRoom 1.5.0 (15)**, existing technical scheme `PrivateChat` and bundle `org.francois.PrivateChat`. Distribution remains a **closed owner beta**. The hardened approved-owner-beta relay and redesigned project site went live on **13 October 2026 at 12:00:14 UTC**, with deployed backend source fingerprint **`aa3a9ddf9a55`**. The final native simulator runner passed **141 tests with zero failures**, the unsigned device-target Release build passed, and **26 backend regressions** passed. Native GUI and physical owner-device acceptance remain pending. No new Apple upload, TestFlight availability, App Store submission or independent audit is established by this review.
 
 The review covers the iPhone/iPad client, its pairing, authenticated relay requests, local storage, access lifecycle, consumer interface, public project pages and documentation. Private operator files and raw test artifacts remain separate. A source-level fix must not be described as device-tested or deployed until that specific evidence exists.
 
@@ -11,14 +11,14 @@ The review covers the iPhone/iPad client, its pairing, authenticated relay reque
 | Finding | Implemented response | Verification boundary |
 |---|---|---|
 | Contact fingerprints covered signing keys without fully binding encryption identities. | SC3 fingerprints bind both parties' paired Ed25519 and X25519 public keys. Old verification does not carry across the upgrade. | Both peers still need a trusted-channel comparison; pairing signatures alone do not establish human identity. |
-| Contact exchange did not authenticate its advertised material adequately. | Version-3 signed contact codes; legacy inputs remain unverified until the full SC3 comparison. | Malicious-input and key-substitution regressions are required. |
+| Contact exchange did not authenticate its advertised material adequately. | Version-3 signed contact codes; legacy inputs remain unverified until the full SC3 comparison. | Malicious-input and key-substitution regressions passed; physical pairing and human identity verification remain separate. |
 | Inactive/background transitions could leave unlocked state or stale authentication work. | Central user-session lock, inactive privacy cover, background invalidation and stale-authentication guards. Sensitive actions are session-bound. | Actual authentication prompts, app switcher, open sheets and delayed callbacks require device acceptance. |
-| Local write failures could discard a draft or remove attachment data ahead of durable state. | Local acceptance results preserve the draft on failure; deletion paths preserve persistence ordering and error handling. | Storage fault injection and relaunch tests are required, not only happy-path UI checks. |
-| Relay setup exposed operator-token instructions in the consumer interface. | Deliberate canonical-host connection with signed device enrollment; operator credentials are not distributed to ordinary users. Custom configuration stays advanced. | The hardened relay is an isolated canary until the owner accepts a controlled cutover. |
-| Network and server response handling exposed unnecessary diagnostic surface. | Authenticated request construction, tighter validation and sanitized error/logging behavior are part of the reviewed candidate. | Client and server negative tests must establish the actual deployed contract. |
+| Local write failures could discard a draft or remove attachment data ahead of durable state. | Local acceptance results preserve the draft on failure; deletion paths preserve persistence ordering and error handling. | Storage-failure regressions passed. Physical-device relaunch and media acceptance remain pending. |
+| Relay setup exposed operator-token instructions in the consumer interface. | Deliberate canonical-host connection with signed device enrollment; no consumer or operator bearer token is sent to the canonical host. Custom configuration stays advanced. | The hardened approved-owner-beta contract is live; physical owner-device acceptance remains pending. |
+| Network and server response handling exposed unnecessary diagnostic surface. | Authenticated request construction, tighter validation and sanitized relay error/logging behavior are deployed. | Client/server negative regressions passed; shared reverse-proxy global error metadata remains an explicit privacy limit. |
 | UI remained inconsistent with the PrivateRoom product and hid important workflow consequences. | Consistent room/speech mark, ink/mint/ivory design, accessible animated introduction, actual status, contact-first flow and scoped retry. | Small/large iPhone and iPad, Dynamic Type, Reduce Motion and VoiceOver checks remain necessary. |
 | Destructive and plaintext-sharing actions lacked meaningful confirmation. | Local-message/chat/history and technical maintenance confirmations; transcript review; local expiring clipboard actions. | Recipient copies and historical encrypted backups are explicitly outside immediate local deletion. |
-| Public copy implied a released, exceptionally secure or metadata-free product. | Closed-beta status, audit limits, static active protocol, backup/recovery limits and pending distribution are explicit. | Website and GitHub publication must reflect the final accepted state, not merely this draft. |
+| Public copy implied a released, exceptionally secure or metadata-free product. | Closed-beta status, audit limits, static active protocol, backup/recovery limits and pending distribution are explicit. | Eleven public HTTPS routes passed and all 15 static source files matched their served bytes; this record distinguishes deployed backend/site from pending client-device acceptance. |
 
 The candidate uses a reproducible original geometric icon rather than a borrowed identity. Its native renderer exported all 28 existing AppIcon slots and the desktop resource with expected dimensions as opaque RGB PNGs. This asset check does not establish app-runtime acceptance.
 
@@ -28,7 +28,9 @@ The active protocol is version 2: static X25519 agreement, HKDF-SHA256, AES-GCM 
 
 **There is no forward secrecy or post-compromise security in the active channel.** Compromise of long-term key material can affect confidentiality of captured traffic. Experimental ratchet code is disabled and has not been independently audited. No claim of Signal compatibility, independently audited cryptography, post-quantum protection or guaranteed traffic anonymity is made.
 
-The relay sees ciphertext and delivery metadata, including identifiers, routing and timing. Network connections can expose IP addresses and operational metadata. Endpoint compromise and a recipient's decision to save or share content remain material limits.
+The relay sees ciphertext and delivery metadata, including identifiers, routing and timing. Network connections can expose IP addresses and operational metadata. Sanitized relay logging does not eliminate network/routing metadata that can appear in the shared reverse proxy's global error logs. Endpoint compromise and a recipient's decision to save or share content remain material limits.
+
+New routine server backups exclude live message queues, acknowledgement tombstones and nonce state. Historical encrypted backup and recovery copies remain; neither local deletion nor relay expiry immediately erases those historical copies. No metadata-free operation, instantaneous global deletion or fixed lifetime for historical backups is promised.
 
 ## Product boundary
 
@@ -36,21 +38,22 @@ Implemented candidate functions are one-to-one verified-contact messages, encryp
 
 Still absent as accepted product capabilities: independently audited protocol, reviewed device migration or recovery, production group messaging, calls, reliable background delivery/push, and cross-device history synchronization. Local stores are excluded from cloud backup; losing device-bound keys can lose data. Local deletion is not remote erasure.
 
-## Acceptance record to complete
+## Observed acceptance and remaining checks
 
 | Required evidence | Current public status |
 |---|---|
-| Integrated native build of the frozen candidate | Pending final root-owned result |
-| Full client regression run, including crypto, persistence, session and transport failures | Pending final root-owned result |
+| Integrated native build of the frozen candidate | Final simulator build and unsigned device-target Release build passed, including the final presentation changes. |
+| Full client regression run, including crypto, persistence, session and transport failures | Final combined runner: **141 tests, zero failures**. |
 | Native GUI inspection on iPhone and iPad | Pending complete acceptance |
-| Actual two-identity text/attachment roundtrip against the hardened contract | Pending final acceptance |
-| Signed enrollment, unauthorized requests, peer isolation and replay rejection | Isolated-canary validation; final deployed acceptance pending |
-| Public site and relay cutover with rollback and unrelated-service checks | Not yet claimed |
+| Actual two-identity text/attachment roundtrip against the hardened contract | Actual Swift signed wire fixture passed in isolation against the exact deployed contract; full **8 MiB / 128 × 64 KiB** transfer, SHA-256 reassembly and acknowledgements passed. Physical two-device acceptance remains pending. |
+| Signed enrollment, unauthorized requests, peer isolation and replay rejection | Isolated contract checks and **26 backend regressions** passed. Strict approved-owner-beta policy deployed. |
+| Public site and relay cutover with rollback and unrelated-service checks | Live **2026-10-13 12:00:14 UTC**; **11 HTTPS routes** passed and **15 static files** matched source bytes. All **89 pre-existing containers** retained their identities, start times and restart counts; central server process IDs were unchanged. Verified rollback/recovery copies preserved on the owner's Mac and separate backup server. |
 | Physical owner-device acceptance of camera/pairing, lock and media flows | Not yet claimed for this candidate |
+| Physical iOS Data Protection class verification | Unperformed; simulator does not implement the physical protection metadata. |
 | Apple upload or submission | Not performed as part of this review |
 | Independent protocol/application audit | Not completed |
 
-Exact test counts, hashes, timestamps and deployment status must be added only after the corresponding result is observed. Local tests do not imply GitHub Actions passed. Sanitized evidence may be published; private identities, logs, credentials and raw personal content must not accompany it.
+The counts, source fingerprint, timestamp and deployment status above record observed results. Local tests do not imply GitHub Actions passed. Sanitized evidence may be published; private identities, logs, credentials and raw personal content must not accompany it.
 
 ## Future protocol work
 
@@ -70,13 +73,17 @@ Private: real secret keys/tokens, production environment files, deployment crede
 
 The review does not change the repository license. Older phase/sprint notes are historical, may contain outdated claims and do not supersede this dated status or [SECURITY.md](../SECURITY.md).
 
-## Observed local acceptance
+## Observed client and deployed-contract acceptance
 
 On 13 October, the combined native iOS Simulator runner passed **141 tests with zero failures**. This includes the new full-key pairing, Keychain failure, attachment integrity/quota, user-session lifecycle, storage failure, draft migration, bounded media/import and signed transport checks, plus existing experimental ratchet tests. Passing experimental tests does not enable or validate that disabled protocol for production.
 
-A device-target Release build also passed with signing disabled. This establishes compilation, not physical installation, TestFlight availability or Apple approval. Simulator Data Protection metadata is unavailable; the physical-iPhone protection-class assertion has not run. Native authentication, app-switcher cover, live camera and real two-device acceptance remain to be observed. Later changes to launch color, intro-once namespace and export branding are cosmetic/product presentation; a final simulator build follows them.
+A final device-target Release build also passed with signing disabled. Both that build and the final 141-test simulator run include the launch color, intro-once namespace and export branding changes. This establishes compilation and regression results, not physical installation, TestFlight availability or Apple approval. Simulator Data Protection metadata is unavailable; the physical-iPhone protection-class assertion has not run. Native authentication, app-switcher cover, live camera and real two-device acceptance remain to be observed.
 
 The sender and hosted relay agree on a 256 KiB HTTP body and 128 KiB sealed payload limit. Relay JSON avoids unnecessary slash escaping, preventing a valid slash-heavy 64 KiB attachment chunk from exceeding its budget. Captions are capped at 16 KiB and unsupported C0 controls are rejected before queueing. Inbox requests are limited to 40 envelopes to fit the bounded 8 MiB response reader. A request-builder regression exercises a full slash-heavy chunk and maximum caption.
+
+The actual Swift wire fixture completed signed two-identity enrollment, text exchange, a full 8 MiB attachment transfer in 128 × 64 KiB chunks, SHA-256 reassembly and acknowledgements on an isolated instance of the exact deployed contract. Sender and receiver ran **serially**, with **0.65-second** request pacing sharing the same **120-request-per-minute IP budget**. This test did not exercise simultaneously competing traffic and is not a substitute for physical two-device acceptance.
+
+The deployed backend's 26 regressions passed. Public acceptance verified 11 HTTPS routes and byte equality for all 15 static source files. The controlled cutover preserved all 89 pre-existing container identities, start times and restart counts, and kept central server process IDs unchanged, with verified rollback/recovery copies retained on the owner's Mac and separate backup server. No private runtime credentials, identity allowlists, infrastructure addresses or recovery material accompany this public evidence.
 
 Incoming images are metadata-checked and decoded as bounded ImageIO thumbnails; large compressed images cannot force an unrestricted full-resolution display decode. Temporary plaintext previews use a backup-excluded protected directory and are reclaimed on lock/startup by exact generated filenames. This does not promise crash-proof deletion, eradication from device memory or safe previews on a compromised operating system.
 

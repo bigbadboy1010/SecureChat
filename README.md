@@ -4,7 +4,7 @@
 
 A private space for conversations: an iPhone/iPad messenger with encrypted local storage, deliberate contact verification and a clear account of its limits.
 
-**Status, 13 October 2026:** closed owner beta, under active development. The integration candidate is **1.5.0 (15)**. The combined native simulator runner passes 141 tests; physical device and deployment acceptance are still pending; this review does **not** establish an Apple upload, TestFlight release, App Store submission or independent security audit. The hardened relay and redesigned project site are being evaluated in an isolated canary before a controlled public cutover.
+**Status, 13 October 2026:** closed owner beta, under active development. The integration candidate is **1.5.0 (15)**. The hardened approved-owner-beta relay and redesigned project site went live at **12:00:14 UTC**. The final native simulator runner passed **141 tests with zero failures**, the unsigned device-target Release build passed, and **26 backend regressions** passed. Physical owner-device and native GUI acceptance remain pending; there has been no Apple upload, TestFlight release, App Store submission or independent security audit for this candidate.
 
 PrivateRoom is not yet suitable for high-sensitivity communication. The active protocol has **no forward secrecy or post-compromise security**, and communication metadata remains visible to the relay. Read the [security policy](SECURITY.md) and [current review](Docs/PRIVATEROOM-REVIEW-2026-10-13.md) before testing.
 
@@ -32,7 +32,7 @@ flowchart LR
 
 The relay is not given message or attachment plaintext by the intended client path. It still processes peer identifiers, packet identifiers, timestamps, recipient routing, ciphertext sizes and acknowledgements. Its network connection can reveal IP addresses and operational metadata. Encryption does not provide complete anonymity or resistance to traffic analysis.
 
-Local message, draft and attachment stores use AES-GCM with device-bound Keychain keys and are excluded from cloud backup. There is no accepted device-transfer or recovery workflow yet: device loss, reinstalling or changing devices can mean permanent data loss. Deleting a local copy does not erase copies retained by recipients or immediately erase existing encrypted server backups.
+Local message, draft and attachment stores use AES-GCM with device-bound Keychain keys and are excluded from cloud backup. There is no accepted device-transfer or recovery workflow yet: device loss, reinstalling or changing devices can mean permanent data loss. New routine server backups exclude live message queues, acknowledgement tombstones and nonce state; historical encrypted backup and recovery copies still exist. Deleting a local copy does not erase copies retained by recipients or immediately erase those historical copies. Sanitized relay logging also does not eliminate operational metadata retained by the shared reverse proxy's global error logging.
 
 Camera and microphone access follows user-initiated QR, photo or video actions. No advertising or third-party analytics SDK is included in the active client. Diagnostic reports omit chat text, private keys and access tokens, but their technical metadata still deserves review before sharing.
 
@@ -61,7 +61,7 @@ A future reviewed MLS/OpenMLS integration is being considered. It is not integra
 4. For remote tests, use the approved beta relay contract and two separate approved test identities. Share both contact codes and compare the full SC3 number on both devices through a trusted second channel.
 5. Test text, attachment, interruption/retry, relaunch, local deletion and background lock. A local loopback test alone does not establish genuine two-device compatibility.
 
-The canonical public host is [securechat.team](https://securechat.team/). Approved owner-beta devices authenticate with their own signing identity; the ordinary canonical-host client must not receive an operator's shared secret. A custom relay remains an advanced, explicitly configured feature. See the [endpoint and authentication contract](Docs/CURRENT-ENDPOINTS.md). The new canary contract must be accepted and deliberately deployed before anyone treats the public relay as updated.
+The canonical public host is [securechat.team](https://securechat.team/). Its hardened contract is live for approved owner-beta devices, which authenticate with their own signing identity. The canonical-host client uses no consumer or operator bearer token. A custom relay remains an advanced, explicitly configured feature. See the [endpoint and authentication contract](Docs/CURRENT-ENDPOINTS.md).
 
 Messages are polled while the app is open and unlocked. There is no shipping promise of background camera activity, guaranteed background delivery, push alerts, calls, group chats or device sync. Muting currently controls local unread-badge behavior.
 
