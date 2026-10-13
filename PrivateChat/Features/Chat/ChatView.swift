@@ -20,6 +20,10 @@ struct ChatView: View {
     @State private var showDocumentPicker = false
     @State private var mediaErrorMessage: String?
     @State private var previewAttachment: ChatAttachment?
+    @State private var isSending = false
+    @State private var sendTask: Task<Void, Never>?
+    @State private var mediaLoadTask: Task<Void, Never>?
+    @State private var viewUserSessionID: UUID?
 
     private var currentConversation: StoredConversation {
         service.conversations.first { $0.id == storedConversation.id } ?? storedConversation
@@ -51,6 +55,7 @@ struct ChatView: View {
     }
 
     private var canSend: Bool {
+        !isSending && service.isCurrentUserSession(viewUserSessionID) &&
         (draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false || pendingMedia != nil) &&
         (currentConversation.conversation.peerID == nil || service.securityState.transportMode == .relayAllowed)
     }
@@ -96,6 +101,8 @@ struct ChatView: View {
                     scheduleDeferredScrollAndRead(proxy: proxy)
                 }
                 .task(id: currentConversation.id) {
+                    guard !Task.isCancelled else { return }
+                    if viewUserSessionID == nil { viewUserSessionID = service.currentUserSessionID }
                     restoreDraftIfAvailable()
                     deferMarkConversationRead()
                     guard isMessageSearchActive == false else { return }
@@ -105,6 +112,7 @@ struct ChatView: View {
 
             composer
         }
+        .onAppear { viewUserSessionID = service.currentUserSessionID }
         .navigationTitle(currentConversation.conversation.title)
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $messageSearchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "In diesem Chat suchen")
@@ -135,7 +143,7 @@ struct ChatView: View {
             .ignoresSafeArea()
         }
         .sheet(item: $previewAttachment) { attachment in
-            AttachmentPreviewSheet(service: service, attachment: attachment)
+            AttachmentPreviewSheet(service: service, attachment: attachment, userSessionID: viewUserSessionID)
         }
         .fileImporter(
             isPresented: $showDocumentPicker,
@@ -154,12 +162,23 @@ struct ChatView: View {
         }
         .onChange(of: selectedLibraryItem) { item in
             guard let item else { return }
-            Task { await loadLibraryItem(item) }
+            mediaLoadTask?.cancel()
+            let sessionID = viewUserSessionID
+            mediaLoadTask = Task { await loadLibraryItem(item, sessionID: sessionID) }
         }
         .onDisappear {
+            persistDraftValue(draft)
+            sendTask?.cancel()
+            mediaLoadTask?.cancel()
+            sendTask = nil
+            mediaLoadTask = nil
+            pendingMedia = nil
+            showCamera = false
+            showDocumentPicker = false
+            previewAttachment = nil
+            viewUserSessionID = nil
             scrollUpdateTask?.cancel()
             scrollUpdateTask = nil
-            persistDraftValue(draft)
             deferMarkConversationRead()
         }
     }
@@ -169,7 +188,7 @@ struct ChatView: View {
             Divider()
 
             if currentConversation.conversation.peerID != nil && service.securityState.transportMode == .localOnly {
-                Label("Relay ist deaktiviert. Aktiviere Security → Transport → Relay erlaubt.", systemImage: "exclamationmark.triangle")
+                Label("Du bist im lokalen Modus. Verbinde PrivateRoom in den Einstellungen, um mit Kontakten zu schreiben.", systemImage: "exclamationmark.triangle")
                     .font(.caption)
                     .foregroundStyle(Color.orange)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -198,6 +217,13 @@ struct ChatView: View {
                     .foregroundStyle(PrivateChatDesign.textSecondary)
                 }
                 .padding(.horizontal)
+
+                if pendingMedia.kind != .image {
+                    Text("Videos und Dokumente können Zusatzinformationen wie Aufnahmeort oder Autor enthalten. Prüfe den Anhang vor dem Senden; dein Kontakt erhält die Datei.")
+                        .font(.caption)
+                        .foregroundStyle(PrivateChatDesign.textSecondary)
+                        .padding(.horizontal)
+                }
             }
 
             HStack(alignment: .bottom, spacing: 10) {
@@ -244,6 +270,8 @@ struct ChatView: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(canSend ? Color.accentColor : Color.secondary.opacity(0.45))
                 .disabled(canSend == false)
+                .frame(minWidth: 44, minHeight: 44)
+                .accessibilityLabel(isSending ? "Nachricht wird angenommen" : "Nachricht senden")
             }
             .padding(.horizontal)
             .padding(.bottom, 10)
@@ -269,7 +297,16 @@ struct ChatView: View {
                     }
                 }
             )
-            .frame(minHeight: 24)
+            .frame(minHeight: 44)
+            .overlay(alignment: .topLeading) {
+                if draft.isEmpty {
+                    Text("Nachricht")
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 8)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
             .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -295,14 +332,18 @@ struct ChatView: View {
     }
 
     private func sendDraft() {
+        guard canSend else { return }
+        let sessionID = viewUserSessionID
         let body = draft
         let media = pendingMedia
-        updateDraft("", persist: true)
-        pendingMedia = nil
-        Task {
+        let conversationID = currentConversation.id
+        isSending = true
+        sendTask = Task {
+            defer { isSending = false }
+            let accepted: Bool
             if let media {
-                await service.sendAttachment(
-                    conversationID: currentConversation.id,
+                accepted = await service.sendAttachment(
+                    conversationID: conversationID,
                     body: body,
                     data: media.data,
                     kind: media.kind,
@@ -310,19 +351,23 @@ struct ChatView: View {
                     mimeType: media.mimeType
                 )
             } else {
-                await service.sendMessage(conversationID: currentConversation.id, body: body)
+                accepted = await service.sendMessage(conversationID: conversationID, body: body)
             }
+            guard accepted, !Task.isCancelled, service.isCurrentUserSession(sessionID) else { return }
+            if draft == body { updateDraft("", persist: true) }
+            if pendingMedia?.id == media?.id { pendingMedia = nil }
         }
     }
 
     @MainActor
-    private func loadLibraryItem(_ item: PhotosPickerItem) async {
-        defer { selectedLibraryItem = nil }
+    private func loadLibraryItem(_ item: PhotosPickerItem, sessionID: UUID?) async {
+        defer { if selectedLibraryItem == item { selectedLibraryItem = nil } }
         do {
             if item.supportedContentTypes.contains(where: { $0.conforms(to: .movie) }) {
                 guard let transfer = try await item.loadTransferable(type: VideoTransfer.self) else {
                     throw PrivateChatError.attachmentUnavailable
                 }
+                guard !Task.isCancelled, service.isCurrentUserSession(sessionID) else { return }
                 let contentType = item.supportedContentTypes.first(where: { $0.conforms(to: .movie) })
                 let fileExtension = contentType?.preferredFilenameExtension ?? "mov"
                 pendingMedia = try PendingMedia.video(
@@ -331,21 +376,25 @@ struct ChatView: View {
                     mimeType: contentType?.preferredMIMEType ?? "video/quicktime"
                 )
             } else {
-                guard let data = try await item.loadTransferable(type: Data.self) else {
+                guard let transfer = try await item.loadTransferable(type: ImageTransfer.self) else {
                     throw PrivateChatError.attachmentUnavailable
                 }
+                guard !Task.isCancelled, service.isCurrentUserSession(sessionID) else { return }
                 pendingMedia = try PendingMedia.image(
-                    data: data,
+                    data: transfer.data,
                     fileName: "Foto-\(Self.mediaTimestamp()).jpg"
                 )
             }
         } catch {
-            mediaErrorMessage = error.localizedDescription
+            if service.isCurrentUserSession(sessionID), !Task.isCancelled {
+                mediaErrorMessage = error.localizedDescription
+            }
         }
     }
 
     @MainActor
     private func handleCameraResult(_ result: Result<CameraCapture, Error>) {
+        guard service.isCurrentUserSession(viewUserSessionID) else { return }
         do {
             switch try result.get() {
             case .image(let image):
@@ -366,6 +415,7 @@ struct ChatView: View {
 
     @MainActor
     private func handleDocumentSelection(_ result: Result<[URL], Error>) {
+        guard service.isCurrentUserSession(viewUserSessionID) else { return }
         do {
             guard let url = try result.get().first else {
                 return
@@ -392,7 +442,7 @@ struct ChatView: View {
                 )
             }
 
-            let data = try Data(contentsOf: url)
+            let data = try PrivateRoomAttachmentImport.readBounded(url, maximumBytes: ConversationService.maximumAttachmentBytes)
             let contentType = resourceValues.contentType
                 ?? UTType(filenameExtension: url.pathExtension)
                 ?? .data
@@ -416,14 +466,14 @@ struct ChatView: View {
     private func restoreDraftIfAvailable() {
         guard draft.isEmpty else { return }
         let legacyValue = UserDefaults.standard.string(forKey: legacyDraftStorageKey)
-        let restoredDraft = service.loadDraft(conversationID: currentConversation.id, legacyUserDefaultsValue: legacyValue)
-        if legacyValue != nil {
-            UserDefaults.standard.removeObject(forKey: legacyDraftStorageKey)
+        let restoredDraft = service.loadDraft(conversationID: currentConversation.id, legacyUserDefaultsValue: legacyValue) {
+            if legacyValue != nil { UserDefaults.standard.removeObject(forKey: legacyDraftStorageKey) }
         }
         updateDraft(restoredDraft, persist: false)
     }
 
     private func updateDraft(_ newValue: String, persist: Bool) {
+        guard service.isCurrentUserSession(viewUserSessionID) else { return }
         guard draft != newValue else { return }
         draft = newValue
         if persist {
@@ -432,13 +482,15 @@ struct ChatView: View {
     }
 
     private func persistDraftValue(_ value: String) {
+        guard service.isCurrentUserSession(viewUserSessionID) else { return }
         let trimmedDraft = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        UserDefaults.standard.removeObject(forKey: legacyDraftStorageKey)
+        let committed: Bool
         if trimmedDraft.isEmpty {
-            service.deleteDraft(conversationID: currentConversation.id)
+            committed = service.deleteDraft(conversationID: currentConversation.id)
         } else {
-            service.saveDraft(value, conversationID: currentConversation.id)
+            committed = service.saveDraft(value, conversationID: currentConversation.id)
         }
+        if committed { UserDefaults.standard.removeObject(forKey: legacyDraftStorageKey) }
     }
 
     private func scrollToBottom(proxy: ScrollViewProxy, animated: Bool = true) {
@@ -452,12 +504,14 @@ struct ChatView: View {
 
     private func scheduleDeferredScrollAndRead(proxy: ScrollViewProxy) {
         guard isMessageSearchActive == false else { return }
+        let sessionID = viewUserSessionID
         let conversationID = currentConversation.id
         let lastMessageID = currentConversation.messages.last?.id
         scrollUpdateTask?.cancel()
         scrollUpdateTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 80_000_000)
             guard Task.isCancelled == false else { return }
+            guard service.isCurrentUserSession(sessionID) else { return }
             guard currentConversation.id == conversationID else { return }
             if let lastMessageID {
                 withAnimation(.easeOut(duration: 0.22)) {
@@ -470,7 +524,9 @@ struct ChatView: View {
 
     private func deferMarkConversationRead() {
         let conversationID = currentConversation.id
+        let sessionID = viewUserSessionID
         DispatchQueue.main.async {
+            guard service.isCurrentUserSession(sessionID) else { return }
             service.markConversationRead(id: conversationID)
         }
     }
@@ -521,6 +577,7 @@ private struct MessageBubble: View {
     let onShowDetails: () -> Void
     let onPreviewAttachment: (ChatAttachment) -> Void
     @State private var attachmentImage: UIImage?
+    @State private var showDeleteConfirmation = false
 
     var body: some View {
         HStack(alignment: .bottom) {
@@ -561,7 +618,7 @@ private struct MessageBubble: View {
                 }
                 .contextMenu {
                     Button {
-                        UIPasteboard.general.string = message.body
+                        PrivateRoomClipboard.copy(message.body)
                     } label: {
                         Label("Kopieren", systemImage: "doc.on.doc")
                     }
@@ -587,9 +644,9 @@ private struct MessageBubble: View {
                     }
 
                     Button(role: .destructive) {
-                        service.deleteMessage(messageID: message.id, conversationID: conversationID)
+                        showDeleteConfirmation = true
                     } label: {
-                        Label("Löschen", systemImage: "trash")
+                        Label("Lokal löschen …", systemImage: "trash")
                     }
                 }
 
@@ -610,12 +667,22 @@ private struct MessageBubble: View {
                     attachmentImage = nil
                     return
                 }
-                attachmentImage = (try? service.attachmentData(for: attachment)).flatMap { UIImage(data: $0) }
+                attachmentImage = (try? service.attachmentData(for: attachment)).flatMap {
+                    try? PrivateRoomImageDecoder.thumbnail(from: $0, maximumDimension: 880)
+                }
             }
 
             if message.isIncoming {
                 Spacer(minLength: 48)
             }
+        }
+        .confirmationDialog("Nachricht lokal löschen?", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
+            Button("Auf diesem Gerät löschen", role: .destructive) {
+                service.deleteMessage(messageID: message.id, conversationID: conversationID)
+            }
+            Button("Abbrechen", role: .cancel) {}
+        } message: {
+            Text("Diese Nachricht und ihr zugehöriger lokaler Anhang werden entfernt. Bereits erhaltene Kopien beim Kontakt werden nicht gelöscht. Die Aktion kann nicht rückgängig gemacht werden.")
         }
     }
 
@@ -707,7 +774,7 @@ private struct MessageDetailView: View {
 
                 SwiftUI.Section {
                     Button {
-                        UIPasteboard.general.string = message.body
+                        PrivateRoomClipboard.copy(message.body)
                     } label: {
                         Label("Text kopieren", systemImage: "doc.on.doc")
                     }
@@ -752,9 +819,7 @@ private struct PendingMedia: Identifiable {
     let mimeType: String
 
     static func image(data: Data, fileName: String) throws -> PendingMedia {
-        guard let image = UIImage(data: data) else {
-            throw PrivateChatError.unsupportedAttachment
-        }
+        let image = try PrivateRoomImageDecoder.thumbnail(from: data)
         return try Self.image(image: image, fileName: fileName)
     }
 
@@ -765,8 +830,13 @@ private struct PendingMedia: Identifiable {
             width: max(1, image.size.width * scale),
             height: max(1, image.size.height * scale)
         )
-        let renderer = UIGraphicsImageRenderer(size: targetSize)
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        format.opaque = true
+        let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
         let normalized = renderer.image { _ in
+            UIColor.black.setFill()
+            UIRectFill(CGRect(origin: .zero, size: targetSize))
             image.draw(in: CGRect(origin: .zero, size: targetSize))
         }
 
@@ -855,11 +925,38 @@ private extension ChatAttachmentKind {
 
 private struct VideoTransfer: Transferable {
     let data: Data
-
     static var transferRepresentation: some TransferRepresentation {
-        DataRepresentation(importedContentType: .movie) { data in
-            VideoTransfer(data: data)
+        FileRepresentation(importedContentType: .movie) { transfer in
+            VideoTransfer(data: try await PrivateRoomAttachmentImport.readBounded(
+                transfer.file, maximumBytes: ConversationService.maximumAttachmentBytes))
         }
+    }
+}
+
+private struct ImageTransfer: Transferable {
+    let data: Data
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(importedContentType: .image) { transfer in
+            ImageTransfer(data: try await PrivateRoomAttachmentImport.readBounded(
+                transfer.file, maximumBytes: 32 * 1_048_576))
+        }
+    }
+}
+
+/// File size can change after a metadata check. Bound the actual read too.
+enum PrivateRoomAttachmentImport {
+    static func readBounded(_ url: URL, maximumBytes: Int) throws -> Data {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        var result = Data()
+        while let chunk = try handle.read(upToCount: min(65_536, maximumBytes + 1 - result.count)), !chunk.isEmpty {
+            result.append(chunk)
+            guard result.count <= maximumBytes else {
+                throw PrivateChatError.attachmentTooLarge(maximumBytes: maximumBytes)
+            }
+        }
+        guard !result.isEmpty else { throw PrivateChatError.attachmentUnavailable }
+        return result
     }
 }
 
@@ -917,8 +1014,13 @@ private struct CameraMediaPicker: UIViewControllerRepresentable {
                 onResult(.success(.image(image)))
                 return
             }
-            if let url = info[.mediaURL] as? URL, let data = try? Data(contentsOf: url) {
-                onResult(.success(.video(data)))
+            if let url = info[.mediaURL] as? URL {
+                do {
+                    let data = try PrivateRoomAttachmentImport.readBounded(url, maximumBytes: ConversationService.maximumAttachmentBytes)
+                    onResult(.success(.video(data)))
+                } catch {
+                    onResult(.failure(error))
+                }
                 return
             }
             onResult(.failure(CameraCaptureError.missingResult))
@@ -929,6 +1031,7 @@ private struct CameraMediaPicker: UIViewControllerRepresentable {
 private struct AttachmentPreviewSheet: View {
     @ObservedObject var service: ConversationService
     let attachment: ChatAttachment
+    let userSessionID: UUID?
     @Environment(\.dismiss) private var dismiss
     @State private var previewURL: URL?
     @State private var errorMessage: String?
@@ -963,6 +1066,7 @@ private struct AttachmentPreviewSheet: View {
             }
         }
         .task(id: attachment.id) {
+            guard !Task.isCancelled, service.isCurrentUserSession(userSessionID) else { return }
             preparePreview()
         }
         .onDisappear {
@@ -975,15 +1079,7 @@ private struct AttachmentPreviewSheet: View {
             let data = try service.attachmentData(for: attachment)
             let fileExtension = URL(fileURLWithPath: attachment.fileName).pathExtension
             let suffix = fileExtension.isEmpty ? attachment.kind.fallbackFileExtension : fileExtension
-            let url = FileManager.default.temporaryDirectory
-                .appendingPathComponent("PrivateChatPreview-\(UUID().uuidString)")
-                .appendingPathExtension(suffix)
-            #if os(iOS)
-            try data.write(to: url, options: [.atomic, .completeFileProtection])
-            #else
-            try data.write(to: url, options: [.atomic])
-            #endif
-            previewURL = url
+            previewURL = try PrivateRoomPreviewFiles.write(data, fileExtension: suffix)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -991,7 +1087,7 @@ private struct AttachmentPreviewSheet: View {
 
     private func removePreviewFile() {
         guard let previewURL else { return }
-        try? FileManager.default.removeItem(at: previewURL)
+        PrivateRoomPreviewFiles.remove(previewURL)
         self.previewURL = nil
     }
 }
@@ -1037,83 +1133,48 @@ private struct PrivacyComposerTextField: UIViewRepresentable {
     let placeholder: String
     let onSubmit: () -> Void
 
-    func makeUIView(context: Context) -> UITextField {
-        let textField = UITextField(frame: .zero)
-        textField.delegate = context.coordinator
-        textField.placeholder = placeholder
-        textField.borderStyle = .none
-        textField.autocapitalizationType = .none
-        textField.autocorrectionType = .no
-        textField.spellCheckingType = .no
-        textField.smartQuotesType = .no
-        textField.smartDashesType = .no
-        textField.smartInsertDeleteType = .no
-        textField.textContentType = nil
-        textField.keyboardType = .default
-        textField.returnKeyType = .send
-        textField.clearButtonMode = .never
-        textField.enablesReturnKeyAutomatically = true
-        textField.adjustsFontForContentSizeCategory = true
-        textField.font = UIFont.preferredFont(forTextStyle: .body)
-        textField.addTarget(context.coordinator, action: #selector(Coordinator.textDidChange(_:)), for: .editingChanged)
-        return textField
+    func makeUIView(context: Context) -> UITextView {
+        let view = UITextView()
+        view.delegate = context.coordinator
+        view.backgroundColor = .clear
+        view.textColor = .label
+        view.tintColor = UIColor(SecureChatDesign.brandCyan)
+        view.autocapitalizationType = .sentences
+        view.autocorrectionType = .no
+        view.spellCheckingType = .no
+        view.smartQuotesType = .no
+        view.smartDashesType = .no
+        view.smartInsertDeleteType = .no
+        view.textContentType = nil
+        view.dataDetectorTypes = []
+        view.returnKeyType = .default
+        view.font = UIFont.preferredFont(forTextStyle: .body)
+        view.adjustsFontForContentSizeCategory = true
+        view.textContainerInset = UIEdgeInsets(top: 8, left: 0, bottom: 8, right: 0)
+        view.textContainer.lineFragmentPadding = 0
+        view.isScrollEnabled = true
+        view.accessibilityLabel = placeholder
+        return view
     }
 
-    func updateUIView(_ uiView: UITextField, context: Context) {
-        if uiView.text != text {
-            uiView.text = text
-        }
-        uiView.placeholder = placeholder
-
-        // Do not trigger focus changes from updateUIView.
-        // Doing so can cause SwiftUI AttributeGraph cycles during view updates.
+    func updateUIView(_ uiView: UITextView, context: Context) {
+        context.coordinator.text = $text
+        if uiView.text != text { uiView.text = text }
     }
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text, onSubmit: onSubmit)
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
+        guard let width = proposal.width, width > 0 else { return nil }
+        let height = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
+        return CGSize(width: width, height: min(140, max(44, height)))
     }
 
-    final class Coordinator: NSObject, UITextFieldDelegate {
-        @Binding private var text: String
-        private let onSubmit: () -> Void
-        private var pendingText: String?
-        private var isUpdateScheduled = false
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
 
-        init(text: Binding<String>, onSubmit: @escaping () -> Void) {
-            self._text = text
-            self.onSubmit = onSubmit
-        }
-
-        @objc func textDidChange(_ sender: UITextField) {
-            let newValue = sender.text ?? ""
-            guard newValue != text else { return }
-            pendingText = newValue
-            guard isUpdateScheduled == false else { return }
-            isUpdateScheduled = true
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                let nextValue = self.pendingText ?? ""
-                self.pendingText = nil
-                self.isUpdateScheduled = false
-                if nextValue != self.text {
-                    self.text = nextValue
-                }
-            }
-        }
-
-        func textFieldDidBeginEditing(_ textField: UITextField) {
-            // Keep UIKit focus state local to avoid SwiftUI binding cycles.
-        }
-
-        func textFieldDidEndEditing(_ textField: UITextField) {
-            // Keep UIKit focus state local to avoid SwiftUI binding cycles.
-        }
-
-        func textFieldShouldReturn(_ textField: UITextField) -> Bool {
-            DispatchQueue.main.async {
-                self.onSubmit()
-            }
-            return false
+    final class Coordinator: NSObject, UITextViewDelegate {
+        var text: Binding<String>
+        init(text: Binding<String>) { self.text = text }
+        func textViewDidChange(_ textView: UITextView) {
+            if text.wrappedValue != textView.text { text.wrappedValue = textView.text }
         }
     }
 }

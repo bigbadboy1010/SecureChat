@@ -2,138 +2,124 @@ import SwiftUI
 
 struct PairingView: View {
     @ObservedObject var service: ConversationService
-
     @State private var inboundPairingCode = ""
     @State private var localPairingCode = ""
     @State private var localDisplayName = ""
-    @State private var hasLoadedPairingCode = false
     @State private var showScanner = false
+    @State private var showProfile = false
+    @State private var importMessage: String?
+    @State private var chatToOpen: StoredConversation?
+    @State private var peerToBlock: TrustedPeer?
 
     var body: some View {
         NavigationStack {
-            Form {
+            List {
                 SwiftUI.Section {
-                    TextField("Dein Anzeigename", text: $localDisplayName)
-                        .textInputAutocapitalization(.words)
-                        .autocorrectionDisabled(true)
-
-                    Label("Maximal 80 Zeichen. Erlaubt sind Buchstaben, Zahlen, Leerzeichen sowie . - _ und '. Andere Zeichen werden beim Speichern entfernt.", systemImage: "textformat.abc")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    LabeledContent("Aktive Identity") {
-                        Text(String(service.localIdentity.id.prefix(12)) + "…")
-                            .font(.caption.monospaced())
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Button {
-                        saveLocalDisplayName()
-                    } label: {
-                        Label("Anzeigename speichern", systemImage: "person.crop.circle.badge.checkmark")
-                    }
-                    .disabled(localDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                } header: {
-                    Text("Mein Profil")
-                } footer: {
-                    Text("Der Anzeigename wird lokal im Keychain gespeichert und in neuen Pairing-Codes als öffentlicher Name übertragen. Private Keys bleiben auf diesem Gerät.")
-                }
-
-                SwiftUI.Section {
-                    VStack(spacing: 16) {
-                        if localPairingCode.isEmpty {
-                            ProgressView()
-                                .frame(maxWidth: 260, minHeight: 260)
-                        } else {
-                            QRCodeImageView(payload: localPairingCode)
-                                .frame(maxWidth: 260, maxHeight: 260)
-                                .padding(12)
-                                .background(Color.white)
-                                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                        }
-
-                        Text("Dieser QR-Code enthält nur deine öffentlichen Identity Keys. Private Keys verlassen das Gerät nicht.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                    }
-                    .frame(maxWidth: .infinity)
-
-                    ShareLink(item: localPairingCode) {
-                        Label("Pairing-Code teilen", systemImage: "square.and.arrow.up")
-                    }
-                    .disabled(localPairingCode.isEmpty)
-
-                    DisclosureGroup("Pairing-Code anzeigen") {
-                        Text(localPairingCode.isEmpty ? "Pairing-Code konnte nicht geladen werden." : localPairingCode)
-                            .font(.caption.monospaced())
-                            .textSelection(.enabled)
-                            .padding(.vertical, 6)
-                    }
-
-                    Button("Pairing-Code neu laden") {
-                        refreshLocalPairingCode()
-                    }
-                } header: {
-                    Text("Mein QR-Code")
-                }
-
-                SwiftUI.Section {
-                    TextEditor(text: $inboundPairingCode)
-                        .frame(minHeight: 96)
-                        .font(.caption.monospaced())
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled(true)
-
-                    HStack {
+                    VStack(alignment: .leading, spacing: 14) {
+                        Text("Ein Kontakt.\nEin bewusster Anfang.")
+                            .font(.title2.weight(.bold))
+                            .foregroundStyle(PrivateChatDesign.textPrimary)
+                        Text("Tauscht eure Codes aus. Danach vergleicht ihr die SC3-Sicherheitsnummer auf beiden Geräten über einen vertrauten zweiten Kanal.")
+                            .font(.subheadline)
+                            .foregroundStyle(PrivateChatDesign.textSecondary)
                         Button {
                             showScanner = true
                         } label: {
-                            Label("QR scannen", systemImage: "qrcode.viewfinder")
+                            Label("Kontakt-Code scannen", systemImage: "qrcode.viewfinder")
+                                .font(.headline)
+                                .foregroundStyle(PrivateChatDesign.canvasBase)
+                                .frame(maxWidth: .infinity, minHeight: 48)
+                                .background(PrivateChatDesign.brandCyan, in: Capsule())
                         }
-
-                        Spacer()
-
-                        Button("Importieren") {
-                            importInboundPairingCode()
+                        .buttonStyle(.plain)
+                        DisclosureGroup("Code einfügen") {
+                            TextEditor(text: $inboundPairingCode)
+                                .frame(minHeight: 100)
+                                .font(.caption.monospaced())
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled(true)
+                                .accessibilityLabel("Kontakt-Code")
+                            Button("Kontakt übernehmen") { importInboundPairingCode() }
+                                .frame(minHeight: 44)
+                                .disabled(inboundPairingCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         }
-                        .disabled(inboundPairingCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        if let importMessage {
+                            Label(importMessage, systemImage: "person.crop.circle.badge.checkmark")
+                                .font(.footnote)
+                                .foregroundStyle(PrivateChatDesign.brandCyan)
+                        }
                     }
-                } header: {
-                    Text("Kontakt hinzufügen")
-                } footer: {
-                    Text("Nach dem Import muss die Safety Number über einen zweiten Kanal verglichen werden. Erst danach Nachrichtenversand erlauben.")
+                    .privateChatGlassCard(padding: 20, cornerRadius: 24)
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
                 }
-
                 SwiftUI.Section {
                     if service.trustedPeers.isEmpty {
-                        Text("Noch keine Kontakte importiert.")
-                            .foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 7) {
+                            Text("Noch ganz für dich.").font(.headline)
+                            Text("Hier erscheinen deine Kontakte. Ein importierter Code ist noch keine bestätigte Identität.")
+                                .font(.subheadline)
+                                .foregroundStyle(PrivateChatDesign.textSecondary)
+                        }
+                        .padding(.vertical, 12)
                     } else {
                         ForEach(service.trustedPeers) { peer in
-                            PeerTrustRow(service: service, peer: peer)
+                            contactRow(peer)
                         }
                     }
-                } header: {
-                    Text("Kontakte")
-                }
+                } header: { Text("Deine Kontakte") }
+                SwiftUI.Section {
+                    DisclosureGroup("Mein QR-Code · \(service.localIdentity.displayName)") {
+                        VStack(spacing: 14) {
+                            if localPairingCode.isEmpty {
+                                Text("Code noch nicht verfügbar")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                                    .frame(height: 180)
+                            } else {
+                                QRCodeImageView(payload: localPairingCode)
+                                    .frame(width: 210, height: 210)
+                                    .padding(16)
+                                    .background(.white, in: RoundedRectangle(cornerRadius: 20))
+                            }
+                            Text("Dein öffentlicher Name und deine öffentlichen Schlüssel. Private Schlüssel bleiben auf diesem Gerät.")
+                                .font(.footnote)
+                                .foregroundStyle(PrivateChatDesign.textSecondary)
+                                .multilineTextAlignment(.center)
+                            ShareLink(item: localPairingCode) {
+                                Label("Meinen Code teilen", systemImage: "square.and.arrow.up")
+                                    .frame(minHeight: 44)
+                            }
+                            .disabled(localPairingCode.isEmpty)
+                            Button("Code neu laden", action: refreshLocalPairingCode)
+                                .font(.footnote)
+                                .frame(minHeight: 44)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                    }
+                    Button {
+                        localDisplayName = service.localIdentity.displayName
+                        showProfile = true
+                    } label: {
+                        Label("Meinen Anzeigenamen bearbeiten", systemImage: "person.crop.circle")
+                    }
+                } header: { Text("Das bist du") }
             }
+            .listStyle(.insetGrouped)
+            .scrollContentBackground(.hidden)
+            .background(PrivateChatDesign.pageGradient.ignoresSafeArea())
             .navigationTitle("Kontakte")
             .privateChatErrorAlert(service: service)
-            .onAppear {
-                localDisplayName = service.localIdentity.displayName
-                guard hasLoadedPairingCode == false else {
-                    return
-                }
-                hasLoadedPairingCode = true
-                refreshLocalPairingCode()
-            }
+            .onAppear { refreshLocalPairingCode() }
             .sheet(isPresented: $showScanner) {
                 NavigationStack {
-                    QRScannerView { scannedCode in
-                        handleScannedPairingCode(scannedCode)
+                    QRScannerView { code in
+                        inboundPairingCode = code.trimmingCharacters(in: .whitespacesAndNewlines)
+                        showScanner = false
+                        Task { @MainActor in importInboundPairingCode() }
                     }
-                    .navigationTitle("QR scannen")
+                    .navigationTitle("Kontakt-Code scannen")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) {
@@ -142,163 +128,156 @@ struct PairingView: View {
                     }
                 }
             }
+            .sheet(isPresented: $showProfile) { profileSheet }
+            .sheet(item: $chatToOpen) { stored in
+                NavigationStack {
+                    ChatView(service: service, storedConversation: stored)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Schließen") { chatToOpen = nil }
+                            }
+                        }
+                }
+            }
+            .confirmationDialog("Kontakt blockieren?", isPresented: Binding(
+                get: { peerToBlock != nil },
+                set: { if $0 == false { peerToBlock = nil } }
+            ), titleVisibility: .visible) {
+                Button("Blockieren", role: .destructive) {
+                    if let peerToBlock { service.blockPeer(id: peerToBlock.id) }
+                    peerToBlock = nil
+                }
+                Button("Abbrechen", role: .cancel) { peerToBlock = nil }
+            } message: {
+                Text("An diesen Kontakt wird nicht mehr gesendet. Der lokale Verlauf bleibt erhalten. Zum erneuten Freigeben ist eine neue Prüfung nötig.")
+            }
+        }
+    }
+
+    private func contactRow(_ peer: TrustedPeer) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 12) {
+                Text(String(peer.displayName.prefix(1)).uppercased())
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(PrivateChatDesign.brandCyan)
+                    .frame(width: 44, height: 44)
+                    .background(PrivateChatDesign.canvasHigh, in: Circle())
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(peer.displayName).font(.headline)
+                    Label(trustTitle(peer.trustState), systemImage: trustIcon(peer.trustState))
+                        .font(.caption)
+                        .foregroundStyle(trustTint(peer.trustState))
+                }
+                Spacer(minLength: 0)
+                Menu {
+                    if peer.trustState == .blocked {
+                        Button("Zur erneuten Prüfung freigeben") { service.unblockPeerAsUnverified(id: peer.id) }
+                    } else {
+                        if peer.trustState == .verified {
+                            Button("Verifizierung zurücknehmen") { service.unblockPeerAsUnverified(id: peer.id) }
+                        }
+                        Button("Kontakt blockieren", role: .destructive) { peerToBlock = peer }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .frame(width: 44, height: 44)
+                }
+                .accessibilityLabel("Aktionen für \(peer.displayName)")
+            }
+            if peer.trustState == .verified {
+                Button { openChat(with: peer) } label: {
+                    Label("Chat öffnen", systemImage: "bubble.left.and.bubble.right")
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.bordered)
+            } else if peer.trustState == .unverified {
+                NavigationLink {
+                    SafetyNumberView(service: service, peer: peer)
+                } label: {
+                    Label("Sicherheitsnummer vergleichen", systemImage: "checkmark.shield")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(minHeight: 44)
+                }
+            }
+        }
+        .padding(.vertical, 8)
+    }
+
+    private var profileSheet: some View {
+        NavigationStack {
+            Form {
+                SwiftUI.Section {
+                    TextField("Dein Anzeigename", text: $localDisplayName)
+                        .textInputAutocapitalization(.words)
+                        .autocorrectionDisabled()
+                } footer: {
+                    Text("Der Name wird mit deinem öffentlichen Kontakt-Code geteilt. Bis zu 80 Zeichen; nicht unterstützte Sonderzeichen werden beim Speichern entfernt.")
+                }
+            }
+            .navigationTitle("Dein Anzeigename")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Abbrechen") { showProfile = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Speichern") {
+                        guard service.updateLocalDisplayName(localDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)) else { return }
+                        localDisplayName = service.localIdentity.displayName
+                        refreshLocalPairingCode()
+                        showProfile = false
+                    }
+                    .disabled(localDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
         }
     }
 
     private func refreshLocalPairingCode() {
-        do {
-            localPairingCode = try service.makeLocalPairingCode()
-        } catch {
-            localPairingCode = ""
-            service.reportError(error)
-        }
-    }
-
-    private func saveLocalDisplayName() {
-        let normalizedName = localDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard normalizedName.isEmpty == false else {
-            return
-        }
-        service.updateLocalDisplayName(normalizedName)
-        localDisplayName = service.localIdentity.displayName
-        refreshLocalPairingCode()
+        do { localPairingCode = try service.makeLocalPairingCode() }
+        catch { localPairingCode = ""; service.reportError(error) }
     }
 
     private func importInboundPairingCode() {
-        let normalizedCode = inboundPairingCode.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard normalizedCode.isEmpty == false else {
-            return
-        }
-        service.importPeer(from: normalizedCode)
+        let code = inboundPairingCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard code.isEmpty == false else { return }
+        guard service.importPeer(from: code) else { importMessage = nil; return }
         inboundPairingCode = ""
+        importMessage = "Code übernommen. Vergleicht jetzt eure Sicherheitsnummern."
     }
 
-    private func handleScannedPairingCode(_ scannedCode: String) {
-        let normalizedCode = scannedCode.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard normalizedCode.isEmpty == false else {
-            return
+    private func openChat(with peer: TrustedPeer) {
+        guard peer.trustState == .verified else { return }
+        if let existing = service.conversations.first(where: { $0.conversation.peerID == peer.id }) {
+            if existing.conversation.isArchived { service.toggleConversationArchived(id: existing.id) }
+            chatToOpen = service.conversations.first(where: { $0.id == existing.id })
+        } else if let id = service.createConversation(title: peer.displayName, peerID: peer.id) {
+            chatToOpen = service.conversations.first(where: { $0.id == id })
         }
-        inboundPairingCode = normalizedCode
-        showScanner = false
-        Task { @MainActor in
-            service.importPeer(from: normalizedCode)
-        }
-    }
-}
-
-private struct PeerTrustRow: View {
-    @ObservedObject var service: ConversationService
-    let peer: TrustedPeer
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(peer.displayName)
-                        .font(.headline)
-                    Text(peer.id)
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-
-                Spacer()
-
-                TrustBadge(state: peer.trustState)
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Safety Number")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                Text(peer.safetyNumber)
-                    .font(.caption.monospaced())
-                    .textSelection(.enabled)
-            }
-
-            if let lastVerifiedAt = peer.lastVerifiedAt {
-                Text("Verifiziert: \(lastVerifiedAt.formatted(date: .abbreviated, time: .shortened))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            HStack {
-                if peer.trustState == .verified {
-                    Button("Verifizierung zurücknehmen") {
-                        service.unblockPeerAsUnverified(id: peer.id)
-                    }
-                    .buttonStyle(.bordered)
-                } else if peer.trustState == .blocked {
-                    Button("Entsperren") {
-                        service.unblockPeerAsUnverified(id: peer.id)
-                    }
-                    .buttonStyle(.bordered)
-                } else {
-                    NavigationLink {
-                        SafetyNumberView(service: service, peer: peer)
-                    } label: {
-                        Text("Safety Number prüfen")
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
-
-                Spacer()
-
-                Button(role: .destructive) {
-                    service.blockPeer(id: peer.id)
-                } label: {
-                    Text("Blockieren")
-                }
-                .buttonStyle(.bordered)
-            }
-        }
-        .padding(.vertical, 6)
-    }
-}
-
-private struct TrustBadge: View {
-    let state: TrustState
-
-    var body: some View {
-        Label(title, systemImage: icon)
-            .font(.caption.weight(.semibold))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(backgroundColor)
-            .clipShape(Capsule())
     }
 
-    private var title: String {
+    private func trustTitle(_ state: TrustState) -> String {
         switch state {
-        case .unverified:
-            return "Unverified"
-        case .verified:
-            return "Verified"
-        case .blocked:
-            return "Blocked"
+        case .verified: return "Identität von dir geprüft"
+        case .unverified: return "Prüfung noch offen"
+        case .blocked: return "Kontakt blockiert"
         }
     }
 
-    private var icon: String {
+    private func trustIcon(_ state: TrustState) -> String {
         switch state {
-        case .unverified:
-            return "exclamationmark.triangle"
-        case .verified:
-            return "checkmark.shield"
-        case .blocked:
-            return "nosign"
+        case .verified: return "checkmark.seal"
+        case .unverified: return "person.crop.circle.badge.questionmark"
+        case .blocked: return "hand.raised"
         }
     }
 
-    private var backgroundColor: Color {
+    private func trustTint(_ state: TrustState) -> Color {
         switch state {
-        case .unverified:
-            return Color.orange.opacity(0.16)
-        case .verified:
-            return Color.green.opacity(0.16)
-        case .blocked:
-            return Color.red.opacity(0.16)
+        case .verified: return PrivateChatDesign.brandCyan
+        case .unverified: return PrivateChatDesign.warning
+        case .blocked: return PrivateChatDesign.danger
         }
     }
 }

@@ -40,7 +40,7 @@ public enum RequestSigner {
         public let nonce: String
         public let signature: String
 
-        public init(
+        nonisolated public init(
             peerID: String,
             timestamp: String,
             nonce: String,
@@ -74,7 +74,7 @@ public enum RequestSigner {
     /// the query before computing the
     /// body hash). See `canonicalQueryString`
     /// for the helper that does this.
-    public static func canonicalString(
+    nonisolated public static func canonicalString(
         method: String,
         path: String,
         queryStringCanonicalized: String,
@@ -98,7 +98,7 @@ public enum RequestSigner {
     /// Build the canonical query string from a `[URLQueryItem]` array.
     /// The relay sorts parameters by name and applies JavaScript's
     /// `encodeURIComponent` character set before joining them with `&`.
-    public static func canonicalQueryString(
+    nonisolated public static func canonicalQueryString(
         from items: [URLQueryItem]
     ) -> String {
         let groupedItems = Dictionary(grouping: items, by: \URLQueryItem.name)
@@ -126,7 +126,7 @@ public enum RequestSigner {
     /// caller; the production `RelayTransport`
     /// pipeline generates them per request
     /// (timestamp = RFC3339 now, nonce = Base64URL of 16 random bytes).
-    public static func sign(
+    nonisolated public static func sign(
         method: String,
         path: String,
         queryStringCanonicalized: String,
@@ -162,7 +162,7 @@ public enum RequestSigner {
     /// Equivalent to `crypto.createHash
     /// ("sha256").update(...).digest("hex")`
     /// in Node.
-    public static func sha256Hex(_ data: Data) -> String {
+    nonisolated public static func sha256Hex(_ data: Data) -> String {
         let digest = SHA256.hash(data: data)
         return digest
             .map { String(format: "%02x", $0) }
@@ -171,7 +171,7 @@ public enum RequestSigner {
 
     /// 16 random bytes, unpadded Base64URL encoded. This is the exact
     /// wire format consumed by `RelayServer/src/peerAuth.ts`.
-    public static func makeNonce() -> String {
+    nonisolated public static func makeNonce() -> String {
         var bytes = [UInt8](repeating: 0, count: 16)
         let status = SecRandomCopyBytes(
             kSecRandomDefault,
@@ -210,7 +210,7 @@ public enum RequestSigner {
             .replacingOccurrences(of: "=", with: "")
     }
 
-    private static let encodeURIComponentAllowedCharacters = CharacterSet(
+    nonisolated private static let encodeURIComponentAllowedCharacters = CharacterSet(
         charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.!~*'()"
     )
 }

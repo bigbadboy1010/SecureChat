@@ -204,3 +204,47 @@ enum SafetyNumberV2 {
         return "SC2 " + groups.joined(separator: " ")
     }
 }
+
+/// Out-of-band fingerprint of both complete public identities. Each
+/// party's Ed25519 signing key stays paired with its X25519 agreement key
+/// before the two identity records are sorted. Substituting an agreement
+/// key therefore changes the value even when the signing key is genuine.
+///
+/// Callers must validate key material before constructing this value.
+/// SC2 verification must not be carried forward to this new algorithm.
+enum SafetyNumberV3 {
+    static func make(
+        localSigningPublicKeyData: Data,
+        localKeyAgreementPublicKeyData: Data,
+        remoteSigningPublicKeyData: Data,
+        remoteKeyAgreementPublicKeyData: Data
+    ) -> String {
+        func identityRecord(signingKey: Data, agreementKey: Data) -> Data {
+            var record = Data()
+            for key in [signingKey, agreementKey] {
+                var length = UInt32(key.count).bigEndian
+                withUnsafeBytes(of: &length) { record.append(contentsOf: $0) }
+                record.append(key)
+            }
+            return record
+        }
+        let orderedIdentities = [
+            identityRecord(signingKey: localSigningPublicKeyData, agreementKey: localKeyAgreementPublicKeyData),
+            identityRecord(signingKey: remoteSigningPublicKeyData, agreementKey: remoteKeyAgreementPublicKeyData)
+        ].sorted { $0.lexicographicallyPrecedes($1) }
+
+        var material = Data("PrivateRoom/SafetyNumber/v3".utf8)
+        for identity in orderedIdentities {
+            var length = UInt32(identity.count).bigEndian
+            withUnsafeBytes(of: &length) { material.append(contentsOf: $0) }
+            material.append(identity)
+        }
+        let hex = SHA256.hash(data: material).map { String(format: "%02X", $0) }.joined()
+        let groups = stride(from: 0, to: hex.count, by: 4).map { offset -> String in
+            let start = hex.index(hex.startIndex, offsetBy: offset)
+            let end = hex.index(start, offsetBy: 4)
+            return String(hex[start..<end])
+        }
+        return "SC3 " + groups.joined(separator: " ")
+    }
+}

@@ -1,70 +1,68 @@
-# SecureChat Current Endpoints
+# PrivateRoom public endpoints and candidate client contract
 
-This file is the source of truth for public SecureChat endpoints used
-by the iOS client and release documentation.
+Updated 13 October 2026 for the **PrivateRoom 1.5.0 (15)** integration candidate. The new hardened relay/site contract is being evaluated in an isolated canary. This document does not claim that the public deployment has already changed; final cutover and acceptance must be recorded in the [dated review](PRIVATEROOM-REVIEW-2026-10-13.md).
 
-## Canonical endpoints
+## Canonical public URLs
 
-| Purpose | URL | Auth |
+| Purpose | URL | Expected audience/access |
 |---|---|---|
-| Product site | `https://securechat.team/` | none |
-| Status | `https://securechat.team/status.html` | none |
-| Privacy | `https://securechat.team/privacy.html` | none |
-| Known issues | `https://securechat.team/known-issues.html` | none |
-| Relay public health | `https://securechat.team/healthz` | none |
-| Relay client API | `https://securechat.team/v1/relay/*` | client bearer token plus peer-bound signing where required |
-| Relay admin API | `https://securechat.team/v1/admin/*` | operator/admin credentials |
+| Product site | `https://securechat.team/` | Public |
+| Project status | `https://securechat.team/status.html` | Public, sanitized release information |
+| German privacy information | `https://securechat.team/privacy-de.html` | Public |
+| English privacy information | `https://securechat.team/privacy.html` | Public |
+| Support | `https://securechat.team/support.html` | Public; supported contact `miggu69@gmail.com` |
+| Security model | `https://securechat.team/security.html` | Public |
+| Known limitations | `https://securechat.team/known-issues.html` | Public |
+| Public relay liveness | `https://securechat.team/healthz` | Minimal public liveness; not a security certification |
+| Client protocol | `https://securechat.team/v1/relay/*` | Approved device identities using the signed beta contract |
 
-The iOS production profile must use exactly:
+Public documentation must not expose operator environment values, private health routes/credentials, deployment addresses, allowlists, raw logs or recovery material. Internal operational access is a separate private contract.
+
+## Canonical-host owner-beta authentication
+
+The ordinary candidate client uses exactly the public base URL:
 
 ```text
 https://securechat.team
 ```
 
-## Legacy endpoints
+Connecting is an explicit user action. The canonical-host candidate can be configured without a shared bearer token: signed enrollment proves possession of the device's advertised signing key, and subsequent client requests use peer-bound Ed25519 signatures. Access remains subject to the approved owner-beta relay policy. This is not a public open-registration or anonymity promise.
 
-The following values are obsolete and must never be used by a
-Release/TestFlight build:
+The signature binds the HTTP method, path, canonical query, body hash, timestamp, nonce and public peer identifier. Existing `X-Securechat-*` wire names may remain for compatibility with the technical code name. Peer identifiers and protocol syntax are public-format data; actual production identity lists and private signing keys are not publishable fixtures.
 
-- `https://relay.securechat.team`
-- `http://relay.securechat.team`
-- `https://chatsecure.ddns.net`
-- `http://chatsecure.ddns.net`
-- `http://192.168.178.229:8080`
-- `http://localhost:8080`
-- `http://127.0.0.1:8080`
+Sender/recipient authorization, bounded timestamp/nonce replay checks and rejection of unsigned or mismatched requests are acceptance requirements for the hardened relay. A successful `/healthz` response alone does not prove that enrollment, SEND, inbox or acknowledgement work correctly or are properly isolated.
 
-The client migration layer converts the broken relay subdomain and old
-DDNS/LAN configuration to
-the canonical production relay and blocks insecure production HTTP.
+## Custom relay rules
 
-## Distribution and source locations
+A custom relay is an advanced user choice, not an automatic substitution for the canonical host.
 
-| Artefact | Location |
-|---|---|
-| iOS client source | GitHub `bigbadboy1010/SecureChat` |
-| iOS beta | Apple TestFlight |
-| Relay implementation | private operator repository |
-| Product/status pages | operator-managed `securechat.team` deployment |
+- Use a valid public HTTPS base URL with normal platform TLS validation. Release use must not rely on skipped certificate checks.
+- Embedded URL credentials, query strings and fragments are rejected by the transport. Insecure production HTTP and literal local/private-host profiles are not supported by the consumer configuration.
+- The current profile requires a suitable access token for a noncanonical custom relay. That token is local configuration, never an operator value copied from a public document or an app-bundled secret.
+- Saving a custom URL does not implicitly switch a local-only session online. Activating transport is separate and deliberate.
+- The other relay must implement the compatible client contract; an arbitrary HTTPS service is not compatible merely because it returns a health response.
 
-The public repository does not contain the production relay
-implementation. CI in this repository therefore builds/tests the iOS
-client only.
+Any narrowly scoped loopback fixture used by a debug test is not a production exception and must not be advertised as release behavior. No private LAN addresses belong in this public endpoint list.
 
-## Client identity
+## Compatibility and release identity
 
-- Display name: SecureChat
-- Xcode target / scheme: `PrivateChat`
-- Bundle ID: `org.francois.PrivateChat`
-- Current candidate: 1.4.2 (Build 14)
+- Public name: **PrivateRoom**.
+- Technical target/scheme and existing source directory: `PrivateChat`.
+- Existing bundle: `org.francois.PrivateChat`.
+- Integration candidate: **1.5.0 (15)**; final acceptance pending.
+- Active message envelope: **protocol 2**, static pairwise agreement; signed contact-code format **3** and fingerprint **SC3** are distinct versions.
+- Experimental ratchet code is disabled. A format-version number is not proof of forward secrecy.
 
-## Operational rule
+Obsolete host/subdomain/LAN configurations must not be copied into new release settings. Any required migration retains private configuration only under the owner-controlled client path and must be tested without publishing real infrastructure addresses.
 
-When an endpoint changes:
+## Publication gates
 
-1. update this file
-2. update `SecureChatProductionProfile.swift`
-3. update release/privacy documentation
-4. deploy the server-side change
-5. test health, enrollment, SEND, inbox GET and ACK from a physical
-   iPhone before distributing a new TestFlight build
+Before describing a changed contract as live:
+
+1. Record a preserved rollback path and confirm the isolated candidate's health and authentication behavior.
+2. Test signed enrollment, genuine two-identity text/media delivery, inbox ownership and acknowledgements; also test unsigned, forged, replayed and wrong-recipient requests.
+3. Confirm the narrowly scoped public switch and unrelated-service continuity.
+4. Update this document, website copy and the dated acceptance record with the observed deployed state.
+5. Complete physical device and distribution acceptance separately; a public backend change is not an Apple upload.
+
+The public source repository does not contain production deployment secrets. Historical endpoint/runbook descriptions do not supersede this candidate contract or [SECURITY.md](../SECURITY.md).

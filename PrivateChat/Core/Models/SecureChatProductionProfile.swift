@@ -3,7 +3,7 @@ import Foundation
 enum SecureChatProductionProfile {
     static let relayBaseURLString = "https://securechat.team"
     static let relayHost = "securechat.team"
-    static let relayTokenLocationHint = "/opt/securechat/.env → RELAY_AUTH_TOKEN"
+    static let relayTokenLocationHint = "Zugangscode des eigenen Relay-Betreibers (nur für eigene Server)"
 
     static let obsoleteLocalRelayHints: [String] = [
         "https://relay.securechat.team",
@@ -98,7 +98,7 @@ enum SecureChatProductionProfile {
             return RelayConfiguration(
                 isEnabled: configuration.isEnabled && hasToken,
                 baseURLString: relayBaseURLString,
-                registrationToken: token,
+                registrationToken: nil,
                 inboxPollingLimit: configuration.inboxPollingLimit,
                 autoPollingIntervalSeconds: configuration.autoPollingIntervalSeconds,
                 retryFailedMessagesAutomatically: configuration.retryFailedMessagesAutomatically,
@@ -110,7 +110,7 @@ enum SecureChatProductionProfile {
         return RelayConfiguration(
             isEnabled: configuration.isEnabled && (normalizedURL.isEmpty == false),
             baseURLString: normalizedURL,
-            registrationToken: token,
+            registrationToken: isConfiguredProductionRelay(normalizedURL) ? nil : token,
             inboxPollingLimit: configuration.inboxPollingLimit,
             autoPollingIntervalSeconds: configuration.autoPollingIntervalSeconds,
             retryFailedMessagesAutomatically: configuration.retryFailedMessagesAutomatically,
@@ -136,8 +136,11 @@ enum SecureChatProductionProfile {
         if isHTTPSProductionCandidate(url) == false {
             return "Production-Relay muss HTTPS verwenden."
         }
+        if isConfiguredProductionRelay(url) && normalizedToken(configuration.registrationToken) == nil {
+            return nil // Approved beta devices authenticate with their own signing key.
+        }
         if isUsableClientToken(configuration.registrationToken) == false {
-            return "RELAY_AUTH_TOKEN fehlt oder ist ungültig kurz. Nur den Wert aus /opt/securechat/.env eintragen."
+            return "Der Zugangscode für diesen eigenen Server fehlt oder ist ungültig."
         }
         return nil
     }

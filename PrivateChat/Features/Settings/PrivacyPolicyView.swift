@@ -1,160 +1,94 @@
 import SwiftUI
-import UIKit
 
 struct PrivacyPolicyView: View {
     var body: some View {
         List {
             SwiftUI.Section {
-                PolicyRow(
-                    systemImage: "hand.raised.fill",
-                    title: "Keine Tracker",
-                    message: "PrivateChat nutzt keine Werbe-SDKs, kein Tracking und keine Analyse-Drittanbieter."
-                )
-                PolicyRow(
-                    systemImage: "lock.shield.fill",
-                    title: "Ende-zu-Ende verschlüsselte Inhalte",
-                    message: "Nachrichteninhalte werden lokal verschlüsselt gespeichert und als verschlüsselte Relay-Envelopes übertragen. Der Relay-Server sieht keine Klartexte."
-                )
-                PolicyRow(
-                    systemImage: "externaldrive.fill",
-                    title: "Lokaler Speicher",
-                    message: "Chats, Drafts, Medien und Metadaten werden im App-Container gespeichert. Nachrichten-, Draft- und Medien-Stores sind AES-GCM-verschlüsselt und vom iCloud-Backup ausgeschlossen."
-                )
-                PolicyRow(
-                    systemImage: "key.fill",
-                    title: "Schlüsselmaterial",
-                    message: "Private Schlüssel und Store-Keys liegen im iOS-Keychain mit ThisDeviceOnly-Schutz. Private Keys verlassen das Gerät nicht."
-                )
-            } header: {
-                Text("Kurzfassung")
-            } footer: {
-                Text("Diese Ansicht dient als In-App-Zusammenfassung. Für TestFlight/App Store Connect muss derselbe Inhalt zusätzlich als öffentliche Privacy-Policy-URL veröffentlicht werden.")
+                VStack(alignment: .leading, spacing: 15) {
+                    Label("PRIVATSPHÄRE VERSTEHEN", systemImage: "hand.raised")
+                        .font(.caption.weight(.bold))
+                        .tracking(1.1)
+                        .foregroundStyle(PrivateChatDesign.brandCyan)
+                    Text("Weniger Daten.\nKlare Grenzen.")
+                        .font(.title2.weight(.bold))
+                    Text("PrivateRoom verzichtet auf Werbe- und Analyse-SDKs. Deine Identität entsteht auf deinem Gerät, ohne Telefonnummer oder E-Mail-Registrierung.")
+                        .font(.subheadline)
+                        .foregroundStyle(PrivateChatDesign.textSecondary)
+                }
+                .padding(.vertical, 8)
             }
-
             SwiftUI.Section {
-                LabeledContent("Produkt") {
-                    Text("PrivateChat / SecureChat")
-                }
-                LabeledContent("Bundle ID") {
-                    Text("org.francois.PrivateChat")
-                        .font(.caption.monospaced())
-                }
-                LabeledContent("Relay") {
-                    Text(SecureChatProductionProfile.relayBaseURLString)
-                        .font(.caption.monospaced())
-                        .multilineTextAlignment(.trailing)
-                }
-                LabeledContent("Status") {
-                    Text("Production Candidate")
-                        .foregroundStyle(.orange)
-                }
-            } header: {
-                Text("App-Information")
-            }
-
+                policy("Deine Inhalte", icon: "lock.bubble", detail: "Nachrichten und Anhänge werden auf dem Gerät verschlüsselt. Beim Austausch vermittelt der Relay verschlüsselte Pakete; er erhält keinen Nachrichtenklartext.")
+                policy("Deine lokalen Daten", icon: "iphone", detail: "Nachrichten, Entwürfe und Anhänge liegen verschlüsselt im App-Container. Private Schlüssel und Speicherschlüssel liegen mit gerätegebundenem Schutz in der Keychain. Die sensiblen Stores sind vom Cloud-Backup ausgeschlossen.")
+                policy("Dein öffentlicher Kontakt-Code", icon: "qrcode", detail: "Dein gewählter Anzeigename, öffentliche Signatur- und Verschlüsselungsschlüssel sowie Zeitstempel werden mit Personen geteilt, denen du deinen Kontakt-Code gibst.")
+            } header: { Text("Was auf deinem Gerät passiert") }
             SwiftUI.Section {
-                PolicyRow(
-                    systemImage: "person.crop.circle.badge.questionmark",
-                    title: "Anzeigename",
-                    message: "Der lokale Anzeigename wird im Keychain gespeichert und in Pairing-Codes als öffentlicher Name geteilt."
-                )
-                PolicyRow(
-                    systemImage: "qrcode.viewfinder",
-                    title: "Pairing-Daten",
-                    message: "Pairing-Codes enthalten öffentliche Identity-Keys, Anzeigename und Zeitstempel. Private Schlüssel werden nicht exportiert."
-                )
-                PolicyRow(
-                    systemImage: "network",
-                    title: "Relay-Metadaten",
-                    message: "Der Relay verarbeitet verschlüsselte Pakete, Empfänger-ID, Sender-ID, Ablaufzeit, ACKs und technische Zustellmetadaten."
-                )
-                PolicyRow(
-                    systemImage: "doc.text.magnifyingglass",
-                    title: "Diagnoseberichte",
-                    message: "Diagnoseberichte enthalten technische Konfiguration, Security-Status und Relay-Zustand, aber keine Chat-Texte und keine Tokens."
-                )
-            } header: {
-                Text("Welche Daten verarbeitet werden")
-            }
-
+                policy("Zustellmetadaten", icon: "network", detail: "Der Relay verarbeitet verschlüsselte Pakete, Geräte-/Sender-/Empfänger- und Paketkennungen, Zeit- und Ablaufangaben sowie technische Empfangsbestätigungen. Die Netzwerkverbindung kann IP-Adresse und technische Betriebsdaten sichtbar machen.")
+                policy("Keine vollständige Anonymität", icon: "person.crop.circle", detail: "Verschlüsselte Inhalte bedeuten nicht unsichtbare Kommunikation. Betreiber können technische Verbindungs- und Zustellmetadaten sehen. Für erhöhte Anforderungen brauchst du ein eigenes geprüftes Bedrohungsmodell.")
+                policy("Löschen und Sicherungen", icon: "trash", detail: "Lokales Löschen betrifft dieses Gerät. Kopien bei Kontakten oder bereits vorhandene verschlüsselte Serversicherungen verschwinden dadurch nicht sofort. Details zum Relay-Betrieb stehen in der veröffentlichten Datenschutzerklärung.")
+            } header: { Text("Was eine Verbindung offenlegt") }
             SwiftUI.Section {
-                PolicyRow(
-                    systemImage: "wifi.router",
-                    title: "SecureChat Relay",
-                    message: "Bei aktivem Relay werden verschlüsselte Pakete an securechat.team übertragen. Authentifizierung erfolgt mit RELAY_AUTH_TOKEN."
-                )
-                PolicyRow(
-                    systemImage: "camera.viewfinder",
-                    title: "Kamera und Mikrofon",
-                    message: "Die Kamera wird für Pairing-QR-Codes und von dir gestartete Chat-Aufnahmen verwendet. Das Mikrofon wird nur bei Videoaufnahmen genutzt. Medien werden verschlüsselt gespeichert."
-                )
-                PolicyRow(
-                    systemImage: "faceid",
-                    title: "Biometrie",
-                    message: "Face ID oder Touch ID entsperrt nur die lokale App. Biometrische Daten bleiben bei Apple/iOS und werden nicht von PrivateChat gelesen."
-                )
-            } header: {
-                Text("Berechtigungen")
-            }
-
+                policy("Kamera und Mikrofon", icon: "camera", detail: "Zugriff für von dir gestartete QR-, Foto- oder Videoaktionen. Das Mikrofon wird für Videoaufnahmen verwendet. Der Medienimport nutzt den systemeigenen Auswahldialog.")
+                policy("Gerätesicherheit", icon: "lock.iphone", detail: "Die App-Sperre verwendet Apples Geräte-Authentifizierung. PrivateRoom bekommt keine biometrischen Daten. Du steuerst die Sperre in den Privatsphäre-Einstellungen.")
+                policy("Kopieren und Teilen", icon: "square.and.arrow.up", detail: "Ein Chat-Export ist Klartext. Nach manuellem Teilen können andere Apps oder Empfänger Kopien behalten. PrivateRoom kopiert Textaktionen lokal und zeitbegrenzt; iOS und externe Apps haben eigene Regeln.")
+                policy("Supportdiagnose", icon: "doc.text.magnifyingglass", detail: "Ein manuell geteilter Diagnosebericht enthält technische Metadaten, aber keine Chat-Texte, privaten Schlüssel oder Zugangstokens. Prüfe den Bericht vor dem Weitergeben.")
+            } header: { Text("Deine bewussten Aktionen") }
             SwiftUI.Section {
-                Text(Self.fullPolicyText)
-                    .font(.footnote)
-                    .textSelection(.enabled)
-
-                Button {
-                    UIPasteboard.general.string = Self.fullPolicyText
-                } label: {
-                    Label("Policy-Text kopieren", systemImage: "doc.on.doc")
+                policy("Sicherheitsnummer prüfen", icon: "checkmark.shield", detail: "SC3 bindet die Signatur- und Verschlüsselungsschlüssel beider Geräte. Vergleicht sie über einen vertrauten zweiten Kanal. Eine Signatur allein bestätigt nicht, wer hinter dem Gerät steht.")
+                policy("Noch keine Forward Secrecy", icon: "key", detail: "Der aktive Nachrichtenkanal besitzt noch keine unabhängig geprüfte laufende Schlüsselrotation mit Forward Secrecy. Experimentelle Ratchet-Bausteine sind keine zugesicherte aktive Funktion.")
+                policy("Beta mit offenem Audit", icon: "info.circle", detail: "Ein unabhängiger Sicherheits-Audit steht aus. Kompromittierte Geräte, Screenshots und das Weitergeben durch Empfänger können Inhalte offenlegen. Keine Garantie absoluter Sicherheit; diese Beta ist nicht für hochsensible Kommunikation freigegeben.")
+                policy("Geräteverlust", icon: "externaldrive.badge.exclamationmark", detail: "Die gerätegebundenen Schlüssel und ausgeschlossenen Backups können dazu führen, dass Chats nach Verlust, Neuinstallation oder Gerätewechsel nicht wiederherstellbar sind. Es gibt noch keinen geprüften Geräteumzug.")
+            } header: { Text("Was PrivateRoom nicht verspricht") }
+            SwiftUI.Section {
+                Link(destination: URL(string: "https://securechat.team/privacy-de.html")!) {
+                    Label("Vollständige Datenschutzerklärung", systemImage: "arrow.up.right.square")
                 }
-            } header: {
-                Text("Veröffentlichungsfassung")
-            } footer: {
-                Text("Für App Store Connect muss dieser Text auf einer öffentlich erreichbaren HTTPS-Seite veröffentlicht und als Privacy Policy URL eingetragen werden.")
+                Link(destination: URL(string: "https://securechat.team/security.html")!) {
+                    Label("Sicherheitsmodell und bekannte Grenzen", systemImage: "arrow.up.right.square")
+                }
+                Link(destination: URL(string: "https://securechat.team/support.html")!) {
+                    Label("Datenschutz- und Supportkontakt", systemImage: "arrow.up.right.square")
+                }
+            } header: { Text("Mehr erfahren") }
+            footer: {
+                Text("Diese Ansicht erklärt die Datenflüsse der App. Die vollständige veröffentlichte Erklärung enthält die Betreiberangaben, Rechtsgrundlagen, Speicherfristen und Kontaktmöglichkeiten.")
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(PrivateChatDesign.pageGradient.ignoresSafeArea())
         .navigationTitle("Datenschutz")
+        .navigationBarTitleDisplayMode(.inline)
     }
 
-    static let fullPolicyText = """
-PrivateChat / SecureChat Datenschutzrichtlinie
-
-PrivateChat ist ein Ende-zu-Ende-verschlüsselter Messenger-Kern. Die App verwendet keine Werbe-SDKs, keine Tracker und keine Analyse-Drittanbieter.
-
-Nachrichteninhalte, Drafts sowie gesendete und empfangene Medien werden lokal auf dem Gerät verschlüsselt gespeichert. Nachrichten-, Draft- und Medienstores verwenden AES-GCM und separate Schlüssel aus dem iOS-Keychain. Lokale Stores werden vom iCloud-Backup ausgeschlossen. Private Schlüssel verlassen das Gerät nicht.
-
-Wenn der Relay-Modus aktiviert ist, überträgt die App verschlüsselte Pakete an den SecureChat Relay unter https://securechat.team. Der Relay verarbeitet technische Zustellmetadaten wie Sender-ID, Empfänger-ID, Paket-ID, Ablaufzeit, ACKs und Zustellstatus. Fotos, Videos und Dokumente werden in kleine Teile zerlegt und innerhalb derselben Ende-zu-Ende-verschlüsselten Pakete übertragen. Der Relay kann Nachrichten- oder Anhangsinhalte nicht lesen.
-
-Pairing-Codes enthalten öffentliche Identity-Keys, Anzeigename und Erstellungszeitpunkt. Der lokale Anzeigename kann vom Nutzer geändert werden und wird bei neu erzeugten Pairing-Codes als öffentlicher Name geteilt.
-
-Kamera und Mikrofon werden nur nach einer von dir ausgelösten QR-, Foto- oder Videoaktion verwendet. Der Zugriff auf die Fotomediathek erfolgt über Apples systemeigenen Auswahldialog. Face ID oder Touch ID wird nur zur lokalen App-Entsperrung verwendet; biometrische Daten werden nicht von PrivateChat gelesen oder übertragen.
-
-Diagnoseberichte enthalten technische Metadaten, Runtime-Sicherheitsstatus und Relay-Konfiguration, jedoch keine Chat-Texte, keine privaten Schlüssel und keine Tokens.
-
-Status: Production Candidate. Ein externer Security-Audit steht noch aus. Die Beta-Version ist nicht für hochsensible Kommunikation empfohlen.
-"""
-}
-
-private struct PolicyRow: View {
-    let systemImage: String
-    let title: String
-    let message: String
-
-    var body: some View {
+    private func policy(_ title: String, icon: String, detail: String) -> some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: systemImage)
+            Image(systemName: icon)
                 .font(.title3)
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(PrivateChatDesign.brandCyan)
                 .frame(width: 28)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.subheadline.weight(.semibold))
-                Text(message)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 7) {
+                Text(title).font(.subheadline.weight(.semibold))
+                Text(detail).font(.footnote).foregroundStyle(PrivateChatDesign.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 7)
     }
+
+    static let fullPolicyText = """
+PrivateRoom – Datenschutz-Kurzfassung
+
+Keine Werbe- oder Analyse-SDKs. Die Identität entsteht auf dem Gerät ohne Telefon- oder E-Mail-Registrierung. Kontakt-Codes teilen Anzeigenamen, öffentliche Signatur- und Verschlüsselungsschlüssel sowie Zeitstempel; private Schlüssel bleiben gerätegebunden.
+
+Nachrichten, Entwürfe und Anhänge werden lokal verschlüsselt gespeichert. Sensible Stores sind vom Cloud-Backup ausgeschlossen. Geräteverlust, Neuinstallation oder Gerätewechsel können Datenverlust bedeuten. Ein geprüfter Geräteumzug steht noch nicht zur Verfügung.
+
+Der Relay vermittelt verschlüsselte Pakete und verarbeitet technische Zustellmetadaten wie Geräte-, Sender-, Empfänger- und Paketkennungen, Zeitangaben und Empfangsbestätigungen. Die Verbindung macht technische Netzwerkdaten wie IP-Adressen sichtbar. Verschlüsselung ist kein Versprechen vollständiger Anonymität. Lokales Löschen entfernt keine Kopien bei Kontakten und löscht bereits vorhandene verschlüsselte Serversicherungen nicht sofort.
+
+Kamera und Mikrofon werden für von dir ausgelöste QR-, Foto- und Videoaktionen verwendet. Apples Geräte-Authentifizierung gibt keine biometrischen Daten an PrivateRoom weiter. Manuelle Exporte sind Klartext; externe Apps und Empfänger können Kopien behalten. Supportberichte enthalten technische Metadaten, aber keine Nachrichtenklartexte, privaten Schlüssel oder Tokens.
+
+Aktiver Nachrichtenkanal: noch keine Forward Secrecy. Unabhängiger Sicherheits-Audit offen. Diese Beta ist nicht für hochsensible Kommunikation freigegeben. Kompromittierte Geräte und Empfänger können Inhalte offenlegen.
+
+Vollständige Erklärung und Betreiberkontakt: https://securechat.team/privacy-de.html
+"""
 }

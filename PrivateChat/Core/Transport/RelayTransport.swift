@@ -1,10 +1,7 @@
 import CryptoKit
 import Foundation
-import OSLog
 
 final class RelayTransport: RelayMessageTransporting {
-    private static let logger = Logger(subsystem: "org.francois.PrivateChat", category: "RelayTransport")
-
     private let configuration: RelayConfiguration
     private let signingContext: PeerBoundSigningContext?
     private let crypto: CryptoServicing?
@@ -32,9 +29,7 @@ final class RelayTransport: RelayMessageTransporting {
         self.clientVersion = clientVersion
             ?? "org.francois.PrivateChat/\(marketingVersion)/\(buildVersion)"
         self.urlSession = urlSession ?? RelayTransport.makeDefaultURLSession()
-        let requestEncoder = DateCoding.makeEncoder()
-        requestEncoder.outputFormatting.insert(.withoutEscapingSlashes)
-        self.encoder = requestEncoder
+        self.encoder = RelayWireCoding.makeEncoder()
         self.decoder = DateCoding.makeDecoder()
     }
 
@@ -60,7 +55,7 @@ final class RelayTransport: RelayMessageTransporting {
     func fetchInbox(recipientID: String, limit: Int) async throws -> [OutboundTransportPacket] {
         let queryItems = [
             URLQueryItem(name: "recipientID", value: recipientID),
-            URLQueryItem(name: "limit", value: String(max(1, min(limit, 100))))
+            URLQueryItem(name: "limit", value: String(max(1, min(limit, RelayWireCoding.maximumInboxBatch))))
         ]
 
         // Use the common request builder so inbox reads receive the
@@ -128,49 +123,17 @@ final class RelayTransport: RelayMessageTransporting {
         return status
     }
 
-    /// Sprint 27 (2026-06-24): peer enrollment.
-    ///
-    /// The relay's peer-bound auth requires the
-    /// local iOS app's Ed25519 public key to be
-    /// in `peer-registry.json` before any signed
-    /// request is accepted (otherwise the relay
-    /// returns 401 `unsigned_request_required`
-    /// or 401 `peer_not_enrolled`). This method
-    /// is the iOS-side counterpart to the
-    /// server's `POST /v1/relay/peers` route.
-    ///
-    /// Wire format (request):
-    /// ```
-    /// POST /v1/relay/peers
-    /// Authorization: Bearer <registrationToken>
-    /// Content-Type: application/json
-    /// {
-    ///   "peerID": "<64 hex of sha256(signingPubRaw)>",
-    ///   "publicKeyPem": "<SPKI PEM of Ed25519>",
-    ///   "clientVersion": "org.francois.PrivateChat/<version>/<build>"
-    /// }
-    /// ```
-    ///
-    /// The relay responds with 200 and a body
-    /// containing the registered `peerID`,
-    /// `registeredAt` epoch millis, and the
-    /// current `registrySize`. 4xx errors are
-    /// re-thrown as `relayHTTPError` so the
-    /// caller can decide whether to retry.
-    ///
-    /// **Important:** this request must be
-    /// bearer-only, not peer-signed (chicken-and-
-    /// egg). The server's `preHandler` enforces
-    /// this by checking `request.url.startsWith(
-    /// '/v1/relay/peers')` and skipping the
-    /// `requirePeerAuth` step. iOS automatically
-    /// sends the bearer token because
-    /// `applyDefaultHeaders` always sets
-    /// `Authorization` when `registrationToken`
-    /// is configured.
+    /// Prove possession of the identity named in the enrollment body.
+    /// The server validates the signature against this submitted key before
+    /// it admits an approved beta peer. An operator bearer token is optional
+    /// for legacy/custom deployments and never substitutes for this proof.
     func enrollPublicKey(_ identity: LocalIdentity) async throws -> RelayEnrollmentResponse {
         guard let crypto = crypto else {
             throw PrivateChatError.relayHTTPError(statusCode: 500, message: "enroll requires CryptoServicing")
+        }
+        guard signingContext?.currentPeerID() == identity.id,
+              signingContext?.currentSigningPrivateKey()?.publicKey.rawRepresentation == identity.signingPublicKeyData else {
+            throw PrivateChatError.invalidKeyMaterial
         }
         let publicKeyPem = crypto.pemEncodedSigningPublicKey(identity.signingPrivateKey.publicKey)
         let body = RelayEnrollmentRequest(
@@ -183,14 +146,12 @@ final class RelayTransport: RelayMessageTransporting {
             path: "/v1/relay/peers",
             method: "POST",
             body: try encoder.encode(body),
-            includePeerSignature: false
+            includePeerSignature: true
         )
 
         let data = try await perform(request)
         let response = try decoder.decode(RelayEnrollmentResponse.self, from: data)
-        Self.logger.info(
-            "enrolled peer \(response.peerID.prefix(8))… (registrySize=\(response.registrySize))"
-        )
+        guard response.peerID == identity.id else { throw PrivateChatError.relayInvalidResponse }
         return response
     }
 
@@ -221,6 +182,9 @@ final class RelayTransport: RelayMessageTransporting {
         configuration.timeoutIntervalForResource = 12
         configuration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
         configuration.urlCache = nil
+        configuration.httpCookieStorage = nil
+        configuration.httpShouldSetCookies = false
+        configuration.urlCredentialStorage = nil
         return URLSession(configuration: configuration)
     }
 
@@ -232,6 +196,7 @@ final class RelayTransport: RelayMessageTransporting {
         includePeerSignature: Bool = true
     ) throws -> URLRequest {
         let baseURL = try validatedBaseURL()
+        guard (body?.count ?? 0) <= RelayWireCoding.maximumHTTPBodyBytes else { throw PrivateChatError.relayInvalidResponse }
         let pathWithQuery: String
         if queryItems.isEmpty {
             pathWithQuery = path
@@ -295,6 +260,9 @@ final class RelayTransport: RelayMessageTransporting {
                 signingKey: signingKey
             )
         } else {
+            guard !includePeerSignature || !path.hasPrefix("/v1/") || baseURL.scheme == "http" else {
+                throw PrivateChatError.invalidKeyMaterial
+            }
             signedHeaders = nil
         }
         applyDefaultHeaders(to: &request, signedHeaders: signedHeaders)
@@ -315,8 +283,9 @@ final class RelayTransport: RelayMessageTransporting {
         // still follows the "<app>-<platform>"
         // shape so existing log parsers do not
         // break.
-        request.setValue("SecureChat-iOS", forHTTPHeaderField: "X-SecureChat-Client")
-        if let registrationToken = configuration.registrationToken, registrationToken.isEmpty == false {
+        request.setValue("PrivateRoom-iOS", forHTTPHeaderField: "X-SecureChat-Client")
+        let isHostedRelay = request.url?.scheme == "https" && request.url?.host?.lowercased() == SecureChatProductionProfile.relayHost && (request.url?.port == nil || request.url?.port == 443)
+        if !isHostedRelay, let registrationToken = configuration.registrationToken, registrationToken.isEmpty == false {
             request.setValue("Bearer \(registrationToken)", forHTTPHeaderField: "Authorization")
         }
         // Sprint 15B (Phase 2): peer-bound
@@ -354,9 +323,9 @@ final class RelayTransport: RelayMessageTransporting {
         // Sprint 14C: plain HTTP is forbidden in
         // any non-development build. Dev builds
         // (Xcode debug or simulator) still allow
-        // http://localhost.* so local development
+        // exact loopback addresses so local development
         // keeps working. In TestFlight / Release
-        // the user agent is `SecureChat-iOS` and
+        // the user agent is `PrivateRoom-iOS` and
         // the build is non-debug, so the `http`
         // case throws `insecureRelayURL` and the
         // request never leaves the device.
@@ -366,7 +335,7 @@ final class RelayTransport: RelayMessageTransporting {
         let isDebug = false
         #endif
         if scheme == "http" {
-            let isLocalhost = (baseURL.host?.lowercased() ?? "").contains("localhost") ||
+            let isLocalhost = baseURL.host?.lowercased() == "localhost" ||
                 baseURL.host == "127.0.0.1" ||
                 baseURL.host == "::1"
             if isDebug && isLocalhost {
@@ -377,8 +346,15 @@ final class RelayTransport: RelayMessageTransporting {
         } else if scheme != "https" {
             throw PrivateChatError.invalidRelayURL
         }
-        guard let host = baseURL.host?.lowercased(), host.isEmpty == false else {
+        guard let host = baseURL.host?.lowercased(), host.isEmpty == false,
+              baseURL.user == nil, baseURL.password == nil,
+              baseURL.query == nil, baseURL.fragment == nil else {
             throw PrivateChatError.invalidRelayURL
+        }
+
+        if let token = configuration.registrationToken, !token.isEmpty,
+           SecureChatProductionProfile.isUsableClientToken(token) == false {
+            throw PrivateChatError.relayMissingClientToken
         }
 
         #if !targetEnvironment(simulator)
@@ -401,30 +377,28 @@ final class RelayTransport: RelayMessageTransporting {
     }
 
     private func perform(_ request: URLRequest) async throws -> Data {
-        let method = request.httpMethod ?? "GET"
-        let path = request.url?.path ?? "<invalid>"
-        if configuration.verboseRelayLogging {
-            Self.logger.info("Relay request started method=\(method, privacy: .public) path=\(path, privacy: .public)")
-        }
-
         do {
-            let (data, response) = try await urlSession.data(for: request)
-            try validate(response: response, data: data)
-            if configuration.verboseRelayLogging {
-                Self.logger.info("Relay request succeeded method=\(method, privacy: .public) path=\(path, privacy: .public)")
+            let (bytes, response) = try await urlSession.bytes(for: request, delegate: RelayRedirectBlocker())
+            defer { bytes.task.cancel() }
+            let maximumResponseBytes = 8 * 1_048_576
+            guard response.expectedContentLength <= Int64(maximumResponseBytes) else {
+                throw PrivateChatError.relayInvalidResponse
             }
+            var data = Data()
+            for try await byte in bytes {
+                guard data.count < maximumResponseBytes else { throw PrivateChatError.relayInvalidResponse }
+                data.append(byte)
+            }
+            try validate(response: response, data: data)
             return data
         } catch let error as PrivateChatError {
-            Self.logger.error("Relay request failed method=\(method, privacy: .public) path=\(path, privacy: .public) reason=\(error.localizedDescription, privacy: .public)")
             throw error
         } catch let urlError as URLError {
-            let mappedError = map(urlError, request: request)
-            Self.logger.error("Relay URL error method=\(method, privacy: .public) path=\(path, privacy: .public) code=\(urlError.code.rawValue, privacy: .public) reason=\(mappedError.localizedDescription, privacy: .public)")
-            throw mappedError
+            throw map(urlError, request: request)
         } catch {
-            let mappedError = PrivateChatError.relayRequestFailed(error.localizedDescription)
-            Self.logger.error("Relay unknown error method=\(method, privacy: .public) path=\(path, privacy: .public) reason=\(mappedError.localizedDescription, privacy: .public)")
-            throw mappedError
+            // URLs, peer identifiers, server text and private configuration do
+            // not belong in persistent device logs or support diagnostics.
+            throw PrivateChatError.relayRequestFailed("Die sichere Verbindung konnte nicht abgeschlossen werden.")
         }
     }
 
@@ -441,7 +415,8 @@ final class RelayTransport: RelayMessageTransporting {
         guard data.isEmpty == false,
               let object = try? JSONSerialization.jsonObject(with: data),
               let dictionary = object as? [String: Any],
-              let error = dictionary["error"] as? String else {
+              let error = dictionary["error"] as? String,
+              error.range(of: "^[a-zA-Z0-9_.-]{1,64}$", options: .regularExpression) != nil else {
             return nil
         }
         return error
@@ -465,5 +440,16 @@ final class RelayTransport: RelayMessageTransporting {
         default:
             return .relayRequestFailed(error.localizedDescription)
         }
+    }
+}
+
+/// A signed request is valid for its original method/path only. Following any
+/// redirect could disclose the encrypted envelope or identity to another URL.
+private final class RelayRedirectBlocker: NSObject, URLSessionTaskDelegate {
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest,
+                    completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
     }
 }

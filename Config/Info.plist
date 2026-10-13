@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>SecureChat</string>
+	<string>PrivateRoom</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -13,13 +13,15 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>SecureChat</string>
+	<string>PrivateRoom</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>CFBundleURLTypes</key>
+	<array><dict><key>CFBundleURLName</key><string>org.francois.PrivateChat.pairing</string><key>CFBundleURLSchemes</key><array><string>privateroom</string><string>securechat</string><string>privatechat</string></array></dict></array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSAppTransportSecurity</key>
@@ -28,17 +30,19 @@
 		<true/>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>SecureChat nutzt die Kamera, um Pairing-QR-Codes zu scannen sowie Fotos und Videos direkt im Chat aufzunehmen.</string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>SecureChat nutzt das Mikrofon ausschließlich für Videos, die du direkt im Chat aufnimmst.</string>
+	<string>PrivateRoom nutzt die Kamera, um Pairing-QR-Codes zu scannen sowie Fotos und Videos direkt im Chat aufzunehmen.</string>
 	<key>NSFaceIDUsageDescription</key>
-	<string>SecureChat nutzt Face ID oder Touch ID, um lokale Chats und Schlüssel vor unbefugtem Zugriff zu schützen.</string>
+	<string>PrivateRoom nutzt Face ID oder Touch ID, um lokale Chats und Schlüssel vor unbefugtem Zugriff zu schützen.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>PrivateRoom nutzt das Mikrofon ausschließlich für Videos, die du direkt im Chat aufnimmst.</string>
+	<key>UIApplicationSceneManifest</key>
+	<dict><key>UIApplicationSupportsMultipleScenes</key><false/></dict>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchScreen</key>
 	<dict>
 		<key>UIColorName</key>
-		<string>systemBackground</string>
+		<string>PrivateRoomLaunchBackground</string>
 	</dict>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>

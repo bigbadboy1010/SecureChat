@@ -6,16 +6,22 @@ import Foundation
 final class AppContainer: ObservableObject {
     @Published var isUnlocked: Bool
     @Published var startupErrorMessage: String?
+    @Published private(set) var isUnlocking = false
+    @Published private(set) var isPrivacyCoverVisible = false
 
     let conversationService: ConversationService
     private let biometricGate: BiometricGating
     private let hasCriticalStartupFailure: Bool
+    private var unlockRequestID: UUID?
+    private var isInBackground = false
+    private var enrollmentTask: Task<Void, Never>?
+    private var criticalFailureSubscription: AnyCancellable?
 
     var canUnlock: Bool {
         hasCriticalStartupFailure == false
     }
 
-    private init(
+    init(
         conversationService: ConversationService,
         biometricGate: BiometricGating,
         startupErrorMessage: String?,
@@ -26,9 +32,17 @@ final class AppContainer: ObservableObject {
         self.startupErrorMessage = startupErrorMessage
         self.hasCriticalStartupFailure = hasCriticalStartupFailure
         self.isUnlocked = false
+        conversationService.endUserSession()
+        criticalFailureSubscription = conversationService.$criticalSessionFailure
+            .compactMap { $0 }
+            .sink { [weak self] failure in
+                self?.lock()
+                self?.startupErrorMessage = failure
+            }
     }
 
     static func bootstrap() -> AppContainer {
+        PrivateRoomPreviewFiles.cleanupOwnedFiles()
         let keychain = KeychainStore()
         let crypto = CryptoService()
         let identityManager = IdentityManager(keychain: keychain, crypto: crypto)
@@ -68,17 +82,6 @@ final class AppContainer: ObservableObject {
                 )
             }
             let container = AppContainer(conversationService: service, biometricGate: biometricGate, startupErrorMessage: nil)
-            // Sprint 27 (2026-06-24): enroll the local
-            // peer with the relay after the
-            // conversation service has loaded its
-            // settings. Done from a detached task so
-            // the synchronous bootstrap path stays
-            // synchronous. Failures are logged in
-            // `ConversationService.enrollLocalPeerIfNeeded`
-            // and do not block app startup.
-            Task(priority: .utility) {
-                await service.enrollLocalPeerIfNeeded()
-            }
             return container
         } catch {
             let fallbackIdentity = LocalIdentity(
@@ -109,21 +112,81 @@ final class AppContainer: ObservableObject {
     }
 
     func unlock() async {
-        guard hasCriticalStartupFailure == false else {
+        guard hasCriticalStartupFailure == false, isUnlocking == false, isInBackground == false, !Task.isCancelled else {
             return
         }
 
+        let requestID = UUID()
+        unlockRequestID = requestID
+        isUnlocking = true
+        defer {
+            if unlockRequestID == requestID {
+                unlockRequestID = nil
+                isUnlocking = false
+            }
+        }
+
         if conversationService.securityState.requireBiometricUnlock == false {
+            guard conversationService.beginUserSession() else {
+                startupErrorMessage = conversationService.criticalSessionFailure
+                return
+            }
             isUnlocked = true
+            enrollAfterUnlock()
             return
         }
 
         do {
-            try await biometricGate.unlock(reason: "PrivateChat entsperren")
+            try await biometricGate.unlock(reason: "PrivateRoom entsperren")
+            guard unlockRequestID == requestID, isInBackground == false, Task.isCancelled == false else { return }
+            guard conversationService.beginUserSession() else {
+                startupErrorMessage = conversationService.criticalSessionFailure
+                return
+            }
             isUnlocked = true
             startupErrorMessage = nil
+            enrollAfterUnlock()
         } catch {
-            startupErrorMessage = error.localizedDescription
+            if unlockRequestID == requestID, isInBackground == false {
+                startupErrorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func lock() {
+        unlockRequestID = nil
+        isUnlocking = false
+        isUnlocked = false
+        biometricGate.cancel()
+        conversationService.endUserSession()
+        enrollmentTask?.cancel()
+        enrollmentTask = nil
+        PrivateRoomPreviewFiles.cleanupOwnedFiles()
+    }
+
+    func becameInactive() {
+        isPrivacyCoverVisible = true
+        // System authentication briefly makes the scene inactive. It may
+        // complete there, but backgrounding still cancels its request.
+        if !isUnlocking { lock() }
+    }
+
+    func enteredBackground() {
+        isInBackground = true
+        isPrivacyCoverVisible = true
+        lock()
+    }
+
+    func becameActive() {
+        isInBackground = false
+        isPrivacyCoverVisible = false
+    }
+
+    private func enrollAfterUnlock() {
+        enrollmentTask?.cancel()
+        enrollmentTask = Task { [weak self] in
+            guard let self, self.isUnlocked, !Task.isCancelled else { return }
+            await self.conversationService.enrollLocalPeerIfNeeded()
         }
     }
 }

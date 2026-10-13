@@ -2,232 +2,129 @@ import SwiftUI
 
 struct RootView: View {
     @ObservedObject var container: AppContainer
-    @AppStorage("PrivateChat.didOnboard.v1") private var didOnboard = false
-    @AppStorage("PrivateChat.didAcceptBetaDisclaimer.v1") private var didAcceptBetaDisclaimer = false
+    @AppStorage("PrivateRoom.didOnboard.v1") private var didOnboard = false
+    @AppStorage("PrivateRoom.didAcceptBetaDisclaimer.v1") private var didAcceptBetaDisclaimer = false
 
     var body: some View {
         Group {
             if container.isUnlocked {
-                MainTabView(service: container.conversationService)
+                MainTabView(service: container.conversationService, onLock: { container.lock() })
                     .fullScreenCover(isPresented: onboardingPresentationBinding) {
-                        OnboardingView {
-                            didOnboard = true
-                        }
+                        OnboardingView { didOnboard = true }
                     }
                     .sheet(isPresented: betaDisclaimerPresentationBinding) {
-                        BetaDisclaimerView {
-                            didAcceptBetaDisclaimer = true
-                        }
+                        BetaDisclaimerView { didAcceptBetaDisclaimer = true }
+                            .interactiveDismissDisabled()
                     }
             } else {
                 UnlockView(container: container)
             }
         }
+        .preferredColorScheme(.dark)
+        .tint(SecureChatDesign.brandCyan)
     }
 
     private var onboardingPresentationBinding: Binding<Bool> {
         Binding(
             get: { didOnboard == false },
-            set: { isPresented in
-                if isPresented == false {
-                    didOnboard = true
-                }
-            }
+            set: { if $0 == false { didOnboard = true } }
         )
     }
 
     private var betaDisclaimerPresentationBinding: Binding<Bool> {
         Binding(
             get: { didOnboard && didAcceptBetaDisclaimer == false },
-            set: { isPresented in
-                if isPresented == false {
-                    didAcceptBetaDisclaimer = true
-                }
-            }
+            set: { _ in }
         )
     }
 }
-
-// MARK: - Unlock screen (LockScreen)
 
 private struct UnlockView: View {
     @ObservedObject var container: AppContainer
 
     var body: some View {
         ZStack {
-            // Aurora background. Slightly stronger on the lock
-            // screen so the first impression has more "wow" than
-            // the regular pages.
-            LinearGradient(
-                stops: [
-                    .init(color: SecureChatDesign.brandCyan.opacity(0.30), location: 0.0),
-                    .init(color: SecureChatDesign.canvasBase, location: 0.45),
-                    .init(color: SecureChatDesign.brandPurple.opacity(0.22), location: 1.0),
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
-
-            VStack(spacing: SecureChatDesign.spaceXL) {
-                Spacer(minLength: SecureChatDesign.spaceL)
-
-                brandMark
-                brandTitle
-                Spacer()
-                unlockButton
-                errorMessage
-                Spacer(minLength: SecureChatDesign.spaceL)
-            }
-            .padding(.horizontal, SecureChatDesign.spaceXL)
-        }
-        .preferredColorScheme(.dark)
-    }
-
-    // MARK: - Logo
-
-    private var brandMark: some View {
-        ZStack {
-            // Outer glow ring (static, gives the mark a halo).
-            Circle()
-                .stroke(
-                    LinearGradient(
-                        colors: [SecureChatDesign.brandCyan.opacity(0.5), SecureChatDesign.brandPurple.opacity(0.4)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    lineWidth: 1.5
-                )
-                .frame(width: 152, height: 152)
-
-            // Inner solid mark: brand gradient circle with a custom
-            // "SC" interlock glyph (drawn as a path so the design
-            // stays consistent with the App-Icon).
-            Circle()
-                .fill(SecureChatDesign.brandGradient)
-                .frame(width: 116, height: 116)
-                .shadow(color: SecureChatDesign.brandCyan.opacity(0.45), radius: 28, x: 0, y: 14)
-
-            SecureChatLogoMark()
-                .frame(width: 56, height: 56)
-                .foregroundStyle(.white)
-        }
-        .padding(.bottom, SecureChatDesign.spaceS)
-    }
-
-    // MARK: - Title
-
-    private var brandTitle: some View {
-        VStack(spacing: SecureChatDesign.spaceS) {
-            Text("SecureChat")
-                .font(.system(size: 36, weight: .heavy, design: .rounded))
-                .foregroundStyle(SecureChatDesign.textPrimary)
-                .tracking(-0.5)
-            Text("Deine Nachrichten. Privat.")
-                .font(.headline.weight(.medium))
-                .foregroundStyle(SecureChatDesign.textSecondary)
-        }
-    }
-
-    // MARK: - Unlock button
-
-    private var unlockButton: some View {
-        Button {
-            Task { await container.unlock() }
-        } label: {
-            HStack(spacing: SecureChatDesign.spaceM) {
-                Image(systemName: "faceid")
-                    .font(.title3.weight(.bold))
-                Text(container.canUnlock ? "Mit Face ID entsperren" : "Startfehler – App gesperrt")
-                    .font(.headline.weight(.semibold))
-            }
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 16)
-            .background(SecureChatDesign.brandGradient, in: Capsule())
-            .shadow(color: SecureChatDesign.brandCyan.opacity(0.35), radius: 20, x: 0, y: 10)
-        }
-        .buttonStyle(.plain)
-        .disabled(container.canUnlock == false)
-        .opacity(container.canUnlock ? 1.0 : 0.55)
-    }
-
-    @ViewBuilder
-    private var errorMessage: some View {
-        if let errorMessage = container.startupErrorMessage {
-            Text(errorMessage)
-                .font(.footnote)
-                .foregroundStyle(SecureChatDesign.danger)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, SecureChatDesign.spaceM)
-        }
-    }
-}
-
-// MARK: - "SC" interlock logo
-
-/// The brand mark drawn as a single path. S + C interlocked, on a
-/// circular gradient background. Used on the lock screen, the
-/// App-Icon, and the marketing site.
-struct SecureChatLogoMark: View {
-    var body: some View {
-        GeometryReader { geo in
-            ZStack {
-                // S
-                Path { p in
-                    let w = geo.size.width
-                    let h = geo.size.height
-                    // S curve: top-arc, middle-bar, bottom-arc
-                    p.move(to: CGPoint(x: w * 0.78, y: h * 0.22))
-                    p.addCurve(
-                        to: CGPoint(x: w * 0.22, y: h * 0.34),
-                        control1: CGPoint(x: w * 0.60, y: h * 0.10),
-                        control2: CGPoint(x: w * 0.20, y: h * 0.18)
-                    )
-                    p.addLine(to: CGPoint(x: w * 0.78, y: h * 0.50))
-                    p.addCurve(
-                        to: CGPoint(x: w * 0.22, y: h * 0.66),
-                        control1: CGPoint(x: w * 0.80, y: h * 0.66),
-                        control2: CGPoint(x: w * 0.20, y: h * 0.50)
-                    )
-                    p.addLine(to: CGPoint(x: w * 0.78, y: h * 0.78))
+            SecureChatDesign.pageGradient.ignoresSafeArea()
+            ScrollView {
+                VStack(spacing: 28) {
+                    Spacer(minLength: 48)
+                    PrivateRoomMark()
+                        .frame(width: 136, height: 136)
+                        .padding(24)
+                        .background(SecureChatDesign.canvasElevated, in: RoundedRectangle(cornerRadius: 44))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 44)
+                                .stroke(SecureChatDesign.subtleBorder, lineWidth: 1)
+                        }
+                    VStack(spacing: 10) {
+                        Text("PrivateRoom")
+                            .font(.largeTitle.weight(.bold))
+                            .tracking(-0.8)
+                            .foregroundStyle(SecureChatDesign.textPrimary)
+                        Text("Dein privater Raum.")
+                            .font(.title3)
+                            .foregroundStyle(SecureChatDesign.textSecondary)
+                    }
+                    Label("Chats und Schlüssel bleiben gesperrt.", systemImage: "lock.fill")
+                        .font(.footnote)
+                        .foregroundStyle(SecureChatDesign.textSecondary)
+                        .multilineTextAlignment(.center)
+                    Spacer(minLength: 48)
+                    SecureChatPrimaryButton(
+                        title: container.isUnlocking ? "Entsperrung läuft …" : (container.canUnlock ? "PrivateRoom entsperren" : "Startfehler · App gesperrt"),
+                        systemImage: "lock.open"
+                    ) {
+                        Task { await container.unlock() }
+                    }
+                    .disabled(container.canUnlock == false || container.isUnlocking)
+                    .opacity(container.canUnlock ? 1 : 0.55)
+                    if let message = container.startupErrorMessage {
+                        Text(message)
+                            .font(.footnote)
+                            .foregroundStyle(SecureChatDesign.warning)
+                            .multilineTextAlignment(.center)
+                    }
+                    Text("Entsperrung über die Gerätesicherheit. PrivateRoom erhält keine biometrischen Daten.")
+                        .font(.caption)
+                        .foregroundStyle(SecureChatDesign.textSecondary)
+                        .multilineTextAlignment(.center)
                 }
-                .stroke(Color.white, style: StrokeStyle(lineWidth: geo.size.width * 0.10, lineCap: .round, lineJoin: .round))
+                .padding(28)
+                .frame(maxWidth: 520)
+                .frame(maxWidth: .infinity)
             }
         }
     }
 }
 
-// MARK: - Main tab view
+// Retained for source compatibility; the public mark is shared across the app.
+struct SecureChatLogoMark: View {
+    var body: some View { PrivateRoomMark() }
+}
 
 private struct MainTabView: View {
     @ObservedObject var service: ConversationService
+    let onLock: () -> Void
+    @State private var selectedTab = 0
 
     var body: some View {
-        TabView {
-            ConversationListView(service: service)
-                .tabItem {
-                    Label("Chats", systemImage: "message")
-                }
+        TabView(selection: $selectedTab) {
+            ConversationListView(service: service, onAddContact: { selectedTab = 1 })
+                .tabItem { Label("Chats", systemImage: "bubble.left.and.bubble.right") }
                 .badge(service.totalUnreadCount())
-
+                .tag(0)
             PairingView(service: service)
-                .tabItem {
-                    Label("Kontakte", systemImage: "person.2")
-                }
-
-            SettingsView(service: service)
-                .tabItem {
-                    Label("Einstellungen", systemImage: "gearshape")
-                }
+                .tabItem { Label("Kontakte", systemImage: "person.2") }
+                .tag(1)
+            SettingsView(service: service, onLock: onLock)
+                .tabItem { Label("Privatsphäre", systemImage: "hand.raised") }
+                .tag(2)
         }
         .tint(SecureChatDesign.brandCyan)
         .task {
             service.refreshRuntimeSecurityAssessment()
             service.startRelayAutoSyncLoop()
         }
-        .onDisappear {
-            service.stopRelayAutoSyncLoop()
-        }
+        .onDisappear { service.stopRelayAutoSyncLoop() }
     }
 }

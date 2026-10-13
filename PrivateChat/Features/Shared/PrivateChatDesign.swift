@@ -1,12 +1,7 @@
 import SwiftUI
+import UIKit
 
-/// SecureChat design system.
-///
-/// The brand is dark-first with a securechat-cyan accent and a
-/// deep-purple secondary. The system is built for trust, clarity
-/// and a "venture-grade" feel. Every component used in the app is
-/// defined here; feature views reference these constants instead
-/// of hard-coding values.
+/// PrivateRoom presentation tokens. Legacy symbol names remain source-compatible.
 enum SecureChatDesign {
     // MARK: - Brand palette
 
@@ -14,13 +9,13 @@ enum SecureChatDesign {
     /// active states, encryption indicators, and the E2E badge.
     /// Calibrated for legibility on dark backgrounds (WCAG AA on
     /// #0B1220 at the 600 weight).
-    static let brandCyan: Color = Color(red: 0.13, green: 0.83, blue: 0.93)        // #22D3EE
-    static let brandCyanDeep: Color = Color(red: 0.02, green: 0.71, blue: 0.83)    // #06B6D4
+    static let brandCyan: Color = Color(red: 0.62, green: 0.91, blue: 0.80)
+    static let brandCyanDeep: Color = Color(red: 0.35, green: 0.76, blue: 0.65)
 
     /// Secondary accent: deep purple. Used for highlights, paired
     /// with the cyan in gradients and on the Onboarding hero.
-    static let brandPurple: Color = Color(red: 0.49, green: 0.23, blue: 0.93)     // #7C3AED
-    static let brandPurpleSoft: Color = Color(red: 0.42, green: 0.36, blue: 0.92)  // #6C5CE7
+    static let brandPurple: Color = Color(red: 0.79, green: 0.69, blue: 0.51)
+    static let brandPurpleSoft: Color = Color(red: 0.83, green: 0.93, blue: 0.85)
 
     /// Semantic states. Tints are pulled to the cyan/purple family
     /// for consistency with the brand, not the default iOS greens
@@ -33,15 +28,15 @@ enum SecureChatDesign {
 
     /// Page background base. Slightly off-black so the gradient
     /// highlights have somewhere to glow into.
-    static let canvasBase: Color = Color(red: 0.04, green: 0.07, blue: 0.13)      // #0B1220
-    static let canvasElevated: Color = Color(red: 0.07, green: 0.11, blue: 0.18)  // #131B2E
-    static let canvasHigh: Color = Color(red: 0.11, green: 0.16, blue: 0.25)      // #1C2940
+    static let canvasBase: Color = Color(red: 0.04, green: 0.08, blue: 0.10)
+    static let canvasElevated: Color = Color(red: 0.07, green: 0.13, blue: 0.15)
+    static let canvasHigh: Color = Color(red: 0.10, green: 0.18, blue: 0.20)
 
     // MARK: - Foregrounds
 
-    static let textPrimary: Color = .white
-    static let textSecondary: Color = Color(white: 0.62)
-    static let textTertiary: Color = Color(white: 0.42)
+    static let textPrimary: Color = Color(red: 0.96, green: 0.96, blue: 0.90)
+    static let textSecondary: Color = Color(red: 0.66, green: 0.74, blue: 0.72)
+    static let textTertiary: Color = Color(red: 0.53, green: 0.64, blue: 0.61)
 
     // MARK: - Geometry
 
@@ -104,10 +99,10 @@ enum SecureChatDesign {
     static var pageGradient: LinearGradient {
         LinearGradient(
             stops: [
-                .init(color: brandCyan.opacity(0.18), location: 0.0),
+                .init(color: canvasHigh, location: 0.0),
                 .init(color: canvasBase, location: 0.32),
                 .init(color: canvasBase, location: 0.68),
-                .init(color: brandPurple.opacity(0.16), location: 1.0)
+                .init(color: canvasElevated, location: 1.0)
             ],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
@@ -322,8 +317,9 @@ struct SecureChatPrimaryButton: View {
         Button(action: action) {
             Label(title, systemImage: systemImage)
                 .font(.headline)
-                .foregroundStyle(.white)
+                .foregroundStyle(SecureChatDesign.canvasBase)
                 .frame(maxWidth: .infinity)
+                .frame(minHeight: 44)
                 .padding(.vertical, 14)
                 .background(SecureChatDesign.brandGradient, in: Capsule())
         }
@@ -395,6 +391,7 @@ struct SecureChatStatusCard: View {
 /// "E2E active" state on the lock screen and dashboard hero.
 struct SecureChatEncryptionPulse: View {
     let tint: Color
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pulse: Bool = false
 
     var body: some View {
@@ -411,10 +408,62 @@ struct SecureChatEncryptionPulse: View {
         }
         .frame(width: 64, height: 64)
         .onAppear {
+            guard reduceMotion == false else { return }
             withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) {
                 pulse.toggle()
             }
         }
+    }
+}
+
+/// A room doorway inside a speech bubble, shared by the product's native views.
+/// Decorative branding only: it does not assert a verified session or connection.
+struct PrivateRoomMark: View {
+    var body: some View {
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            let height = geometry.size.height
+            ZStack {
+                Path { path in
+                    path.move(to: CGPoint(x: width * 0.25, y: height * 0.14))
+                    path.addLine(to: CGPoint(x: width * 0.75, y: height * 0.14))
+                    path.addQuadCurve(to: CGPoint(x: width * 0.88, y: height * 0.27), control: CGPoint(x: width * 0.88, y: height * 0.14))
+                    path.addLine(to: CGPoint(x: width * 0.88, y: height * 0.64))
+                    path.addQuadCurve(to: CGPoint(x: width * 0.75, y: height * 0.77), control: CGPoint(x: width * 0.88, y: height * 0.77))
+                    path.addLine(to: CGPoint(x: width * 0.45, y: height * 0.77))
+                    path.addLine(to: CGPoint(x: width * 0.24, y: height * 0.90))
+                    path.addLine(to: CGPoint(x: width * 0.24, y: height * 0.77))
+                    path.addQuadCurve(to: CGPoint(x: width * 0.12, y: height * 0.64), control: CGPoint(x: width * 0.12, y: height * 0.77))
+                    path.addLine(to: CGPoint(x: width * 0.12, y: height * 0.27))
+                    path.addQuadCurve(to: CGPoint(x: width * 0.25, y: height * 0.14), control: CGPoint(x: width * 0.12, y: height * 0.14))
+                }
+                .stroke(SecureChatDesign.brandCyan, style: StrokeStyle(lineWidth: width * 0.055, lineCap: .round, lineJoin: .round))
+
+                RoundedRectangle(cornerRadius: width * 0.045)
+                    .fill(SecureChatDesign.textPrimary)
+                    .frame(width: width * 0.29, height: height * 0.39)
+                    .position(x: width * 0.50, y: height * 0.45)
+                RoundedRectangle(cornerRadius: width * 0.025)
+                    .fill(SecureChatDesign.canvasBase)
+                    .frame(width: width * 0.17, height: height * 0.32)
+                    .position(x: width * 0.51, y: height * 0.495)
+                Circle()
+                    .fill(SecureChatDesign.brandCyan)
+                    .frame(width: width * 0.025, height: height * 0.025)
+                    .position(x: width * 0.54, y: height * 0.47)
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+enum PrivateRoomClipboard {
+    /// Private text stays on this device and expires after one minute.
+    static func copy(_ text: String) {
+        UIPasteboard.general.setItems(
+            [[UIPasteboard.typeAutomatic: text]],
+            options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(60)]
+        )
     }
 }
 

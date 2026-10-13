@@ -91,6 +91,46 @@ final class CryptoServiceTests: XCTestCase {
         XCTAssertEqual(peerID.count, 64)
         XCTAssertEqual(crypto.safetyNumber(peerID: peerID).split(separator: " ").count, 16)
     }
+
+    func testFullIdentitySafetyNumberIsSymmetricAndBindsAgreementKeys() {
+        let aliceSigning = Curve25519.Signing.PrivateKey().publicKey.rawRepresentation
+        let aliceAgreement = Curve25519.KeyAgreement.PrivateKey().publicKey.rawRepresentation
+        let bobSigning = Curve25519.Signing.PrivateKey().publicKey.rawRepresentation
+        let bobAgreement = Curve25519.KeyAgreement.PrivateKey().publicKey.rawRepresentation
+        let malloryAgreement = Curve25519.KeyAgreement.PrivateKey().publicKey.rawRepresentation
+        let aliceView = SafetyNumberV3.make(
+            localSigningPublicKeyData: aliceSigning, localKeyAgreementPublicKeyData: aliceAgreement,
+            remoteSigningPublicKeyData: bobSigning, remoteKeyAgreementPublicKeyData: bobAgreement
+        )
+        let bobView = SafetyNumberV3.make(
+            localSigningPublicKeyData: bobSigning, localKeyAgreementPublicKeyData: bobAgreement,
+            remoteSigningPublicKeyData: aliceSigning, remoteKeyAgreementPublicKeyData: aliceAgreement
+        )
+        let substitutedKey = SafetyNumberV3.make(
+            localSigningPublicKeyData: aliceSigning, localKeyAgreementPublicKeyData: aliceAgreement,
+            remoteSigningPublicKeyData: bobSigning, remoteKeyAgreementPublicKeyData: malloryAgreement
+        )
+        let swappedAssociations = SafetyNumberV3.make(
+            localSigningPublicKeyData: aliceSigning, localKeyAgreementPublicKeyData: bobAgreement,
+            remoteSigningPublicKeyData: bobSigning, remoteKeyAgreementPublicKeyData: aliceAgreement
+        )
+        XCTAssertEqual(aliceView, bobView)
+        XCTAssertTrue(aliceView.hasPrefix("SC3 "))
+        XCTAssertNotEqual(aliceView, substitutedKey)
+        XCTAssertNotEqual(aliceView, swappedAssociations)
+    }
+
+    func testFullIdentityFingerprintMatchesIndependentSHA256Vector() {
+        // Independently derived with Python hashlib and big-endian
+        // length-prefixed identity tuples; these are synthetic bytes.
+        let actual = SafetyNumberV3.make(
+            localSigningPublicKeyData: Data(repeating: 1, count: 32),
+            localKeyAgreementPublicKeyData: Data(repeating: 2, count: 32),
+            remoteSigningPublicKeyData: Data(repeating: 3, count: 32),
+            remoteKeyAgreementPublicKeyData: Data(repeating: 4, count: 32)
+        )
+        XCTAssertEqual(actual, "SC3 36E3 4489 7F36 6863 6181 AA34 F05F 9805 3656 C906 F19D 7B66 B222 500F 6443 1BE4")
+    }
 }
 
 private extension SymmetricKey {

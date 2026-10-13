@@ -19,12 +19,13 @@ final class AttachmentTransportTests: XCTestCase {
             senderID: "alice",
             recipientID: "bob",
             body: "Review",
+            createdAt: Date(timeIntervalSince1970: 1_800_000_000),
             status: .queued,
             isIncoming: false,
             attachment: attachment
         )
 
-        let encoder = DateCoding.makeEncoder()
+        let encoder = RelayWireCoding.makeEncoder()
         let decoder = DateCoding.makeDecoder()
         let encoded = try encoder.encode(message)
         let decoded = try decoder.decode(ChatMessage.self, from: encoded)
@@ -60,7 +61,7 @@ final class AttachmentTransportTests: XCTestCase {
             chunkDataBase64: chunk.base64EncodedString()
         )
 
-        let encoder = DateCoding.makeEncoder()
+        let encoder = RelayWireCoding.makeEncoder()
         let crypto = CryptoService()
         let packetID = UUID()
         let createdAt = Date(timeIntervalSince1970: 1_800_000_000)

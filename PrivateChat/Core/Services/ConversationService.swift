@@ -137,6 +137,85 @@ final class ConversationService: ObservableObject {
     @Published private(set) var runtimeSecuritySnapshot: RuntimeSecuritySnapshot
     @Published private(set) var securityAISnapshot: SecurityAISnapshot
     @Published private(set) var localIdentity: LocalIdentity
+    @Published private(set) var criticalSessionFailure: String?
+
+    // Standalone service fixtures retain their established behavior.
+    // The production AppContainer closes this gate immediately at init,
+    // and opens it only after device-owner authentication succeeds.
+    private var userSessionAuthorized = true
+    private var userSessionGeneration = UUID()
+
+    var currentUserSessionID: UUID? {
+        userSessionAuthorized && criticalSessionFailure == nil ? userSessionGeneration : nil
+    }
+
+    func isCurrentUserSession(_ identifier: UUID?) -> Bool {
+        identifier != nil && identifier == currentUserSessionID && !Task.isCancelled
+    }
+
+    @discardableResult
+    func beginUserSession() -> Bool {
+        guard !Task.isCancelled else { return false }
+        if currentUserSessionID != nil { return true }
+        if criticalSessionFailure != nil {
+            do {
+                // Repair an interrupted security transaction from the
+                // retained, fail-closed in-memory state before reopening.
+                try peerTrustStore.savePeers(trustedPeers)
+                try messageStore.save(conversations)
+                criticalSessionFailure = nil
+            } catch {
+                lastErrorMessage = "Sicherheitszustand konnte nicht dauerhaft gespeichert werden. " + error.localizedDescription
+                return false
+            }
+        }
+        userSessionGeneration = UUID()
+        userSessionAuthorized = true
+        guard resetInterruptedOutgoingMessages() else {
+            failClosedForUndurableSecurityState()
+            return false
+        }
+        return true
+    }
+
+    func endUserSession() {
+        userSessionAuthorized = false
+        userSessionGeneration = UUID()
+        stopRelayAutoSyncLoop()
+        isRelaySyncRunning = false
+        isOutboxRetryRunning = false
+        isRelayStatsRunning = false
+        isRelayPurgeRunning = false
+        isRelayHealthCheckRunning = false
+    }
+
+    private enum SessionAccessError: LocalizedError {
+        case locked
+        var errorDescription: String? { "PrivateRoom ist gesperrt. Bitte erneut entsperren." }
+    }
+
+    private func authorizeUserAction() -> Bool {
+        guard currentUserSessionID != nil, !Task.isCancelled else {
+            lastErrorMessage = criticalSessionFailure ?? SessionAccessError.locked.localizedDescription
+            return false
+        }
+        return true
+    }
+
+    private func requireUserSession() throws -> UUID {
+        guard let sessionID = currentUserSessionID, !Task.isCancelled else { throw SessionAccessError.locked }
+        return sessionID
+    }
+
+    private func ensureUserSession(_ sessionID: UUID) throws {
+        guard isCurrentUserSession(sessionID) else { throw SessionAccessError.locked }
+    }
+
+    private func failClosedForUndurableSecurityState() {
+        criticalSessionFailure = "Eine Sicherheitsänderung konnte nicht dauerhaft gespeichert werden. Bitte erneut entsperren, um sie sicher zu speichern."
+        lastErrorMessage = criticalSessionFailure
+        endUserSession()
+    }
 
     private let messageStore: MessageStoring
     private let draftStore: DraftStoring
@@ -160,6 +239,7 @@ final class ConversationService: ObservableObject {
     private let ratchetStore: DoubleRatchetStoring
     private var ratchetObservations: [RatchetSentinelObservation] = []
     private var relayAutoSyncTask: Task<Void, Never>?
+    private var relayAutoSyncGeneration = UUID()
     private var nextRelayBulkRequestAt = Date.distantPast
 
     init(
@@ -184,7 +264,7 @@ final class ConversationService: ObservableObject {
         self.crypto = crypto
         self.transportCoordinator = transportCoordinator
         self.attachmentStore = attachmentStore ?? InMemoryAttachmentStore()
-        self.encoder = DateCoding.makeEncoder()
+        self.encoder = RelayWireCoding.makeEncoder()
         self.decoder = DateCoding.makeDecoder()
         self.relayPacketLedger = .empty
         self.conversations = []
@@ -228,7 +308,7 @@ final class ConversationService: ObservableObject {
     func load() -> Bool {
         do {
             conversations = try messageStore.load().sorted { $0.conversation.updatedAt > $1.conversation.updatedAt }
-            resetInterruptedOutgoingMessages()
+            guard resetInterruptedOutgoingMessages() else { return false }
             trustedPeers = try peerTrustStore.loadPeers()
             try migratePeerSafetyNumbersIfNeeded()
             securityState = try settingsStore.load()
@@ -247,36 +327,39 @@ final class ConversationService: ObservableObject {
 
     /// Sprint 27 (2026-06-24): peer-enrollment hook.
     ///
-    /// Called from `AppContainer.bootstrap` once
-    /// after `loadOrCreateLocalIdentity` + `load`.
-    /// Best-effort: failures are logged but never
-    /// surface to the user. The next outgoing
-    /// relay request will still fail with the
-    /// relay's standard 401 message, but the user
-    /// can recover by toggling relay-mode off and
-    /// on (which triggers a fresh enrollment attempt).
-    ///
-    /// Idempotency: the relay's `validatePeerEnrollment`
-    /// overwrites the existing entry on each call,
-    /// so calling this on every launch is safe and
-    /// cheap.
-    func enrollLocalPeerIfNeeded() async {
+    /// After device unlock, prove possession of this device's signing key.
+    /// Only approved beta devices can enroll on the hosted relay. Existing
+    /// identities remain immutable; a failure is visible and can be retried
+    /// explicitly without replacing keys or silently changing trust.
+    @discardableResult
+    func enrollLocalPeerIfNeeded() async -> Bool {
+        guard authorizeUserAction(), let sessionID = currentUserSessionID else { return false }
         guard securityState.transportMode == .relayAllowed,
               securityState.relayConfiguration.isEnabled,
-              securityState.relayConfiguration.hasUsableClientToken else {
-            return
+              securityState.relayConfiguration.isReadyForNetworkRequests else {
+            return false
         }
         do {
             let response = try await transportCoordinator.enrollLocalPeer(
                 localIdentity,
                 relayConfiguration: securityState.relayConfiguration
             )
-            lastRelayHealthMessage = "Peer enrolled (\(response.registrySize) registered)"
+            try ensureUserSession(sessionID)
+            guard response.peerID == localIdentity.id else { throw PrivateChatError.relayInvalidResponse }
+            lastRelayHealthMessage = "PrivateRoom ist verbunden."
+            lastErrorMessage = nil
+            return true
         } catch {
-            // Enrollment is best-effort: log and
-            // continue. The relay will return its
-            // usual 401 if a signed request fails.
-            lastRelayHealthMessage = "Peer enrollment failed: \(error.localizedDescription)"
+            guard isCurrentUserSession(sessionID) else { return false }
+            if case PrivateChatError.relayHTTPError(let status, let code) = error,
+               status == 403, code == "beta_admission_required" {
+                lastRelayHealthMessage = "Dieses Gerät ist für die geschlossene Beta noch nicht freigegeben."
+                lastErrorMessage = "Der Betreiber muss zuerst deine Geräte-ID für die Beta zulassen. Es ist kein gemeinsamer Zugangscode nötig."
+            } else {
+                lastRelayHealthMessage = "PrivateRoom konnte die Geräteidentität nicht anmelden."
+                lastErrorMessage = error.localizedDescription
+            }
+            return false
         }
     }
 
@@ -288,65 +371,84 @@ final class ConversationService: ObservableObject {
         lastErrorMessage = error.localizedDescription
     }
 
-    func loadDraft(conversationID: UUID, legacyUserDefaultsValue: String?) -> String {
+    func loadDraft(conversationID: UUID, legacyUserDefaultsValue: String?, onDurableLoad: () -> Void = {}) -> String {
+        guard authorizeUserAction() else { return "" }
         do {
             if let migratedDraft = try draftStore.migrateLegacyDraftIfNeeded(conversationID: conversationID, legacyValue: legacyUserDefaultsValue) {
+                onDurableLoad()
                 return migratedDraft
             }
-            return try draftStore.loadDraft(conversationID: conversationID) ?? ""
+            let draft = try draftStore.loadDraft(conversationID: conversationID) ?? ""
+            onDurableLoad()
+            return draft
         } catch {
             lastErrorMessage = "Entwurf konnte nicht entschlüsselt geladen werden: \(error.localizedDescription)"
             return legacyUserDefaultsValue ?? ""
         }
     }
 
-    func saveDraft(_ draft: String, conversationID: UUID) {
+    @discardableResult
+    func saveDraft(_ draft: String, conversationID: UUID) -> Bool {
+        guard authorizeUserAction() else { return false }
         do {
             try draftStore.saveDraft(draft, conversationID: conversationID)
+            return true
         } catch {
             lastErrorMessage = "Entwurf konnte nicht verschlüsselt gespeichert werden: \(error.localizedDescription)"
+            return false
         }
     }
 
-    func deleteDraft(conversationID: UUID) {
+    @discardableResult
+    func deleteDraft(conversationID: UUID) -> Bool {
+        guard authorizeUserAction() else { return false }
         do {
             try draftStore.deleteDraft(conversationID: conversationID)
+            return true
         } catch {
             lastErrorMessage = "Entwurf konnte nicht gelöscht werden: \(error.localizedDescription)"
+            return false
         }
     }
 
     func startRelayAutoSyncLoop() {
+        guard authorizeUserAction() else { return }
         guard relayAutoSyncTask == nil else {
             return
         }
 
+        let generation = UUID()
+        relayAutoSyncGeneration = generation
         relayAutoSyncTask = Task { [weak self] in
-            await self?.runRelayAutoSyncLoop()
+            await self?.runRelayAutoSyncLoop(generation: generation)
         }
     }
 
     func stopRelayAutoSyncLoop() {
+        relayAutoSyncGeneration = UUID()
         relayAutoSyncTask?.cancel()
         relayAutoSyncTask = nil
         isRelayAutoPollingActive = false
     }
 
-    private func runRelayAutoSyncLoop() async {
-        guard isRelayAutoPollingActive == false else {
+    private func runRelayAutoSyncLoop(generation: UUID) async {
+        guard authorizeUserAction(), isRelayAutoPollingActive == false, relayAutoSyncGeneration == generation else {
             return
         }
 
         isRelayAutoPollingActive = true
         defer {
-            isRelayAutoPollingActive = false
-            relayAutoSyncTask = nil
+            if relayAutoSyncGeneration == generation {
+                isRelayAutoPollingActive = false
+                relayAutoSyncTask = nil
+            }
         }
 
-        while Task.isCancelled == false {
+        while Task.isCancelled == false && relayAutoSyncGeneration == generation && currentUserSessionID != nil {
             if securityState.transportMode == .relayAllowed, securityState.relayConfiguration.isEnabled {
                 if shouldBlockRelayDueToConfiguration(showUserFacingError: false, context: "Auto-Sync") == false, shouldPauseRelayRequests(showUserFacingError: false) == false {
                     await syncRelayInbox(showDisabledError: false)
+                    guard !Task.isCancelled, relayAutoSyncGeneration == generation, currentUserSessionID != nil else { return }
                     if securityState.relayConfiguration.retryFailedMessagesAutomatically, shouldPauseRelayRequests(showUserFacingError: false) == false {
                         await retryPendingOutboundMessages(showEmptyResult: false)
                     }
@@ -359,19 +461,24 @@ final class ConversationService: ObservableObject {
         }
     }
 
-    func createConversation(title: String, peerID: String?) {
+    @discardableResult
+    func createConversation(title: String, peerID: String?) -> UUID? {
+        guard authorizeUserAction() else { return nil }
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmedTitle.isEmpty == false else {
-            return
+            return nil
         }
 
         let conversation = Conversation(title: trimmedTitle, peerID: peerID)
+        let previous = conversations
         conversations.insert(StoredConversation(conversation: conversation, messages: []), at: 0)
-        persistConversations()
+        guard persistConversations() else { conversations = previous; return nil }
+        return conversation.id
     }
 
     @discardableResult
-    func createSoloTestConversation() -> UUID {
+    func createSoloTestConversation() -> UUID? {
+        guard authorizeUserAction() else { return nil }
         if let existing = conversations.first(where: { $0.conversation.title == "Solo-Test" && $0.conversation.peerID == nil }) {
             return existing.id
         }
@@ -394,23 +501,24 @@ final class ConversationService: ObservableObject {
             status: .delivered,
             isIncoming: false
         )
+        let previous = conversations
         conversations.insert(StoredConversation(conversation: conversation, messages: [welcomeMessage, hintMessage]), at: 0)
-        persistConversations()
+        guard commitConversationMutation(previous: previous) else { return nil }
         lastTransportDiagnosticMessage = "Solo-Test-Chat lokal angelegt. Kein Relay-Transport erforderlich."
         return conversation.id
     }
 
     func deleteConversation(id: UUID) {
-        if let conversation = conversations.first(where: { $0.id == id }) {
-            for attachment in conversation.messages.compactMap(\.attachment) {
-                try? attachmentStore.deleteAttachment(id: attachment.id)
-            }
-        }
+        guard authorizeUserAction() else { return }
+        let previous = conversations
+        let removed = conversations.first(where: { $0.id == id })?.messages.compactMap(\.attachment) ?? []
         conversations.removeAll { $0.id == id }
-        persistConversations()
+        guard commitConversationMutation(previous: previous) else { return }
+        reclaimUnreferencedAttachments(removed)
     }
 
     func toggleConversationPinned(id: UUID) {
+        guard authorizeUserAction() else { return }
         guard let index = conversations.firstIndex(where: { $0.id == id }) else {
             return
         }
@@ -421,6 +529,7 @@ final class ConversationService: ObservableObject {
     }
 
     func toggleConversationArchived(id: UUID) {
+        guard authorizeUserAction() else { return }
         guard let index = conversations.firstIndex(where: { $0.id == id }) else {
             return
         }
@@ -431,6 +540,7 @@ final class ConversationService: ObservableObject {
     }
 
     func toggleConversationMuted(id: UUID) {
+        guard authorizeUserAction() else { return }
         guard let index = conversations.firstIndex(where: { $0.id == id }) else {
             return
         }
@@ -441,19 +551,18 @@ final class ConversationService: ObservableObject {
     }
 
     func clearConversationMessages(id: UUID) {
-        guard let index = conversations.firstIndex(where: { $0.id == id }) else {
-            return
-        }
-        for attachment in conversations[index].messages.compactMap(\.attachment) {
-            try? attachmentStore.deleteAttachment(id: attachment.id)
-        }
+        guard authorizeUserAction(), let index = conversations.firstIndex(where: { $0.id == id }) else { return }
+        let previous = conversations
+        let removed = conversations[index].messages.compactMap(\.attachment)
         conversations[index].messages.removeAll()
         conversations[index].conversation.updatedAt = Date()
         sortConversations()
-        persistConversations()
+        guard commitConversationMutation(previous: previous) else { return }
+        reclaimUnreferencedAttachments(removed)
     }
 
     func markConversationRead(id: UUID) {
+        guard authorizeUserAction() else { return }
         guard let conversationIndex = conversations.firstIndex(where: { $0.id == id }) else {
             return
         }
@@ -472,6 +581,7 @@ final class ConversationService: ObservableObject {
     }
 
     func markAllConversationsRead() {
+        guard authorizeUserAction() else { return }
         var didChange = false
         let now = Date()
         for conversationIndex in conversations.indices {
@@ -501,29 +611,30 @@ final class ConversationService: ObservableObject {
     }
 
     func retryMessage(messageID: UUID, conversationID: UUID) async {
+        guard authorizeUserAction(), let sessionID = currentUserSessionID else { return }
         do {
-            try await deliverOutboundMessage(messageID: messageID, conversationID: conversationID)
+            try await deliverOutboundMessage(messageID: messageID, conversationID: conversationID, sessionID: sessionID)
+            try ensureUserSession(sessionID)
             lastErrorMessage = nil
         } catch {
+            guard isCurrentUserSession(sessionID) else { return }
             lastErrorMessage = error.localizedDescription
         }
     }
 
     func deleteMessage(messageID: UUID, conversationID: UUID) {
-        guard let conversationIndex = conversations.firstIndex(where: { $0.id == conversationID }) else {
-            return
-        }
-        if let attachmentID = conversations[conversationIndex].messages
-            .first(where: { $0.id == messageID })?.attachment?.id {
-            try? attachmentStore.deleteAttachment(id: attachmentID)
-        }
-        conversations[conversationIndex].messages.removeAll { $0.id == messageID }
-        conversations[conversationIndex].conversation.updatedAt = conversations[conversationIndex].messages.last?.createdAt ?? Date()
+        guard authorizeUserAction(), let index = conversations.firstIndex(where: { $0.id == conversationID }) else { return }
+        let previous = conversations
+        let removed = conversations[index].messages.filter { $0.id == messageID }.compactMap(\.attachment)
+        conversations[index].messages.removeAll { $0.id == messageID }
+        conversations[index].conversation.updatedAt = conversations[index].messages.last?.createdAt ?? Date()
         sortConversations()
-        persistConversations()
+        guard commitConversationMutation(previous: previous) else { return }
+        reclaimUnreferencedAttachments(removed)
     }
 
     func toggleMessageStarred(messageID: UUID, conversationID: UUID) {
+        guard authorizeUserAction() else { return }
         guard let conversationIndex = conversations.firstIndex(where: { $0.id == conversationID }),
               let messageIndex = conversations[conversationIndex].messages.firstIndex(where: { $0.id == messageID }) else {
             return
@@ -532,17 +643,32 @@ final class ConversationService: ObservableObject {
         persistConversations()
     }
 
-    func sendMessage(conversationID: UUID, body: String) async {
+    @discardableResult
+    func sendMessage(conversationID: UUID, body: String) async -> Bool {
+        guard authorizeUserAction(), let sessionID = currentUserSessionID else { return false }
         let normalizedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
         guard normalizedBody.isEmpty == false else {
-            return
+            return false
         }
 
         guard let index = conversations.firstIndex(where: { $0.id == conversationID }) else {
-            return
+            return false
         }
 
+        guard normalizedBody.utf8.count <= 16_384 else {
+            lastErrorMessage = "Die Nachricht ist zu lang. Bitte auf mehrere Nachrichten aufteilen."
+            return false
+        }
+        guard !RelayWireCoding.hasUnsupportedTextControls(normalizedBody) else {
+            lastErrorMessage = "Die Nachricht enthält nicht unterstützte Steuerzeichen."
+            return false
+        }
         let conversation = conversations[index].conversation
+        if let peerID = conversation.peerID {
+            do { _ = try verifiedPeer(id: peerID) }
+            catch { lastErrorMessage = error.localizedDescription; return false }
+        }
+        let previous = conversations
         let message = ChatMessage(
             conversationID: conversationID,
             senderID: localIdentity.id,
@@ -555,17 +681,22 @@ final class ConversationService: ObservableObject {
         conversations[index].messages.append(message)
         conversations[index].conversation.updatedAt = message.createdAt
         sortConversations()
-        persistConversations()
+        guard persistConversations() else { conversations = previous; return false }
+        deleteDraft(conversationID: conversationID)
         lastTransportDiagnosticMessage = transportDiagnosticSummary()
 
         do {
-            try await deliverOutboundMessage(messageID: message.id, conversationID: conversationID)
+            try await deliverOutboundMessage(messageID: message.id, conversationID: conversationID, sessionID: sessionID)
+            try ensureUserSession(sessionID)
             lastErrorMessage = nil
         } catch {
+            guard isCurrentUserSession(sessionID) else { return false }
             lastErrorMessage = error.localizedDescription
         }
+        return true // Accepted into the encrypted outbox, even if the relay is offline.
     }
 
+    @discardableResult
     func sendAttachment(
         conversationID: UUID,
         body: String,
@@ -573,30 +704,44 @@ final class ConversationService: ObservableObject {
         kind: ChatAttachmentKind,
         fileName: String,
         mimeType: String
-    ) async {
+    ) async -> Bool {
+        guard authorizeUserAction(), let sessionID = currentUserSessionID else { return false }
         let normalizedFileName = fileName.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedMIMEType = mimeType.trimmingCharacters(in: .whitespacesAndNewlines)
         guard data.isEmpty == false else {
             lastErrorMessage = PrivateChatError.attachmentUnavailable.localizedDescription
-            return
+            return false
         }
         guard data.count <= Self.maximumAttachmentBytes else {
             lastErrorMessage = PrivateChatError.attachmentTooLarge(
                 maximumBytes: Self.maximumAttachmentBytes
             ).localizedDescription
-            return
+            return false
         }
         guard normalizedFileName.isEmpty == false,
               normalizedFileName.utf8.count <= 255,
               normalizedMIMEType.isEmpty == false,
               normalizedMIMEType.utf8.count <= 128 else {
             lastErrorMessage = PrivateChatError.unsupportedAttachment.localizedDescription
-            return
+            return false
         }
         guard let index = conversations.firstIndex(where: { $0.id == conversationID }) else {
-            return
+            return false
         }
 
+        guard body.utf8.count <= 16_384 else {
+            lastErrorMessage = "Die Nachricht ist zu lang."
+            return false
+        }
+        guard !RelayWireCoding.hasUnsupportedTextControls(body) else {
+            lastErrorMessage = "Die Nachricht enthält nicht unterstützte Steuerzeichen."
+            return false
+        }
+        if let peerID = conversations[index].conversation.peerID {
+            do { _ = try verifiedPeer(id: peerID) }
+            catch { lastErrorMessage = error.localizedDescription; return false }
+        }
+        let previous = conversations
         let attachment = ChatAttachment(
             id: UUID(),
             kind: kind,
@@ -608,8 +753,9 @@ final class ConversationService: ObservableObject {
         do {
             try attachmentStore.saveAttachment(id: attachment.id, data: data)
         } catch {
+            guard isCurrentUserSession(sessionID) else { return false }
             lastErrorMessage = error.localizedDescription
-            return
+            return false
         }
 
         let conversation = conversations[index].conversation
@@ -625,18 +771,27 @@ final class ConversationService: ObservableObject {
         conversations[index].messages.append(message)
         conversations[index].conversation.updatedAt = message.createdAt
         sortConversations()
-        persistConversations()
+        guard persistConversations() else {
+            conversations = previous
+            try? attachmentStore.deleteAttachment(id: attachment.id)
+            return false
+        }
+        deleteDraft(conversationID: conversationID)
 
         do {
-            try await deliverOutboundMessage(messageID: message.id, conversationID: conversationID)
+            try await deliverOutboundMessage(messageID: message.id, conversationID: conversationID, sessionID: sessionID)
+            try ensureUserSession(sessionID)
             lastErrorMessage = nil
         } catch {
+            guard isCurrentUserSession(sessionID) else { return false }
             lastErrorMessage = error.localizedDescription
         }
+        return true
     }
 
     func attachmentData(for attachment: ChatAttachment) throws -> Data {
-        try attachmentStore.loadAttachment(id: attachment.id)
+        _ = try requireUserSession()
+        return try attachmentStore.loadAttachment(id: attachment.id)
     }
 
     func syncRelayInbox() async {
@@ -647,7 +802,12 @@ final class ConversationService: ObservableObject {
         await retryPendingOutboundMessages(showEmptyResult: true)
     }
 
+    func retryPendingOutboundMessages(conversationID: UUID) async {
+        await retryPendingOutboundMessages(showEmptyResult: true, conversationID: conversationID)
+    }
+
     func fetchRelayStats() async {
+        guard authorizeUserAction(), let sessionID = currentUserSessionID else { return }
         guard isRelayStatsRunning == false else {
             return
         }
@@ -666,10 +826,11 @@ final class ConversationService: ObservableObject {
         }
 
         isRelayStatsRunning = true
-        defer { isRelayStatsRunning = false }
+        defer { if userSessionGeneration == sessionID { isRelayStatsRunning = false } }
 
         do {
             let response = try await transportCoordinator.fetchRelayStats(relayConfiguration: securityState.relayConfiguration)
+            try ensureUserSession(sessionID)
             lastRelayStatsSnapshot = RelayStatsSnapshot(
                 storedPackets: response.storedPackets,
                 activeRecipients: response.activeRecipients,
@@ -679,11 +840,13 @@ final class ConversationService: ObservableObject {
             registerRelaySuccess(message: "Relay-Stats aktualisiert: \(response.storedPackets) Pakete, \(response.activeRecipients) Empfänger, \(response.acknowledgedPacketTombstones) ACK-Tombstones.")
             lastErrorMessage = nil
         } catch {
+            guard isCurrentUserSession(sessionID) else { return }
             registerRelayFailure(error, showUserFacingError: true, context: "Relay-Stats")
         }
     }
 
     func purgeRelayInbox() async {
+        guard authorizeUserAction(), let sessionID = currentUserSessionID else { return }
         guard isRelayPurgeRunning == false else {
             return
         }
@@ -702,63 +865,54 @@ final class ConversationService: ObservableObject {
         }
 
         isRelayPurgeRunning = true
-        defer { isRelayPurgeRunning = false }
+        defer { if userSessionGeneration == sessionID { isRelayPurgeRunning = false } }
 
         do {
             let response = try await transportCoordinator.purgeRelayInbox(recipientID: localIdentity.id, relayConfiguration: securityState.relayConfiguration)
+            try ensureUserSession(sessionID)
             lastRelayPurgeSummary = RelayPurgeSummary(deletedCount: response.deletedCount, recipientID: response.recipientID, completedAt: Date())
             registerRelaySuccess(message: "Relay-Inbox bereinigt: \(response.deletedCount) Paket(e) für diese Identität entfernt.")
             await fetchRelayStats()
+            try ensureUserSession(sessionID)
             lastErrorMessage = nil
         } catch {
+            guard isCurrentUserSession(sessionID) else { return }
             registerRelayFailure(error, showUserFacingError: true, context: "Relay-Inbox bereinigen")
         }
     }
 
     func purgeExpiredLocalMessages() {
-        guard isLocalRetentionPurgeRunning == false else {
-            return
-        }
-
+        guard authorizeUserAction(), isLocalRetentionPurgeRunning == false else { return }
         isLocalRetentionPurgeRunning = true
         defer { isLocalRetentionPurgeRunning = false }
-
+        let previous = conversations
         let cutoff = Date().addingTimeInterval(-TimeInterval(securityState.localMessageRetentionDays) * 86_400)
+        var removed: [ChatAttachment] = []
         var deletedMessages = 0
-        let originalConversationCount = conversations.count
-
         for index in conversations.indices {
-            let originalMessageCount = conversations[index].messages.count
-            let expiredAttachments = conversations[index].messages
-                .filter { $0.createdAt < cutoff }
-                .compactMap(\.attachment)
-            for attachment in expiredAttachments {
-                try? attachmentStore.deleteAttachment(id: attachment.id)
-            }
+            removed += conversations[index].messages.filter { $0.createdAt < cutoff }.compactMap(\.attachment)
+            let originalCount = conversations[index].messages.count
             conversations[index].messages.removeAll { $0.createdAt < cutoff }
-            let newMessageCount = conversations[index].messages.count
-            deletedMessages += originalMessageCount - newMessageCount
+            deletedMessages += originalCount - conversations[index].messages.count
             conversations[index].conversation.updatedAt = conversations[index].messages.last?.createdAt ?? conversations[index].conversation.updatedAt
         }
-
-        conversations.removeAll { storedConversation in
-            storedConversation.messages.isEmpty && storedConversation.conversation.createdAt < cutoff
-        }
-
-        let deletedConversations = originalConversationCount - conversations.count
+        conversations.removeAll { $0.messages.isEmpty && $0.conversation.createdAt < cutoff }
         sortConversations()
-        persistConversations()
+        guard commitConversationMutation(previous: previous) else { return }
+        reclaimUnreferencedAttachments(removed)
+        let deletedConversations = previous.count - conversations.count
         lastLocalRetentionSummary = LocalRetentionSummary(deletedMessages: deletedMessages, deletedConversations: deletedConversations, completedAt: Date())
         lastTransportDiagnosticMessage = "Lokale Retention bereinigt: \(deletedMessages) Nachricht(en), \(deletedConversations) leere Chat(s) gelöscht."
     }
 
     func checkRelayHealth() async {
+        guard authorizeUserAction(), let sessionID = currentUserSessionID else { return }
         guard isRelayHealthCheckRunning == false else {
             return
         }
 
         isRelayHealthCheckRunning = true
-        defer { isRelayHealthCheckRunning = false }
+        defer { if userSessionGeneration == sessionID { isRelayHealthCheckRunning = false } }
         lastTransportDiagnosticMessage = "Relay-Prüfung gestartet. \(transportDiagnosticSummary())"
         guard shouldBlockRelayForRuntimeRisk(showUserFacingError: true, context: "Relay-Prüfung") == false else {
             return
@@ -769,18 +923,23 @@ final class ConversationService: ObservableObject {
 
         do {
             let status = try await transportCoordinator.checkRelayHealth(relayConfiguration: securityState.relayConfiguration)
+            try ensureUserSession(sessionID)
             registerRelaySuccess(message: "Relay-Prüfung erfolgreich. \(transportDiagnosticSummary())")
             lastRelayHealthMessage = status.isHealthy
                 ? "Relay erreichbar. Policy: \(status.hardeningSummary)"
                 : "Relay antwortet unerwartet: \(status.status)"
             lastErrorMessage = nil
         } catch {
+            guard isCurrentUserSession(sessionID) else { return }
             lastRelayHealthMessage = nil
             registerRelayFailure(error, showUserFacingError: true, context: "Relay-Prüfung")
         }
     }
 
-    func importPeer(from encodedPayload: String) {
+    @discardableResult
+    func importPeer(from encodedPayload: String) -> Bool {
+        guard authorizeUserAction() else { return false }
+        let previousPeers = trustedPeers
         do {
             let peer = try identityManager.importPairingPayload(encodedPayload)
             guard peer.id != localIdentity.id else {
@@ -825,8 +984,15 @@ final class ConversationService: ObservableObject {
             // blocked peer does not accidentally
             // end up with a v2 envelope.
             registerRatchetChannelForPeer(peer, encodedPayload: encodedPayload)
+            return lastErrorMessage == nil
         } catch {
+            let undurableBlock = trustedPeers.contains { peer in
+                peer.trustState == .blocked && previousPeers.contains { $0.id == peer.id && $0.trustState != .blocked }
+            }
+            if undurableBlock { failClosedForUndurableSecurityState() }
+            else { trustedPeers = previousPeers }
             lastErrorMessage = error.localizedDescription
+            return false
         }
     }
 
@@ -910,69 +1076,108 @@ final class ConversationService: ObservableObject {
         }
     }
 
-    func verifyPeer(id: String) {
-        guard let index = trustedPeers.firstIndex(where: { $0.id == id }) else {
-            return
+    @discardableResult
+    func verifyPeer(id: String) -> Bool {
+        guard authorizeUserAction() else { return false }
+        guard let index = trustedPeers.firstIndex(where: { $0.id == id }),
+              trustedPeers[index].trustState != .blocked,
+              let signing = Data(base64Encoded: trustedPeers[index].signingPublicKeyBase64), signing.count == 32,
+              let agreement = Data(base64Encoded: trustedPeers[index].keyAgreementPublicKeyBase64), agreement.count == 32 else {
+            lastErrorMessage = PrivateChatError.peerNotTrusted.localizedDescription
+            return false
         }
-        guard trustedPeers[index].safetyNumber.hasPrefix("SC2 ") else {
+        let expected = SafetyNumberV3.make(
+            localSigningPublicKeyData: localIdentity.signingPublicKeyData,
+            localKeyAgreementPublicKeyData: localIdentity.keyAgreementPublicKeyData,
+            remoteSigningPublicKeyData: signing,
+            remoteKeyAgreementPublicKeyData: agreement
+        )
+        guard trustedPeers[index].safetyNumber == expected, expected.hasPrefix("SC3 ") else {
             trustedPeers[index].trustState = .unverified
             trustedPeers[index].lastVerifiedAt = nil
-            persistPeers()
-            lastErrorMessage = "Dieser Kontakt verwendet noch eine alte Safety Number. Bitte den Pairing-Code erneut importieren und die neue SC2 Safety Number vergleichen."
-            return
+            _ = persistPeers()
+            lastErrorMessage = "Bitte den neuen Kontakt-Code importieren und die SC3 Sicherheitsnummer auf beiden Geräten vergleichen."
+            return false
         }
+        let previous = trustedPeers[index]
         trustedPeers[index].trustState = .verified
         trustedPeers[index].lastVerifiedAt = Date()
-        persistPeers()
+        guard persistPeers() else { trustedPeers[index] = previous; return false }
+        return true
     }
 
     func blockPeer(id: String) {
-        guard let index = trustedPeers.firstIndex(where: { $0.id == id }) else {
-            return
-        }
+        guard authorizeUserAction(), let index = trustedPeers.firstIndex(where: { $0.id == id }) else { return }
         trustedPeers[index].trustState = .blocked
         trustedPeers[index].lastVerifiedAt = nil
-        persistPeers()
+        guard persistPeers() else {
+            // Retain the block in memory and stop all sensitive operations
+            // until this exact blocked state can be durably persisted.
+            failClosedForUndurableSecurityState()
+            return
+        }
         revokeExperimentalRatchetState(peerID: id)
     }
 
     func unblockPeerAsUnverified(id: String) {
-        guard let index = trustedPeers.firstIndex(where: { $0.id == id }) else {
-            return
-        }
+        guard authorizeUserAction(), let index = trustedPeers.firstIndex(where: { $0.id == id }) else { return }
+        let previous = trustedPeers[index]
         trustedPeers[index].trustState = .unverified
         trustedPeers[index].lastVerifiedAt = nil
-        persistPeers()
+        guard persistPeers() else { trustedPeers[index] = previous; return }
         revokeExperimentalRatchetState(peerID: id)
     }
 
     func deletePeer(id: String) {
+        guard authorizeUserAction() else { return }
+        let previousPeers = trustedPeers
+        let previousConversations = conversations
+        let removed = conversations.filter { $0.conversation.peerID == id }.flatMap { $0.messages.compactMap(\.attachment) }
         trustedPeers.removeAll { $0.id == id }
+        guard persistPeers() else {
+            trustedPeers = previousPeers
+            failClosedForUndurableSecurityState()
+            return
+        }
         conversations.removeAll { $0.conversation.peerID == id }
-        persistPeers()
-        persistConversations()
+        guard persistConversations() else {
+            let error = lastErrorMessage
+            conversations = previousConversations
+            trustedPeers = previousPeers
+            if !persistPeers() { failClosedForUndurableSecurityState() }
+            else { lastErrorMessage = error }
+            return
+        }
+        reclaimUnreferencedAttachments(removed)
         revokeExperimentalRatchetState(peerID: id)
     }
 
     func makeLocalPairingCode() throws -> String {
-        try identityManager.exportPairingPayload(identity: localIdentity)
+        _ = try requireUserSession()
+        return try identityManager.exportPairingPayload(identity: localIdentity)
     }
 
     func exportLocalPairingCode() -> String {
         (try? makeLocalPairingCode()) ?? ""
     }
 
-    func updateLocalDisplayName(_ displayName: String) {
+    @discardableResult
+    func updateLocalDisplayName(_ displayName: String) -> Bool {
+        guard authorizeUserAction() else { return false }
         do {
             localIdentity = try identityManager.updateDisplayName(displayName, identity: localIdentity)
             lastTransportDiagnosticMessage = "Anzeigename aktualisiert. Der neue Name wird im nächsten Pairing-Code verwendet."
             lastErrorMessage = nil
+            return true
         } catch {
             lastErrorMessage = "Anzeigename konnte nicht gespeichert werden: \(error.localizedDescription)"
+            return false
         }
     }
 
-    func updateSecurityState(_ state: AppSecurityState) {
+    @discardableResult
+    func updateSecurityState(_ state: AppSecurityState) -> Bool {
+        guard authorizeUserAction() else { return false }
         do {
             let migratedState = state.migratedForSecureChatProduction()
             try settingsStore.save(migratedState)
@@ -986,9 +1191,26 @@ final class ConversationService: ObservableObject {
             }
             lastTransportDiagnosticMessage = transportDiagnosticSummary(for: migratedState)
             lastErrorMessage = nil
+            return true
         } catch {
             lastErrorMessage = error.localizedDescription
+            return false
         }
+    }
+
+    @discardableResult
+    func enablePrivateRoomRelay() async -> Bool {
+        guard authorizeUserAction(), let sessionID = currentUserSessionID else { return false }
+        var state = securityState
+        state.transportMode = .relayAllowed
+        state.relayConfiguration.isEnabled = true
+        state.relayConfiguration.baseURLString = SecureChatProductionProfile.relayBaseURLString
+        state.relayConfiguration.registrationToken = nil
+        state.relayConfiguration.verboseRelayLogging = false
+        guard updateSecurityState(state) else { return false }
+        let enrolled = await enrollLocalPeerIfNeeded()
+        guard isCurrentUserSession(sessionID) else { return false }
+        return enrolled
     }
 
     func verifiedPeers() -> [TrustedPeer] {
@@ -1005,6 +1227,7 @@ final class ConversationService: ObservableObject {
     }
 
     func renameConversation(id: UUID, title: String) {
+        guard authorizeUserAction() else { return }
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmedTitle.isEmpty == false,
               let index = conversations.firstIndex(where: { $0.id == id }) else {
@@ -1017,6 +1240,7 @@ final class ConversationService: ObservableObject {
     }
 
     func appDiagnosticsReport() -> String {
+        guard authorizeUserAction() else { return "" }
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
         formatter.timeStyle = .medium
@@ -1134,8 +1358,9 @@ final class ConversationService: ObservableObject {
         )
     }
     func exportTranscript(for conversationID: UUID) -> String {
+        guard authorizeUserAction() else { return "" }
         guard let storedConversation = conversations.first(where: { $0.id == conversationID }) else {
-            return "PrivateChat Export\nChat nicht gefunden."
+            return "PrivateRoom Export\nChat nicht gefunden."
         }
 
         let formatter = DateFormatter()
@@ -1143,7 +1368,7 @@ final class ConversationService: ObservableObject {
         formatter.timeStyle = .short
 
         var lines: [String] = []
-        lines.append("PrivateChat Export")
+        lines.append("PrivateRoom Export")
         lines.append("Chat: \(storedConversation.conversation.title)")
         lines.append("Chat-ID: \(storedConversation.id.uuidString)")
         if let peerID = storedConversation.conversation.peerID {
@@ -1175,6 +1400,7 @@ final class ConversationService: ObservableObject {
     }
 
     func compactRelayLedger() {
+        guard authorizeUserAction() else { return }
         relayPacketLedger.compact(maxEntries: 500, maxDeliveryReceipts: 500)
         persistRelayPacketLedger()
         lastTransportDiagnosticMessage = "Relay-Ledger kompaktiert: \(relayPacketLedger.entries.count) Pakete, \(relayPacketLedger.deliveryReceipts.count) Receipts bleiben gespeichert."
@@ -1182,6 +1408,7 @@ final class ConversationService: ObservableObject {
     }
 
     func clearRelayLedger() {
+        guard authorizeUserAction() else { return }
         relayPacketLedger = .empty
         persistRelayPacketLedger()
         lastTransportDiagnosticMessage = "Lokales Relay-Ledger gelöscht. Neue Relay-Pakete werden wieder frisch bewertet."
@@ -1189,6 +1416,7 @@ final class ConversationService: ObservableObject {
     }
 
     func resetRelayConnectivityBackoff() {
+        guard authorizeUserAction() else { return }
         relayConnectivityStatus = .healthy
         refreshSecurityAIAssessment()
         lastTransportDiagnosticMessage = "Relay-Backoff zurückgesetzt. Nächster Sync versucht wieder sofort eine Verbindung."
@@ -1252,6 +1480,7 @@ final class ConversationService: ObservableObject {
 
 
     private func syncRelayInbox(showDisabledError: Bool) async {
+        guard authorizeUserAction(), let sessionID = currentUserSessionID else { return }
         guard securityState.transportMode == .relayAllowed, securityState.relayConfiguration.isEnabled else {
             guard showDisabledError else {
                 return
@@ -1275,7 +1504,7 @@ final class ConversationService: ObservableObject {
         }
 
         isRelaySyncRunning = true
-        defer { isRelaySyncRunning = false }
+        defer { if userSessionGeneration == sessionID { isRelaySyncRunning = false } }
         lastTransportDiagnosticMessage = "Relay-Inbox-Abruf gestartet. \(transportDiagnosticSummary())"
 
         do {
@@ -1283,6 +1512,7 @@ final class ConversationService: ObservableObject {
                 recipientID: localIdentity.id,
                 relayConfiguration: securityState.relayConfiguration
             )
+            try ensureUserSession(sessionID)
             var processedCount = 0
             var duplicateCount = 0
             var rejectedCount = 0
@@ -1292,6 +1522,8 @@ final class ConversationService: ObservableObject {
             var deliveryReceiptFailureCount = 0
 
             for packet in packets {
+                try ensureUserSession(sessionID)
+                guard !Task.isCancelled else { return }
                 if relayPacketLedger.wasAcknowledged(packetID: packet.id) {
                     duplicateCount += 1
                     continue
@@ -1308,36 +1540,49 @@ final class ConversationService: ObservableObject {
 
                     if let receiptContext = result.deliveryReceiptContext {
                         do {
-                            let didSendReceipt = try await sendDeliveryReceiptIfNeeded(for: receiptContext)
+                            let didSendReceipt = try await sendDeliveryReceiptIfNeeded(for: receiptContext, sessionID: sessionID)
+                            try ensureUserSession(sessionID)
                             if didSendReceipt {
                                 deliveryReceiptSentCount += 1
                             }
                         } catch {
+                            guard isCurrentUserSession(sessionID) else { return }
                             deliveryReceiptFailureCount += 1
                             lastTransportDiagnosticMessage = "Delivery-Receipt fehlgeschlagen für Nachricht \(receiptContext.originalMessageID.uuidString): \(error.localizedDescription)"
                         }
                     }
                 } catch {
+                    guard isCurrentUserSession(sessionID) else { return }
                     rejectedCount += 1
+                    // Unverified, malformed or not durably saved messages stay
+                    // available until the relay's bounded expiry policy applies.
+                    continue
                 }
 
+                try ensureUserSession(sessionID)
+                _ = relayPacketLedger.registerSeen(packetID: packet.id)
+                try relayPacketLedgerStore.save(relayPacketLedger)
                 guard relayPacketLedger.shouldAttemptAcknowledgement(packetID: packet.id) else {
                     duplicateCount += 1
                     continue
                 }
 
                 do {
-                    try await waitForRelayBulkRequestRateSlot()
+                    try await waitForRelayBulkRequestRateSlot(sessionID)
+                    try ensureUserSession(sessionID)
                     _ = try await transportCoordinator.deleteRelayPacket(packetID: packet.id, relayConfiguration: securityState.relayConfiguration)
+                    try ensureUserSession(sessionID)
                     acknowledgedCount += 1
                     relayPacketLedger.registerAcknowledged(packetID: packet.id)
                     persistRelayPacketLedger()
                 } catch {
+                    guard isCurrentUserSession(sessionID) else { return }
                     acknowledgementFailureCount += 1
                     lastTransportDiagnosticMessage = "Relay-ACK fehlgeschlagen für Paket \(packet.id.uuidString): \(error.localizedDescription)"
                 }
             }
 
+            try ensureUserSession(sessionID)
             registerRelaySuccess(message: nil)
 
             lastRelaySyncSummary = RelayInboxSyncSummary(
@@ -1355,11 +1600,13 @@ final class ConversationService: ObservableObject {
                 lastErrorMessage = nil
             }
         } catch {
+            guard isCurrentUserSession(sessionID) else { return }
             registerRelayFailure(error, showUserFacingError: showDisabledError, context: "Relay-Inbox-Abruf")
         }
     }
 
-    private func retryPendingOutboundMessages(showEmptyResult: Bool) async {
+    private func retryPendingOutboundMessages(showEmptyResult: Bool, conversationID: UUID? = nil) async {
+        guard authorizeUserAction(), let sessionID = currentUserSessionID else { return }
         guard isOutboxRetryRunning == false else {
             return
         }
@@ -1384,7 +1631,7 @@ final class ConversationService: ObservableObject {
             return
         }
 
-        let pendingMessages = pendingOutboundMessageReferences()
+        let pendingMessages = pendingOutboundMessageReferences().filter { conversationID == nil || $0.conversationID == conversationID }
         guard pendingMessages.isEmpty == false else {
             if showEmptyResult {
                 lastOutboxRetrySummary = OutboxRetrySummary(attemptedCount: 0, sentCount: 0, failedCount: 0, completedAt: Date())
@@ -1395,22 +1642,26 @@ final class ConversationService: ObservableObject {
         }
 
         isOutboxRetryRunning = true
-        defer { isOutboxRetryRunning = false }
+        defer { if userSessionGeneration == sessionID { isOutboxRetryRunning = false } }
 
         var attemptedCount = 0
         var sentCount = 0
         var failedCount = 0
 
         for reference in pendingMessages {
+            guard isCurrentUserSession(sessionID) else { return }
             attemptedCount += 1
             do {
-                try await deliverOutboundMessage(messageID: reference.messageID, conversationID: reference.conversationID)
+                try await deliverOutboundMessage(messageID: reference.messageID, conversationID: reference.conversationID, sessionID: sessionID)
+                try ensureUserSession(sessionID)
                 sentCount += 1
             } catch {
+                guard isCurrentUserSession(sessionID) else { return }
                 failedCount += 1
             }
         }
 
+        guard isCurrentUserSession(sessionID) else { return }
         lastOutboxRetrySummary = OutboxRetrySummary(
             attemptedCount: attemptedCount,
             sentCount: sentCount,
@@ -1436,7 +1687,8 @@ final class ConversationService: ObservableObject {
         }
     }
 
-    private func deliverOutboundMessage(messageID: UUID, conversationID: UUID) async throws {
+    private func deliverOutboundMessage(messageID: UUID, conversationID: UUID, sessionID: UUID) async throws {
+        try ensureUserSession(sessionID)
         guard let context = outboundMessageContext(messageID: messageID, conversationID: conversationID) else {
             return
         }
@@ -1448,6 +1700,10 @@ final class ConversationService: ObservableObject {
         }
 
         if securityState.transportMode == .relayAllowed {
+            if shouldPauseRelayRequests(showUserFacingError: false) {
+                markMessage(messageID, in: conversationID, status: .queued)
+                return // Durable outbox acceptance; retry only after the backoff.
+            }
             if shouldBlockRelayForRuntimeRisk(showUserFacingError: true, context: "Nachricht senden") {
                 markMessage(messageID, in: conversationID, status: .failed)
                 throw PrivateChatError.runtimeIntegrityBlocked(runtimeSecuritySnapshot.localizedSummary)
@@ -1473,6 +1729,10 @@ final class ConversationService: ObservableObject {
                     Int(ceil(Double(data.count) / Double(Self.attachmentChunkBytes)))
                 )
                 for chunkIndex in 0..<totalChunks {
+                    try ensureUserSession(sessionID)
+                    guard outboundMessageContext(messageID: messageID, conversationID: conversationID) != nil else {
+                        throw PrivateChatError.duplicateMessage
+                    }
                     let lowerBound = chunkIndex * Self.attachmentChunkBytes
                     let upperBound = min(lowerBound + Self.attachmentChunkBytes, data.count)
                     let chunk = data.subdata(in: lowerBound..<upperBound)
@@ -1493,9 +1753,9 @@ final class ConversationService: ObservableObject {
                         chunkDataBase64: chunk.base64EncodedString()
                     )
                     if securityState.transportMode == .relayAllowed {
-                        try await waitForRelayBulkRequestRateSlot()
+                        try await waitForRelayBulkRequestRateSlot(sessionID)
                     }
-                    try await sendTransportPayload(payload, peerID: peerID)
+                    try await sendTransportPayload(payload, peerID: peerID, sessionID: sessionID)
                 }
             } else {
                 let payload = TransportMessagePayload(
@@ -1509,7 +1769,11 @@ final class ConversationService: ObservableObject {
                     createdAt: context.message.createdAt,
                     deliveredMessageID: nil
                 )
-                try await sendTransportPayload(payload, peerID: peerID)
+                try await sendTransportPayload(payload, peerID: peerID, sessionID: sessionID)
+            }
+            try ensureUserSession(sessionID)
+            guard outboundMessageContext(messageID: messageID, conversationID: conversationID) != nil else {
+                throw PrivateChatError.duplicateMessage
             }
             let finalStatus: MessageDeliveryStatus = securityState.transportMode == .relayAllowed ? .sentToRelay : .sent
             markMessage(messageID, in: conversationID, status: finalStatus)
@@ -1519,13 +1783,15 @@ final class ConversationService: ObservableObject {
                 lastTransportDiagnosticMessage = "Nachricht wurde an den lokalen Transport übergeben."
             }
         } catch {
+            guard isCurrentUserSession(sessionID) else { throw SessionAccessError.locked }
             markMessage(messageID, in: conversationID, status: .failed)
             registerRelayFailure(error, showUserFacingError: true, context: "Nachricht senden")
             throw error
         }
     }
 
-    private func sendTransportPayload(_ payload: TransportMessagePayload, peerID: String) async throws {
+    private func sendTransportPayload(_ payload: TransportMessagePayload, peerID: String, sessionID: UUID) async throws {
+        try ensureUserSession(sessionID)
         let stablePacketID: UUID?
         if payload.kind == .attachmentChunk, let chunkIndex = payload.chunkIndex {
             stablePacketID = AttachmentPacketIdentifier.make(
@@ -1559,14 +1825,17 @@ final class ConversationService: ObservableObject {
             packet = v1Packet
             ratchetObservations.append(ratchetRouter.v1FallbackObservation(peerID: peerID))
         }
+        try ensureUserSession(sessionID)
         try await transportCoordinator.send(
             packet,
             mode: securityState.transportMode,
             relayConfiguration: securityState.relayConfiguration
         )
+        try ensureUserSession(sessionID)
     }
 
-    private func waitForRelayBulkRequestRateSlot() async throws {
+    private func waitForRelayBulkRequestRateSlot(_ sessionID: UUID) async throws {
+        try ensureUserSession(sessionID)
         let now = Date()
         let scheduledAt = max(now, nextRelayBulkRequestAt)
         nextRelayBulkRequestAt = scheduledAt.addingTimeInterval(
@@ -1577,6 +1846,7 @@ final class ConversationService: ObservableObject {
         try await Task.sleep(
             nanoseconds: UInt64(waitSeconds * 1_000_000_000)
         )
+        try ensureUserSession(sessionID)
     }
 
     private func outboundMessageContext(messageID: UUID, conversationID: UUID) -> OutboundMessageContext? {
@@ -1701,6 +1971,8 @@ final class ConversationService: ObservableObject {
         switch privateChatError {
         case .relayTimedOut, .relayNoNetwork, .relayCannotConnectToHost, .relayConnectionLost, .relayRequestFailed:
             return true
+        case .relayHTTPError(let status, _):
+            return status == 429 || (500...599).contains(status)
         default:
             return false
         }
@@ -1730,6 +2002,7 @@ final class ConversationService: ObservableObject {
         recipientID: String,
         packetID requestedPacketID: UUID? = nil
     ) throws -> OutboundTransportPacket {
+        _ = try requireUserSession()
         let peer = try verifiedPeer(id: recipientID)
         guard let peerPublicKeyData = Data(base64Encoded: peer.keyAgreementPublicKeyBase64) else {
             throw PrivateChatError.invalidKeyMaterial
@@ -1738,6 +2011,9 @@ final class ConversationService: ObservableObject {
         let peerPublicKey = try Curve25519.KeyAgreement.PublicKey(rawRepresentation: peerPublicKeyData)
         let key = try makePairwiseKey(peerID: recipientID, peerPublicKey: peerPublicKey)
         let payloadData = try encoder.encode(payload)
+        guard payloadData.count <= RelayWireCoding.maximumSealedPayloadBytes - 28 else {
+            throw PrivateChatError.attachmentTooLarge(maximumBytes: Self.maximumAttachmentBytes)
+        }
         let packetID = requestedPacketID ?? UUID()
         let createdAt = Date()
         let expiresAt = createdAt.addingTimeInterval(86_400)
@@ -1776,6 +2052,7 @@ final class ConversationService: ObservableObject {
     }
 
     private func processInboundPacket(_ packet: OutboundTransportPacket) throws -> InboundPacketProcessResult {
+        _ = try requireUserSession()
         // Sprint 9D: accept both v1 (protocolVersion 2)
         // and v2 (protocolVersion 3) envelopes. v2
         // packets carry a RatchetChannelEnvelope in
@@ -1785,12 +2062,15 @@ final class ConversationService: ObservableObject {
         guard (packet.protocolVersion == 2 ||
                (Self.experimentalDoubleRatchetEnabled && packet.protocolVersion == 3)),
               packet.recipientID == localIdentity.id,
-              packet.senderID != localIdentity.id else {
+              packet.senderID != localIdentity.id,
+              packet.createdAt.timeIntervalSinceNow <= 300,
+              packet.expiresAt > Date(),
+              packet.expiresAt > packet.createdAt,
+              packet.expiresAt.timeIntervalSince(packet.createdAt) <= 86_400 else {
             throw PrivateChatError.invalidInboundPacket
         }
 
-        let wasSeenBefore = relayPacketLedger.registerSeen(packetID: packet.id)
-        persistRelayPacketLedger()
+        let wasSeenBefore = relayPacketLedger.entries.contains { $0.id == packet.id }
 
         if packet.protocolVersion == 3 {
             // v2 (Double Ratchet) path. Skip the
@@ -1838,7 +2118,7 @@ final class ConversationService: ObservableObject {
                 return InboundPacketProcessResult(didProcessMessage: false, isDuplicate: true, deliveryReceiptContext: duplicateReceiptContext)
             }
 
-            appendInboundMessage(payload: payload, peer: peer)
+            try appendInboundMessage(payload: payload, peer: peer)
             let newReceiptContext = relayPacketLedger.wasDeliveryReceiptSent(for: payload.messageID) ? nil : receiptContext
             return InboundPacketProcessResult(didProcessMessage: true, isDuplicate: wasSeenBefore, deliveryReceiptContext: newReceiptContext)
 
@@ -1881,7 +2161,8 @@ final class ConversationService: ObservableObject {
                 totalChunks: totalChunks,
                 data: chunk,
                 expectedByteCount: attachment.byteCount,
-                expectedSHA256: digest
+                expectedSHA256: digest,
+                transferContext: packet.senderID + "|" + conversationID.uuidString + "|" + payload.messageID.uuidString
             )
             guard completed else {
                 return InboundPacketProcessResult(
@@ -1891,7 +2172,7 @@ final class ConversationService: ObservableObject {
                 )
             }
 
-            appendInboundMessage(payload: payload, peer: peer)
+            try appendInboundMessage(payload: payload, peer: peer)
             let completedReceipt = relayPacketLedger.wasDeliveryReceiptSent(for: payload.messageID)
                 ? nil
                 : receiptContext
@@ -1905,12 +2186,13 @@ final class ConversationService: ObservableObject {
             guard let deliveredMessageID = payload.deliveredMessageID else {
                 throw PrivateChatError.invalidInboundPacket
             }
-            let didMarkDelivered = markDeliveredMessage(deliveredMessageID, from: payload.senderID)
+            let didMarkDelivered = try markDeliveredMessage(deliveredMessageID, from: payload.senderID)
             return InboundPacketProcessResult(didProcessMessage: didMarkDelivered, isDuplicate: wasSeenBefore || didMarkDelivered == false, deliveryReceiptContext: nil)
         }
     }
 
-    private func sendDeliveryReceiptIfNeeded(for context: DeliveryReceiptContext) async throws -> Bool {
+    private func sendDeliveryReceiptIfNeeded(for context: DeliveryReceiptContext, sessionID: UUID) async throws -> Bool {
+        try ensureUserSession(sessionID)
         guard securityState.transportMode == .relayAllowed, securityState.relayConfiguration.isEnabled else {
             return false
         }
@@ -1930,8 +2212,10 @@ final class ConversationService: ObservableObject {
             deliveredMessageID: context.originalMessageID
         )
         let packet = try makeTransportPacket(payload: payload, recipientID: context.originalSenderID)
-        try await waitForRelayBulkRequestRateSlot()
+        try await waitForRelayBulkRequestRateSlot(sessionID)
+        try ensureUserSession(sessionID)
         try await transportCoordinator.send(packet, mode: .relayAllowed, relayConfiguration: securityState.relayConfiguration)
+        try ensureUserSession(sessionID)
         relayPacketLedger.registerDeliveryReceiptSent(for: context.originalMessageID)
         persistRelayPacketLedger()
         return true
@@ -1996,7 +2280,7 @@ final class ConversationService: ObservableObject {
                 safetyNumber: ""
             )
         }
-        appendInboundMessage(payload: payload, peer: peer)
+        try appendInboundMessage(payload: payload, peer: peer)
         return InboundPacketProcessResult(
             didProcessMessage: true,
             isDuplicate: wasSeenBefore,
@@ -2004,7 +2288,8 @@ final class ConversationService: ObservableObject {
         )
     }
 
-    private func appendInboundMessage(payload: TransportMessagePayload, peer: TrustedPeer) {
+    private func appendInboundMessage(payload: TransportMessagePayload, peer: TrustedPeer) throws {
+        let previous = conversations
         let conversationIndex: Int
         if let existingIndex = conversations.firstIndex(where: { $0.conversation.peerID == peer.id }) {
             conversationIndex = existingIndex
@@ -2030,7 +2315,10 @@ final class ConversationService: ObservableObject {
         conversations[conversationIndex].messages.append(message)
         conversations[conversationIndex].conversation.updatedAt = max(Date(), payload.createdAt)
         sortConversations()
-        persistConversations()
+        guard persistConversations() else {
+            conversations = previous
+            throw PrivateChatError.persistenceFailed("Eingehende Nachricht konnte nicht sicher gespeichert werden.")
+        }
     }
 
     private func migratePeerSafetyNumbersIfNeeded() throws {
@@ -2040,22 +2328,25 @@ final class ConversationService: ObservableObject {
         for index in trustedPeers.indices {
             guard let remoteSigningPublicKeyData = Data(
                 base64Encoded: trustedPeers[index].signingPublicKeyBase64
-            ) else {
+            ), remoteSigningPublicKeyData.count == 32,
+                  let agreement = Data(base64Encoded: trustedPeers[index].keyAgreementPublicKeyBase64), agreement.count == 32 else {
                 trustedPeers[index].trustState = .blocked
                 trustedPeers[index].lastVerifiedAt = nil
                 didChange = true
                 continue
             }
 
-            let current = SafetyNumberV2.make(
+            let current = SafetyNumberV3.make(
                 localSigningPublicKeyData: localSigningPublicKeyData,
-                remoteSigningPublicKeyData: remoteSigningPublicKeyData
+                localKeyAgreementPublicKeyData: localIdentity.keyAgreementPublicKeyData,
+                remoteSigningPublicKeyData: remoteSigningPublicKeyData,
+                remoteKeyAgreementPublicKeyData: agreement
             )
             if trustedPeers[index].safetyNumber != current {
                 trustedPeers[index].safetyNumber = current
                 // A fingerprint algorithm change invalidates the old
                 // out-of-band verification. The user must compare the
-                // new SC2 value before messages can be sent again.
+                // new SC3 value before messages can be sent again.
                 if trustedPeers[index].trustState == .verified {
                     trustedPeers[index].trustState = .unverified
                     trustedPeers[index].lastVerifiedAt = nil
@@ -2117,7 +2408,7 @@ final class ConversationService: ObservableObject {
         persistConversations()
     }
 
-    private func markDeliveredMessage(_ messageID: UUID, from peerID: String) -> Bool {
+    private func markDeliveredMessage(_ messageID: UUID, from peerID: String) throws -> Bool {
         for conversationIndex in conversations.indices {
             guard let messageIndex = conversations[conversationIndex].messages.firstIndex(where: { message in
                 message.id == messageID &&
@@ -2127,16 +2418,21 @@ final class ConversationService: ObservableObject {
                 continue
             }
 
+            let previous = conversations
             conversations[conversationIndex].messages[messageIndex].status = .delivered
             conversations[conversationIndex].conversation.updatedAt = Date()
             sortConversations()
-            persistConversations()
+            guard commitConversationMutation(previous: previous) else {
+                throw PrivateChatError.persistenceFailed("Zustellbestätigung konnte nicht sicher gespeichert werden.")
+            }
             return true
         }
         return false
     }
 
-    private func resetInterruptedOutgoingMessages() {
+    @discardableResult
+    private func resetInterruptedOutgoingMessages() -> Bool {
+        let previous = conversations
         var didChange = false
         for conversationIndex in conversations.indices {
             for messageIndex in conversations[conversationIndex].messages.indices {
@@ -2148,8 +2444,9 @@ final class ConversationService: ObservableObject {
             }
         }
         if didChange {
-            persistConversations()
+            return commitConversationMutation(previous: previous)
         }
+        return true
     }
 
     private func sortConversations() {
@@ -2164,21 +2461,43 @@ final class ConversationService: ObservableObject {
         }
     }
 
-    private func persistConversations() {
-        do {
-            try messageStore.save(conversations)
-            lastErrorMessage = nil
-        } catch {
-            lastErrorMessage = error.localizedDescription
+    private func commitConversationMutation(previous: [StoredConversation]) -> Bool {
+        guard persistConversations() else {
+            conversations = previous
+            return false
+        }
+        return true
+    }
+
+    private func reclaimUnreferencedAttachments(_ removed: [ChatAttachment]) {
+        let retained = Set(conversations.flatMap { $0.messages.compactMap { $0.attachment?.id } })
+        for id in Set(removed.map(\.id)) where !retained.contains(id) {
+            do { try attachmentStore.deleteAttachment(id: id) }
+            catch { lastErrorMessage = "Die lokale Anhangsdatei konnte noch nicht gelöscht werden. " + error.localizedDescription }
         }
     }
 
-    private func persistPeers() {
+    @discardableResult
+    private func persistConversations() -> Bool {
+        do {
+            try messageStore.save(conversations)
+            lastErrorMessage = nil
+            return true
+        } catch {
+            lastErrorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    @discardableResult
+    private func persistPeers() -> Bool {
         do {
             try peerTrustStore.savePeers(trustedPeers)
             lastErrorMessage = nil
+            return true
         } catch {
             lastErrorMessage = error.localizedDescription
+            return false
         }
     }
 

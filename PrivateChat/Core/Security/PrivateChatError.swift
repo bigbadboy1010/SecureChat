@@ -79,13 +79,13 @@ enum PrivateChatError: LocalizedError, Equatable {
         case .relayDisabled:
             return "Relay-Modus ist deaktiviert. Aktiviere unter Einstellungen den Production-Relay."
         case .relayNotConfigured:
-            return "Relay ist nicht konfiguriert. Verwende Production \(SecureChatProductionProfile.relayBaseURLString) mit RELAY_AUTH_TOKEN aus /opt/securechat/.env."
+            return "Relay ist nicht konfiguriert. Verwende Production \(SecureChatProductionProfile.relayBaseURLString) und die Anmeldung mit deiner Geräteidentität."
         case .relayMissingClientToken:
-            return "RELAY_AUTH_TOKEN fehlt oder ist ungültig. Trage nur den Wert aus /opt/securechat/.env ein, nicht RELAY_ADMIN_TOKEN und nicht den kompletten KEY=VALUE-Text."
+            return "Der Zugangscode für deinen eigenen Server fehlt oder ist ungültig. PrivateRoom benötigt keinen Betreiber-Token."
         case .relayObsoleteLocalConfiguration(let url):
-            return "Veraltete Relay-Konfiguration blockiert: \(url). Verwende \(SecureChatProductionProfile.relayBaseURLString) und RELAY_AUTH_TOKEN."
+            return "Veraltete Relay-Konfiguration blockiert: \(url). Verwende \(SecureChatProductionProfile.relayBaseURLString) und melde deine Geräteidentität an."
         case .relayLocalhostUnavailableOnDevice:
-            return "localhost/127.0.0.1 ist keine Production-Konfiguration. Verwende \(SecureChatProductionProfile.relayBaseURLString) mit RELAY_AUTH_TOKEN."
+            return "localhost/127.0.0.1 ist keine Production-Konfiguration. Verwende \(SecureChatProductionProfile.relayBaseURLString) mit deiner Geräteidentität."
         case .insecureRelayURL:
             return "Plain HTTP ist in TestFlight / Release nicht erlaubt. Verwende \(SecureChatProductionProfile.relayBaseURLString)."
         case .relayHealthCheckFailed(let message):
