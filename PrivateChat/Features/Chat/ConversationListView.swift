@@ -578,10 +578,20 @@ private struct ConversationRow: View {
                             .lineLimit(1)
 
                         if lastMessage.isIncoming == false {
-                            Label(lastMessage.status.localizedTitle, systemImage: lastMessage.status.systemImageName)
-                                .labelStyle(.iconOnly)
-                                .font(.caption2)
-                                .foregroundStyle(statusColor(for: lastMessage.status))
+                            Group {
+                                if storedConversation.conversation.peerID == nil {
+                                    Label(
+                                        lastMessage.status == .failed ? "Lokaler Fehler" : "Lokal gespeichert",
+                                        systemImage: lastMessage.status == .failed ? "exclamationmark.triangle" : "lock.doc"
+                                    )
+                                } else {
+                                    Label(lastMessage.status.localizedTitle, systemImage: lastMessage.status.systemImageName)
+                                        .labelStyle(.iconOnly)
+                                }
+                            }
+                            .font(.caption2)
+                            .foregroundStyle(storedConversation.conversation.peerID == nil && lastMessage.status != .failed
+                                ? PrivateChatDesign.textSecondary : statusColor(for: lastMessage.status))
                         }
                     } else {
                         Text("Keine Nachrichten")

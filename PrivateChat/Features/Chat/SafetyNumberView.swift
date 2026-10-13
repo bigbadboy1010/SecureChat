@@ -6,6 +6,7 @@ struct SafetyNumberView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var confirmedGroupIndexes: Set<Int> = []
     @State private var comparedOnTrustedChannel = false
+    @ScaledMetric(relativeTo: .body) private var fingerprintCellWidth: CGFloat = 76
 
     private var currentPeer: TrustedPeer {
         service.trustedPeers.first(where: { $0.id == peer.id }) ?? peer
@@ -34,14 +35,17 @@ struct SafetyNumberView: View {
                 .padding(.vertical, 8)
             }
             SwiftUI.Section {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 76), spacing: 10)], spacing: 10) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: fingerprintCellWidth), spacing: 10)], spacing: 10) {
                     ForEach(Array(groups.enumerated()), id: \.offset) { index, group in
                         Button {
                             if confirmedGroupIndexes.contains(index) { confirmedGroupIndexes.remove(index) }
                             else { confirmedGroupIndexes.insert(index) }
                         } label: {
                             VStack(spacing: 8) {
-                                Text(group).font(.body.monospaced().weight(.semibold))
+                                Text(group)
+                                    .font(.body.monospaced().weight(.semibold))
+                                    .lineLimit(1)
+                                    .fixedSize(horizontal: true, vertical: false)
                                 Image(systemName: confirmedGroupIndexes.contains(index) ? "checkmark.circle.fill" : "circle")
                                     .font(.caption)
                             }

@@ -4,7 +4,11 @@
 
 A private space for conversations: an iPhone/iPad messenger with encrypted local storage, deliberate contact verification and a clear account of its limits.
 
-**Status, 13 October 2026:** closed owner beta, under active development. The integration candidate is **1.5.0 (15)**. The hardened approved-owner-beta relay and redesigned project site went live at **12:00:14 UTC**. The final native simulator runner passed **141 tests with zero failures**, the unsigned device-target Release build passed, and **26 backend regressions** passed. Physical owner-device and native GUI acceptance remain pending; there has been no Apple upload, TestFlight release, App Store submission or independent security audit for this candidate.
+**Status, 13 October 2026:** closed owner beta, under active development. The frozen integration candidate is **1.5.0 (16)**. Its native regression run passed **141 tests with zero failures**, and the signed build was installed and launched on the owner’s iPhone. The owner confirmed that build 15 works; this is useful owner feedback, not exhaustive acceptance of every build-16 flow.
+
+Two native candidate-16 simulators exchanged signed version-3 contact codes; all **17 SC3 groups** matched and were compared and trusted through the actual interface. Intro replay, iPad text-size setting 8, Reduce Motion and basic intro VoiceOver activation were checked. Actual native relay message exchange is still pending. The exact frozen archive **1.5.0 (16)** was uploaded once through the official Xcode distribution path on **13 October 2026 at 15:29:59 CEST**. App Store Connect visibly lists version 1.5.0 / build 16 as **Verarbeitung läuft** (processing). TestFlight tester availability is not yet confirmed; the encryption-compliance dialog remains pending.
+
+The approved-owner-beta relay and redesigned site went live at **12:00:14 UTC**; the live backend remains **0.2.0**, with **26 accepted backend regressions**. Backend **0.2.1**, including operator-only device revocation and **39 passing staged regressions**, awaits final deployment proof. It is not claimed live here. German beta information, URLs, reviewer instructions and the public contact were saved in App Store Connect. No tester invitation, Apple Review submission, App Store approval or independent security audit is claimed.
 
 PrivateRoom is not yet suitable for high-sensitivity communication. The active protocol has **no forward secrecy or post-compromise security**, and communication metadata remains visible to the relay. Read the [security policy](SECURITY.md) and [current review](Docs/PRIVATEROOM-REVIEW-2026-10-13.md) before testing.
 
@@ -14,12 +18,12 @@ PrivateRoom is not yet suitable for high-sensitivity communication. The active p
 - **Media:** photos, short videos and files, with encrypted local storage and encrypted chunked relay transfer; the attachment limit is 8 MiB.
 - **Deliberate trust:** signed version-3 contact codes and SC3 safety numbers bind both parties' signing and key-agreement keys. Both users compare the number through a trusted second channel before enabling contact messaging.
 - **App access:** device-owner authentication, manual lock, inactive-screen privacy cover, background relock and user-session checks around sensitive actions. Failed or stale authentication must not reopen a locked session.
-- **Clear delivery state:** queued, sending, accepted by the relay, delivered and failed are distinct. Relay acceptance is not delivery; delivery is not a read receipt.
+- **Clear delivery state:** queued, sending, accepted by the relay, delivered and failed are distinct. Relay acceptance is not delivery; delivery is not a read receipt. Local notes display **Lokal gespeichert**, not a claim of external delivery; these presentation labels do not alter persisted protocol states.
 - **Privacy controls:** optional list-preview masking, reduced keyboard suggestions, encrypted drafts, local retention controls and explicit local deletion confirmations. List masking does not prevent screenshots.
 - **Intentional sharing:** transcripts are plaintext exports. The app shows the content and warning before sharing. Its explicit clipboard-copy actions remain local to the device and expire after one minute.
 - **A focused interface:** animated introduction with Reduce Motion support, Chats / Kontakte / Privatsphäre, direct contact-to-chat actions and technical configuration outside the ordinary messaging flow.
 
-These are source-level implementation statements, not a claim that every path has passed final device acceptance. Verification status is recorded separately in the [review](Docs/PRIVATEROOM-REVIEW-2026-10-13.md).
+Verification covers the observed tests and interface actions described above, not every device or operating condition. The selected physical build-15 storage-protection fixture passed once without a skip, and its implementation/test sources are unchanged in build 16; this checks protection metadata, backup exclusion and selective cleanup, not file reads while the phone is locked. Exact boundaries are recorded in the [review](Docs/PRIVATEROOM-REVIEW-2026-10-13.md).
 
 ## Data and trust boundaries
 
@@ -60,6 +64,8 @@ A future reviewed MLS/OpenMLS integration is being considered. It is not integra
 3. Start with local notes. Connecting PrivateRoom is an explicit user action, not an automatic effect of saving a URL.
 4. For remote tests, use the approved beta relay contract and two separate approved test identities. Share both contact codes and compare the full SC3 number on both devices through a trusted second channel.
 5. Test text, attachment, interruption/retry, relaunch, local deletion and background lock. A local loopback test alone does not establish genuine two-device compatibility.
+
+When the TestFlight build becomes available, relay admission is a **separate explicit beta step**. Each of the two device installations must provide its own **public signed contact code** for approval through the supported contact route. Private keys, passwords and operator secrets are never requested. After admission, compare the full SC3 number on both devices over a trusted second channel. Use only synthetic, non-sensitive test content. Uploading a build or joining TestFlight does not by itself approve a device for relay access.
 
 The canonical public host is [securechat.team](https://securechat.team/). Its hardened contract is live for approved owner-beta devices, which authenticate with their own signing identity. The canonical-host client uses no consumer or operator bearer token. A custom relay remains an advanced, explicitly configured feature. See the [endpoint and authentication contract](Docs/CURRENT-ENDPOINTS.md).
 

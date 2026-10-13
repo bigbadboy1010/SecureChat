@@ -1,6 +1,6 @@
 # PrivateRoom public endpoints and owner-beta client contract
 
-Updated 13 October 2026 for the **PrivateRoom 1.5.0 (15)** integration candidate. The hardened approved-owner-beta relay and redesigned project site went live at **12:00:14 UTC**. Eleven public HTTPS routes passed acceptance and all 15 static source files matched their served bytes. Client simulator and unsigned device-target Release checks passed; physical owner-device and native GUI acceptance remain pending. See the [dated review](PRIVATEROOM-REVIEW-2026-10-13.md) for the exact verification boundaries. A live backend is not an Apple release.
+Updated 13 October 2026 for the **PrivateRoom 1.5.0 (16)** integration candidate. The hardened approved-owner-beta relay and redesigned project site went live at **12:00:14 UTC**. Eleven public HTTPS routes passed acceptance and all 15 static source files matched their served bytes. Candidate-16 native regression checks passed **141 tests with zero failures**. Signed build 16 was installed and launched on the owner’s iPhone; the owner confirmed build 15 works. Selected native interface checks are observed, while actual native relay message exchange remains pending. The live backend is **0.2.0**, with **26 accepted regressions**; **0.2.1 / 39 regressions** is staged pending final deployment proof. See the [dated review](PRIVATEROOM-REVIEW-2026-10-13.md) for the exact verification boundaries. The exact candidate archive was uploaded once at **2026-10-13 15:29:59 CEST**; ASC version 1.5.0 / build 16 is visibly processing. Tester availability, the actual compliance dialog and any Apple Review submission remain separate; none is claimed complete here.
 
 ## Canonical public URLs
 
@@ -51,7 +51,7 @@ Any narrowly scoped loopback fixture used by a debug test is not a production ex
 - Public name: **PrivateRoom**.
 - Technical target/scheme and existing source directory: `PrivateChat`.
 - Existing bundle: `org.francois.PrivateChat`.
-- Integration candidate: **1.5.0 (15)**; final 141-test simulator run and unsigned device-target Release build passed. Physical owner-device and native GUI acceptance remain pending.
+- Frozen integration candidate: **1.5.0 (16)**; **141 native tests, zero failures**. Signed owner-iPhone build installed/launched; local Apple Distribution archive/IPA exported with debugging disabled. Official upload succeeded once at **15:29:59 CEST on 13 October**; ASC shows **processing**, not confirmed tester availability. Actual native relay message exchange remains pending.
 - Active message envelope: **protocol 2**, static pairwise agreement; signed contact-code format **3** and fingerprint **SC3** are distinct versions.
 - Experimental ratchet code is disabled. A format-version number is not proof of forward secrecy.
 
@@ -63,6 +63,24 @@ The controlled public switch completed with a verified rollback/recovery path. T
 
 The isolated Swift wire fixture transferred a full 8 MiB attachment in 128 × 64 KiB chunks, reassembled its SHA-256 digest and completed acknowledgements. Sender and receiver ran serially with 0.65-second request pacing against the same 120-request-per-minute IP budget. This proves the tested contract; it does not claim that simultaneously competing traffic or real phones have passed acceptance.
 
-Physical owner-device and native GUI acceptance, physical iOS Data Protection verification, distribution acceptance and independent audit remain separate outstanding checks. No Apple upload, TestFlight release or App Store submission has been performed for this candidate.
+Native candidate-16 interfaces imported both version-3 codes, compared and trusted all **17 identical SC3 groups**, and passed intro replay. iPad text-size setting **8**, Reduce Motion and basic intro VoiceOver activation were exercised; this is not a complete accessibility audit. Actual native relay message exchange remains a distinct pending check.
+
+The selected physical build-15 Data Protection fixture passed **1 test with 0 skips** for complete protection class, backup exclusion and selective cleanup; the implementation/test source is unchanged in build 16. It did **not** test file reads while the phone was actually locked. Signed owner-iPhone candidate 16 is installed/launched, and the local Apple Distribution archive/IPA matches the frozen **118 build inputs** and privacy manifest with debugging disabled. The exact frozen archive was subsequently uploaded once through the official Xcode path at **2026-10-13 15:29:59 CEST**; App Store Connect shows version 1.5.0 / build 16 **processing**. Tester availability and the actual encryption-compliance dialog remain pending; no tester invitations, Apple Review submission or App Store approval are claimed. An independent audit remains outstanding.
 
 The public source repository does not contain production deployment secrets. Historical endpoint/runbook descriptions do not supersede this observed owner-beta contract or [SECURITY.md](../SECURITY.md).
+
+
+## Staged revocation contract — not yet live
+
+Backend **0.2.1** has **39 passing staged regressions** and awaits final host-scoped deployment proof. The currently accepted public deployment remains **0.2.0** with **26 backend regressions**.
+
+The stage adds the operator-authorized `POST /v1/admin/relay/peers/:peerID/revoke`. This is an administrative protocol operation, not ordinary-client self-revocation. It idempotently removes relay admission without deleting the registry or existing message data. The staged error contract rejects a revoked identity’s SEND/FETCH/ACK/stats/enrollment with `device_access_revoked`, and rejects sends to a revoked recipient with `recipient_not_admitted`.
+
+Already accepted operations may finish before revocation completes. Previously delivered contents and private endpoint keys are not recalled. No operator credentials, real identity allowlist or deployment configuration are part of this public contract description. Publish it as live only after the actual controlled switch and acceptance are observed.
+
+
+## TestFlight and relay admission are separate
+
+German beta information, URLs, reviewer instructions and public contact were saved in App Store Connect. The upload/processing milestone does not invite testers or approve their devices for this closed relay.
+
+Once Apple testing becomes available, both device installations must supply their **public signed contact codes** for explicit beta admission through the supported contact route. No private key, password or operator secret is requested. Compare all SC3 groups on both devices through a trusted second channel before messaging, and use only synthetic non-sensitive content. Actual native relay message exchange is still pending in this acceptance record.

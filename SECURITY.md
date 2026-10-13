@@ -1,6 +1,6 @@
 # PrivateRoom security policy
 
-PrivateRoom is under active development as a **closed owner beta**. The 13 October 2026 integration candidate is **1.5.0 (15)**. A new Apple upload, TestFlight release or App Store publication has not been established by this review. An independent external protocol/application audit has **not** been completed.
+PrivateRoom is under active development as a **closed owner beta**. The 13 October 2026 integration candidate is **1.5.0 (16)**. The exact frozen archive was uploaded once through the official Xcode path on **13 October at 15:29:59 CEST**; App Store Connect shows version 1.5.0 / build 16 **processing**. Tester availability and the encryption-compliance dialog remain pending. No tester invitations, Apple Review submission or App Store approval are claimed. Exact acceptance boundaries are recorded in the [dated review](Docs/PRIVATEROOM-REVIEW-2026-10-13.md). An independent external protocol/application audit has **not** been completed.
 
 Do not use the beta for high-sensitivity communication. The product does not promise absolute privacy, complete anonymity, forward secrecy, post-compromise recovery or protection of an already compromised endpoint.
 
@@ -11,7 +11,7 @@ Do not use the beta for high-sensitivity communication. The product does not pro
 - Existing bundle identifier: `org.francois.PrivateChat`.
 - iPhone/iPad baseline: iOS 16 or later; build with an appropriate installed Xcode SDK.
 - Canonical public host: `https://securechat.team`.
-- Hardened relay/site candidate: isolated canary until an accepted controlled public cutover.
+- Live approved-owner-beta relay/site: backend **0.2.0**. Backend **0.2.1** and its revocation contract remain staged pending guarded data handoff and deployment proof.
 - Acceptance and publication record: [13 October review](Docs/PRIVATEROOM-REVIEW-2026-10-13.md).
 
 Source-level implementation, local tests, device acceptance, CI success and public deployment are different claims. Publish the exact scope that has evidence. Older phase/sprint or release notes are historical and do not establish the current security posture.
@@ -20,7 +20,7 @@ Source-level implementation, local tests, device acceptance, CI success and publ
 
 The active protocol-2 channel uses static X25519 identity agreement, HKDF-SHA256, AES-GCM authenticated encryption and Ed25519 envelope signatures. Private keys and local-store keys use device-bound Keychain protection. SC3 fingerprints bind both parties' signing **and** key-agreement public keys. Signed version-3 pairing proves possession of the advertised signing key; it does not establish the real person's identity.
 
-Users must compare SC3 on both devices over a trusted second channel before approving contact messaging. Legacy SC2 verification cannot silently remain trusted after migration, and substituted/changed keys require renewed verification.
+Approved beta devices must each supply their public signed contact code for explicit relay admission; no private key, password or operator secret is requested. TestFlight availability does not automatically grant relay access. Use synthetic non-sensitive test content. Users must compare SC3 on both devices over a trusted second channel before approving contact messaging. Legacy SC2 verification cannot silently remain trusted after migration, and substituted/changed keys require renewed verification.
 
 The active channel has **no forward secrecy or post-compromise security**. Experimental ratchet work is disabled and has not received a dedicated independent protocol audit. Do not describe PrivateRoom as Signal-protocol compatible, audited Double Ratchet, post-quantum secure or metadata-free.
 
