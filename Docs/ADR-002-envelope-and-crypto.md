@@ -47,12 +47,12 @@ The envelope is built in five steps on the sending side:
    timestamps) with the sender's Ed25519 signing key
    (`Curve25519.Signing`).
 5. POST the envelope to the relay at
-   `https://relay.securechat.team/v1/relay/messages`.
+   `https://securechat.team/v1/relay/messages`.
 
 On the receiving side:
 
 1. Poll the relay at
-   `https://relay.securechat.team/v1/relay/messages?recipientID=...`.
+   `https://securechat.team/v1/relay/messages?recipientID=...`.
 2. Open the envelope with the recipient's Curve25519 private key
    (`openSealedBox` in the iOS app's CryptoService).
 3. Verify the Ed25519 signature with the sender's Curve25519

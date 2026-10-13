@@ -1,5 +1,53 @@
 # Changelog
 
+## 2026-09-19 — Readable chat bubbles and encrypted attachments
+
+- Increased chat-bubble contrast with explicit light foregrounds, brighter
+  incoming surfaces, borders, and a darker outgoing cyan that remains readable.
+- Added photo/video selection from the system library, direct camera capture
+  and document/file selection through the system file picker.
+- Added encrypted attachment persistence with a separate Keychain-backed AES-GCM
+  key; attachment files and temporary chunk files are excluded from backup.
+- Attachments are split into 64 KiB plaintext chunks before the existing signed,
+  end-to-end-encrypted packet envelope is applied, keeping packets below the
+  production relay's 128 KiB ceiling. Chunk sends are globally paced per app
+  instance to stay below the production rate limit. Reassembly verifies byte
+  count and SHA-256.
+- Added inline image previews, video/document cards, Quick Look playback/preview,
+  attachment search metadata, deletion/retention cleanup, and an explicit
+  8 MiB attachment limit.
+- Removed Swift default-actor-isolation violations in the attachment-store
+  dependency default and Base64URL request-signing helper.
+- Added camera/microphone purpose strings and encrypted attachment-store tests.
+
+## 2026-09-19 — Align iOS peer-auth wire format with production relay
+
+- Corrected the iOS peer-auth headers to match the deployed relay verifier:
+  RFC3339 timestamps, unpadded Base64URL nonces generated from 16 random bytes,
+  and unpadded Base64URL Ed25519 signatures.
+- Relay JSON requests are encoded with recursively sorted keys and without
+  escaped slashes, matching the relay's `stableSortKeys` plus `JSON.stringify`
+  body canonicalization before SHA-256 hashing.
+- Canonical query encoding now matches JavaScript `encodeURIComponent` rather
+  than Foundation's broader `.urlQueryAllowed` character set.
+- Updated signing tests to decode the actual Base64URL wire representation and
+  validate nonce length, timestamp format, deterministic Ed25519 output, and
+  the signature over the final transmitted method/body.
+
+## 2026-09-19 — Peer-auth request-signing hotfix
+
+- Relay mutations now pass their final HTTP method and encoded body into the
+  canonical request signer before transmission. This fixes invalid peer
+  signatures for message POST, ACK, legacy DELETE, and client purge requests.
+- Peer enrollment is explicitly bearer-only and no longer emits unnecessary
+  peer-signature headers before the peer is registered.
+- Saving Relay settings immediately performs idempotent peer enrollment; an
+  app restart is no longer required after entering or changing the client
+  token.
+- HTTP 401 diagnostics now retain the relay error code instead of always
+  reporting a token mismatch. This distinguishes `unauthorized`,
+  `peer_not_enrolled`, `unsigned_request_required`, and signature failures.
+
 All notable changes to SecureChat (formerly PrivateChat) are
 documented in this file. The format is loosely based on
 [Keep a Changelog](https://keepachangelog.com/) and the project
@@ -21,6 +69,38 @@ public-beta trust regression.
 | Public docs       | `docs/CURRENT-ENDPOINTS.md`, `docs/*.md`         | tracks the relay build sha    |
 
 ## Unreleased
+
+### Chat-first UI and TestFlight preflight correction (2026-09-19)
+
+- The primary navigation now opens on `Chats` and contains only
+  `Chats`, `Kontakte` and `Einstellungen`.
+- The former operations dashboard is no longer a top-level tab. It
+  remains available as `Einstellungen → Diagnose & Sicherheitsstatus`.
+- Removed six operational metric cards and relay/outbox result rows
+  from the conversation list. Search, filters, unread state, swipe
+  actions and pull-to-refresh remain available.
+- Reduced the conversation composer to the message field, send action
+  and actionable relay warnings. Quick replies, character counters and
+  persistent implementation-detail banners were removed.
+- Simplified the lock screen and empty-chat copy without changing
+  biometric unlock, encrypted persistence, Safety Number verification
+  or transport security.
+- Corrected stale Security Sentinel recommendations to use the live canonical
+  `https://securechat.team` endpoint.
+- A physical-iPhone test exposed a server-side TLS failure on the previously
+  configured `https://relay.securechat.team` host. The production profile now
+  follows the live status/health surface at `https://securechat.team`; stored
+  subdomain configurations migrate automatically.
+- Fixed `scripts/preflight-testflight.sh`: its build-settings parser now
+  matches the exact `PRODUCT_BUNDLE_IDENTIFIER` key instead of reading
+  `DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = NO`.
+- The legacy-relay preflight excludes only the explicit migration list in
+  `SecureChatProductionProfile.swift`; active UI and runtime text must not
+  reference obsolete relay endpoints.
+
+**Security impact:** UI reduction, release-gate corrections and canonical
+relay-host migration. No cryptographic primitive, envelope, Keychain or
+encrypted-persistence behavior changed.
 
 ### Sprint 15 + 16: peer-bound request signing (iOS + relay, opt-in) (2026-06-23)
 
@@ -136,12 +216,9 @@ lines):**
     round-trip: the produced signature
     verifies under the peer's public key
     over the canonical string.
-  - `testSignedHeadersDifferAcrossCalls` —
-    CryptoKit Ed25519 is non-deterministic
-    (each call to
-    `signingKey.signature(for:)` uses a
-    fresh random nonce); the relay's
-    nonce cache prevents replay.
+  - `testSignedHeadersAreStableForIdenticalCanonicalInput` —
+    Ed25519 produces the same signature for identical canonical input;
+    replay protection is provided by the request nonce.
   - `testSignedHeadersDifferForDifferentNonces`
     — a fresh `nonce` produces a
     different signature.

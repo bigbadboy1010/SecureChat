@@ -23,15 +23,34 @@ private enum ConversationFilter: String, CaseIterable, Identifiable {
             return "Archiv"
         }
     }
+
+    var systemImage: String {
+        switch self {
+        case .active:
+            return "message"
+        case .unread:
+            return "message.badge"
+        case .starred:
+            return "star"
+        case .muted:
+            return "bell.slash"
+        case .archived:
+            return "archivebox"
+        }
+    }
 }
 
 struct ConversationListView: View {
     @ObservedObject var service: ConversationService
+    var onAddContact: (() -> Void)? = nil
     @State private var newConversationTitle = ""
     @State private var selectedPeerID = ""
     @State private var showCreateSheet = false
     @State private var searchText = ""
     @State private var filter: ConversationFilter = .active
+    @State private var showPairingSheet = false
+    @State private var pendingDeletionIDs: [UUID] = []
+    @State private var isConnecting = false
 
     private var isSearchActive: Bool {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
@@ -64,34 +83,21 @@ struct ConversationListView: View {
     var body: some View {
         NavigationStack {
             List {
-                dashboardHeader
-
-                if service.totalUnreadCount() > 0 {
-                    SwiftUI.Section {
-                        Button {
-                            service.markAllConversationsRead()
-                        } label: {
-                            Label("Alle Chats als gelesen markieren", systemImage: "checkmark.circle")
-                        }
-                    }
+                SwiftUI.Section {
+                    roomHeader
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
                 }
-
-                if let summary = service.lastRelaySyncSummary {
-                    RelaySyncSummaryRow(summary: summary)
-                }
-
-                if let summary = service.lastOutboxRetrySummary {
-                    OutboxRetrySummaryRow(summary: summary)
-                }
-
                 SwiftUI.Section {
                     if visibleConversations.isEmpty {
                         if service.conversations.isEmpty && filter == .active && isSearchActive == false {
-                            FirstRunConversationHint {
-                                _ = service.createSoloTestConversation()
-                            }
+                            FirstRunConversationHint(
+                                addContact: addContact,
+                                createNote: { _ = service.createConversation(title: "Meine Notizen", peerID: nil) }
+                            )
+                        } else {
+                            EmptyConversationView(filter: filter, isSearching: isSearchActive)
                         }
-                        EmptyConversationView(filter: filter, isSearching: isSearchActive)
                     } else {
                         ForEach(visibleConversations) { storedConversation in
                             NavigationLink {
@@ -115,7 +121,7 @@ struct ConversationListView: View {
                                 Button {
                                     service.toggleConversationMuted(id: storedConversation.id)
                                 } label: {
-                                    Label(storedConversation.conversation.isMuted ? "Benachrichtigung aktivieren" : "Stummschalten", systemImage: storedConversation.conversation.isMuted ? "bell" : "bell.slash")
+                                    Label(storedConversation.conversation.isMuted ? "Ungelesen-Badge aktivieren" : "Badge stummschalten", systemImage: storedConversation.conversation.isMuted ? "bell" : "bell.slash")
                                 }
 
                                 Button {
@@ -125,7 +131,7 @@ struct ConversationListView: View {
                                 }
 
                                 Button(role: .destructive) {
-                                    service.deleteConversation(id: storedConversation.id)
+                                    pendingDeletionIDs = [storedConversation.id]
                                 } label: {
                                     Label("Chat löschen", systemImage: "trash")
                                 }
@@ -158,11 +164,13 @@ struct ConversationListView: View {
                             .listRowInsets(EdgeInsets(top: 6, leading: 14, bottom: 6, trailing: 14))
                         }
                         .onDelete { indexSet in
-                            indexSet.map { visibleConversations[$0].id }.forEach { service.deleteConversation(id: $0) }
+                            pendingDeletionIDs = indexSet.map { visibleConversations[$0].id }
                         }
                     }
                 } header: {
-                    Text(filter.title)
+                    if filter != .active {
+                        Text(filter.title)
+                    }
                 }
             }
             .listStyle(.plain)
@@ -172,32 +180,28 @@ struct ConversationListView: View {
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Chats und Nachrichten suchen")
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button {
-                        Task { await service.syncRelayInbox() }
-                    } label: {
-                        if service.isRelaySyncRunning {
-                            ProgressView()
-                        } else {
-                            Image(systemName: "arrow.down.circle")
+                    Menu {
+                        Picker("Chats anzeigen", selection: $filter) {
+                            ForEach(ConversationFilter.allCases) { filter in
+                                Label(filter.title, systemImage: filter.systemImage).tag(filter)
+                            }
                         }
+
+                        if service.totalUnreadCount() > 0 {
+                            Divider()
+                            Button {
+                                service.markAllConversationsRead()
+                            } label: {
+                                Label("Alle als gelesen markieren", systemImage: "checkmark.circle")
+                            }
+                        }
+                    } label: {
+                        Image(systemName: filter == .active ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
                     }
-                    .accessibilityLabel("Relay Inbox abrufen")
-                    .disabled(service.isRelaySyncRunning || service.securityState.transportMode != .relayAllowed)
+                    .accessibilityLabel("Chat-Filter: \(filter.title)")
                 }
 
-                ToolbarItemGroup(placement: .navigationBarTrailing) {
-                    Button {
-                        Task { await service.retryPendingOutboundMessages() }
-                    } label: {
-                        if service.isOutboxRetryRunning {
-                            ProgressView()
-                        } else {
-                            Image(systemName: "arrow.clockwise.circle")
-                        }
-                    }
-                    .accessibilityLabel("Outbox erneut senden")
-                    .disabled(service.isOutboxRetryRunning || service.pendingOutboxCount() == 0)
-
+                ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
                         showCreateSheet = true
                     } label: {
@@ -212,42 +216,89 @@ struct ConversationListView: View {
             .sheet(isPresented: $showCreateSheet) {
                 createConversationSheet
             }
+            .sheet(isPresented: $showPairingSheet) {
+                PairingView(service: service)
+            }
+            .confirmationDialog("Chat lokal löschen?", isPresented: Binding(
+                get: { pendingDeletionIDs.isEmpty == false },
+                set: { if $0 == false { pendingDeletionIDs = [] } }
+            ), titleVisibility: .visible) {
+                Button(pendingDeletionIDs.count > 1 ? "\(pendingDeletionIDs.count) Chats löschen" : "Chat löschen", role: .destructive) {
+                    let ids = pendingDeletionIDs
+                    pendingDeletionIDs = []
+                    ids.forEach { service.deleteConversation(id: $0) }
+                }
+                Button("Abbrechen", role: .cancel) { pendingDeletionIDs = [] }
+            } message: {
+                Text("Der Verlauf und lokale Anhänge werden von diesem Gerät entfernt. Bereits erhaltene Kopien bei Kontakten werden nicht gelöscht.")
+            }
             .privateChatErrorAlert(service: service)
         }
     }
 
-    private var dashboardHeader: some View {
-        SwiftUI.Section {
-            VStack(alignment: .leading, spacing: 14) {
-                Picker("Filter", selection: $filter) {
-                    ForEach(ConversationFilter.allCases) { filter in
-                        Text(filter.title).tag(filter)
-                    }
+    private var roomHeader: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(spacing: 12) {
+                PrivateRoomMark().frame(width: 38, height: 38)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("DEIN PRIVATER RAUM")
+                        .font(.caption2.weight(.bold))
+                        .tracking(1.4)
+                        .foregroundStyle(PrivateChatDesign.brandCyan)
+                    Text("Für Gespräche. Für dich.")
+                        .font(.headline)
+                        .foregroundStyle(PrivateChatDesign.textPrimary)
                 }
-                .pickerStyle(.segmented)
-
-                HStack(spacing: 10) {
-                    MiniMetric(title: "Ungelesen", value: "\(service.totalUnreadCount())", systemImage: "bell.badge")
-                    MiniMetric(title: "Outbox", value: "\(service.pendingOutboxCount())", systemImage: "tray.and.arrow.up")
-                    MiniMetric(title: "Archiv", value: "\(service.archivedConversationCount())", systemImage: "archivebox")
-                }
-
-                HStack(spacing: 10) {
-                    MiniMetric(title: "Markiert", value: "\(service.starredMessageCount())", systemImage: "star")
-                    MiniMetric(title: "Stumm", value: "\(service.mutedConversationCount())", systemImage: "bell.slash")
-                    MiniMetric(title: "Fehler", value: "\(service.failedMessageCount())", systemImage: "exclamationmark.triangle")
-                }
-
-                if service.securityState.hideMessagePreviews {
-                    Label("Vorschau-Schutz aktiv", systemImage: "eye.slash")
-                        .font(.caption)
-                        .foregroundStyle(Color.secondary)
-                }
+                Spacer(minLength: 0)
             }
-            .padding(.vertical, 4)
-            .privateChatGlassCard(padding: 14, cornerRadius: 22, highlighted: service.totalUnreadCount() > 0 || service.pendingOutboxCount() > 0)
+            if service.securityState.transportMode == .localOnly {
+                Text("Aktuell nur lokal. Verbinde den Relay, wenn du mit verifizierten Kontakten kommunizieren möchtest.")
+                    .font(.subheadline)
+                    .foregroundStyle(PrivateChatDesign.textSecondary)
+                Button {
+                    guard isConnecting == false else { return }
+                    isConnecting = true
+                    Task {
+                        _ = await service.enablePrivateRoomRelay()
+                        isConnecting = false
+                    }
+                } label: {
+                    HStack(spacing: 10) {
+                        if isConnecting { ProgressView() } else { Image(systemName: "network") }
+                        Text(isConnecting ? "Verbindung wird eingerichtet …" : "PrivateRoom verbinden")
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(PrivateChatDesign.canvasBase)
+                    .frame(maxWidth: .infinity, minHeight: 46)
+                    .background(PrivateChatDesign.brandCyan, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(isConnecting)
+            } else {
+                Label("Relay-Modus aktiviert", systemImage: "network")
+                    .font(.caption)
+                    .foregroundStyle(PrivateChatDesign.textSecondary)
+                if service.pendingOutboxCount() > 0 {
+                    Label("\(service.pendingOutboxCount()) Nachricht(en) noch ausstehend", systemImage: "clock")
+                        .font(.caption)
+                        .foregroundStyle(PrivateChatDesign.warning)
+                }
+                if let summary = service.lastRelaySyncSummary {
+                    Text("Zuletzt abgerufen: \(summary.receivedAt.formatted(date: .abbreviated, time: .shortened))")
+                        .font(.caption)
+                        .foregroundStyle(PrivateChatDesign.textSecondary)
+                }
+                Text("Nachrichten werden abgerufen, während die App geöffnet ist.")
+                    .font(.caption)
+                    .foregroundStyle(PrivateChatDesign.textSecondary)
+            }
         }
-        .listRowBackground(Color.clear)
+        .privateChatGlassCard(padding: 20, cornerRadius: 24)
+        .padding(.vertical, 6)
+    }
+
+    private func addContact() {
+        if let onAddContact { onAddContact() } else { showPairingSheet = true }
     }
 
     private var createConversationSheet: some View {
@@ -268,9 +319,9 @@ struct ConversationListView: View {
                         }
                     }
                 } header: {
-                    Text("Verifizierter Peer")
+                    Text("Empfänger")
                 } footer: {
-                    Text("Nachrichten an Peers sind erst nach Safety-Number-Verifizierung möglich.")
+                    Text("Nur geprüfte Kontakte stehen zur Auswahl. Eine lokale Notiz wird an niemanden gesendet.")
                 }
             }
             .navigationTitle("Neuer Chat")
@@ -281,7 +332,7 @@ struct ConversationListView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Erstellen") {
                         let peerID = selectedPeerID.isEmpty ? nil : selectedPeerID
-                        service.createConversation(title: newConversationTitle, peerID: peerID)
+                        guard service.createConversation(title: newConversationTitle, peerID: peerID) != nil else { return }
                         newConversationTitle = ""
                         selectedPeerID = ""
                         showCreateSheet = false
@@ -293,33 +344,9 @@ struct ConversationListView: View {
     }
 }
 
-private struct MiniMetric: View {
-    let title: String
-    let value: String
-    let systemImage: String
-
-    var body: some View {
-        VStack(spacing: 6) {
-            Image(systemName: systemImage)
-                .foregroundStyle(Color.accentColor)
-            Text(value)
-                .font(.headline.weight(.bold))
-            Text(title)
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 11)
-        .background(Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(PrivateChatDesign.subtleBorder, lineWidth: 1)
-        }
-    }
-}
-
 private struct FirstRunConversationHint: View {
-    let createSoloTestChat: () -> Void
+    let addContact: () -> Void
+    let createNote: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 13) {
@@ -331,29 +358,30 @@ private struct FirstRunConversationHint: View {
                     .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 
                 VStack(alignment: .leading, spacing: 5) {
-                    Text("Erster Test in 10 Sekunden")
+                    Text("Hier beginnt euer Gespräch.")
                         .font(.headline.weight(.semibold))
-                    Text("Lege einen lokalen Solo-Test-Chat an, prüfe die verschlüsselte lokale Speicherung und teste die UI ohne zweites Gerät.")
+                    Text("Füge eine Person hinzu und vergleicht eure Sicherheitsnummern. Lokale Notizen bleiben nur auf diesem Gerät.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
             }
 
-            VStack(alignment: .leading, spacing: 6) {
-                Label("Pairing braucht zwei Geräte oder zwei TestFlight-Installationen.", systemImage: "qrcode.viewfinder")
-                Label("Relay ist optional und läuft über chatsecure.ddns.net.", systemImage: "network")
-                Label("Safety Number erst nach realem Kontaktvergleich bestätigen.", systemImage: "checkmark.shield")
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-
             Button {
-                createSoloTestChat()
+                addContact()
             } label: {
-                Label("Solo-Test-Chat starten", systemImage: "message.badge")
+                Label("Kontakt hinzufügen", systemImage: "person.badge.plus")
                     .frame(maxWidth: .infinity)
+                    .frame(minHeight: 44)
             }
             .buttonStyle(.borderedProminent)
+            .tint(PrivateChatDesign.brandCyan)
+            .foregroundStyle(PrivateChatDesign.canvasBase)
+
+            Button(action: createNote) {
+                Label("Private Notiz anlegen", systemImage: "note.text")
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .buttonStyle(.bordered)
         }
         .privateChatGlassCard(padding: 16, cornerRadius: 22, highlighted: true)
         .padding(.vertical, 4)
@@ -404,7 +432,7 @@ private struct EmptyConversationView: View {
     private var subtitle: String {
         if isSearching { return "Passe den Suchbegriff oder den Filter an." }
         switch filter {
-        case .active: return "Erstelle einen lokalen Chat oder verknüpfe zuerst einen Peer über Pairing."
+        case .active: return "Deine privaten Gespräche erscheinen hier, sobald du einen Kontakt hinzugefügt hast."
         case .unread: return "Neue eingehende Nachrichten erscheinen hier."
         case .starred: return "Markiere wichtige Nachrichten über das Nachrichten-Kontextmenü."
         case .muted: return "Stummgeschaltete Chats erscheinen hier."
@@ -471,14 +499,36 @@ private struct ConversationRow: View {
         service.unreadCount(for: storedConversation.id)
     }
 
+    private var peer: TrustedPeer? {
+        service.trustedPeers.first { $0.id == storedConversation.conversation.peerID }
+    }
+
+    private var peerIcon: String {
+        if storedConversation.conversation.peerID == nil { return "note.text" }
+        switch peer?.trustState {
+        case .verified: return "checkmark.shield"
+        case .blocked: return "hand.raised"
+        case .unverified, nil: return "person.crop.circle.badge.questionmark"
+        }
+    }
+
+    private var peerTint: Color {
+        if storedConversation.conversation.peerID == nil { return PrivateChatDesign.textSecondary }
+        switch peer?.trustState {
+        case .verified: return PrivateChatDesign.brandCyan
+        case .blocked: return PrivateChatDesign.danger
+        case .unverified, nil: return PrivateChatDesign.warning
+        }
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             ZStack(alignment: .topTrailing) {
                 Circle()
-                    .fill(storedConversation.conversation.peerID == nil ? Color.secondary.opacity(0.18) : Color.accentColor.opacity(0.18))
+                    .fill(peerTint.opacity(0.14))
                     .frame(width: 44, height: 44)
-                Image(systemName: storedConversation.conversation.peerID == nil ? "note.text" : "lock.shield")
-                    .foregroundStyle(storedConversation.conversation.peerID == nil ? Color.secondary : Color.accentColor)
+                Image(systemName: peerIcon)
+                    .foregroundStyle(peerTint)
                 if unreadCount > 0 {
                     Circle()
                         .fill(Color.red)
@@ -541,10 +591,14 @@ private struct ConversationRow: View {
                 }
 
                 if let peerName = service.peerDisplayName(for: storedConversation.conversation.peerID) {
-                    Text(peerName)
+                    Text("\(peerName) · \(peer?.trustState == .verified ? "Identität geprüft" : (peer?.trustState == .blocked ? "Blockiert" : "Prüfung offen"))")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(peerTint)
                         .lineLimit(1)
+                } else if storedConversation.conversation.peerID == nil {
+                    Text("Nur auf diesem Gerät")
+                        .font(.caption)
+                        .foregroundStyle(PrivateChatDesign.textSecondary)
                 }
             }
         }

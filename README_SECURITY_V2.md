@@ -12,7 +12,8 @@ This document describes the active `PrivateChat` baseline and the hardened Relay
 - Store keys, trust state and Relay ledger metadata are stored via Keychain-backed stores.
 - Relay packets are signed and payloads are AEAD-protected before upload.
 - Relay server is a blind relay and does not receive message plaintext.
-- Public production Relay is `https://chatsecure.ddns.net` behind Caddy.
+- Public production Relay is `https://securechat.team` behind the
+  operator-managed HTTPS edge.
 - `/v1/relay/*` requires `RELAY_AUTH_TOKEN`.
 - `/v1/admin/*` requires `RELAY_ADMIN_TOKEN` and must never be configured in the app.
 
@@ -24,20 +25,23 @@ This distinction matters. The current KDF is intended to raise local brute-force
 
 ## Production caveat
 
-The project is a production candidate, not externally audited secure-messaging infrastructure. Before public security claims:
+The project is a production candidate, not externally audited secure-messaging
+infrastructure. Before stronger public security claims:
 
-- migrate tests to the active `PrivateChat` target;
-- add transport and persistence tests;
-- review KDF design;
-- run external cryptographic/security audit;
-- verify Release/TestFlight builds on physical hardware.
+- complete the remaining gates in `RELEASE_CHECKLIST.md`;
+- review the custom KDF design;
+- run an external cryptographic/security audit;
+- verify the Release/TestFlight build on two physical iPhones;
+- keep the experimental Double Ratchet disabled on the Release path until
+  its dedicated cryptographic review is complete.
 
 ## Relay production configuration
 
 ```text
-Relay URL: https://chatsecure.ddns.net
+Relay URL: https://securechat.team
 Client token: RELAY_AUTH_TOKEN
 Admin token: RELAY_ADMIN_TOKEN, server only
 ```
 
-Old local Relay URLs are blocked/migrated in Phase 14.4 and must not be used for production.
+Old DDNS and local Relay URLs are blocked or migrated and must not be used
+for production. `Docs/CURRENT-ENDPOINTS.md` is the endpoint source of truth.

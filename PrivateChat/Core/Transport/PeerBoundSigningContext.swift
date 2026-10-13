@@ -38,9 +38,9 @@ public protocol PeerBoundSigningContext: AnyObject {
 
     /// The peer's long-term Ed25519 signing
     /// private key. Lives in iOS Keychain
-    /// only. The transport calls
-    /// `signingKey.signature(for:)` once
-    /// per outgoing request, in
-    /// `RequestSigner.sign(...)`.
-    func currentSigningPrivateKey() -> Curve25519.Signing.PrivateKey
+    /// only. Returning nil is a hard signing
+    /// failure: production transport must fail
+    /// closed rather than inventing a temporary
+    /// identity or emitting an unsigned request.
+    func currentSigningPrivateKey() -> Curve25519.Signing.PrivateKey?
 }

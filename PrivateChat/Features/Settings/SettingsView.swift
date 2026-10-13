@@ -1,811 +1,449 @@
 import SwiftUI
-import UIKit
 
 struct SettingsView: View {
     @ObservedObject var service: ConversationService
-
-    @State private var relayURL: String = ""
-    @State private var relayToken: String = ""
-    @State private var relayPollingLimit: Int = 50
-    @State private var relayAutoPollingInterval: Int = 15
-    @State private var retryFailedMessagesAutomatically: Bool = true
-    @State private var verboseRelayLogging: Bool = false
-    @State private var localMessageRetentionDays: Int = 30
-    @State private var hideMessagePreviews: Bool = false
-    @State private var reduceKeyboardSuggestions: Bool = true
-    @State private var warnOnRuntimeRisk: Bool = true
-    @State private var restrictRelayOnRuntimeRisk: Bool = false
+    var onLock: (() -> Void)? = nil
+    @State private var isConnecting = false
+    @State private var showRetentionConfirmation = false
 
     var body: some View {
         NavigationStack {
             Form {
                 SwiftUI.Section {
-                    LabeledContent("Status") {
-                        Text("Production Candidate")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.orange)
+                    HStack(spacing: 16) {
+                        PrivateRoomMark().frame(width: 52, height: 52)
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("PrivateRoom").font(.title2.weight(.bold))
+                            Text("Deine Privatsphäre. Deine Regeln.")
+                                .font(.subheadline)
+                                .foregroundStyle(PrivateChatDesign.textSecondary)
+                        }
                     }
-
-                    Label("Externer Security-Audit steht noch aus. Nicht für hochsensible Kommunikation in der Beta verwenden.", systemImage: "exclamationmark.shield")
+                    .padding(.vertical, 10)
+                }
+                SwiftUI.Section {
+                    Toggle("App mit Gerätesicherheit entsperren", isOn: setting(\.requireBiometricUnlock))
+                    Toggle("Nachrichten-Vorschauen verbergen", isOn: setting(\.hideMessagePreviews))
+                    Toggle("Tastatur-Vorschläge reduzieren", isOn: setting(\.reduceKeyboardSuggestions))
+                    if let onLock {
+                        Button(action: onLock) { Label("PrivateRoom jetzt sperren", systemImage: "lock") }
+                    }
+                } header: { Text("Dein Gerät") }
+                footer: {
+                    Text("Der Vorschau-Schutz betrifft die Chatliste und ist keine Screenshot-Sperre. PrivateRoom lässt nur die iOS-Systemtastatur zu; Vorschläge und eine bewusst verwendete Diktierfunktion bleiben Funktionen von iOS.")
+                }
+                SwiftUI.Section {
+                    Stepper("Lokale Aufbewahrungsgrenze: \(service.securityState.localMessageRetentionDays) Tage", value: retentionBinding, in: 1...365)
+                    Button {
+                        showRetentionConfirmation = true
+                    } label: {
+                        HStack {
+                            Label("Abgelaufene lokale Nachrichten bereinigen", systemImage: "calendar.badge.minus")
+                            if service.isLocalRetentionPurgeRunning { ProgressView() }
+                        }
+                    }
+                    .disabled(service.isLocalRetentionPurgeRunning)
+                    if let summary = service.lastLocalRetentionSummary {
+                        Text("Zuletzt: \(summary.deletedMessages) Nachrichten und \(summary.deletedConversations) Chats entfernt")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } header: { Text("Aufbewahrung") }
+                footer: {
+                    Text("Chats und Schlüssel sind vom Cloud-Backup ausgeschlossen. Es gibt noch keinen geprüften Geräteumzug. Lokales Löschen entfernt keine Kopien bei Kontakten.")
+                }
+                SwiftUI.Section {
+                    LabeledContent("Modus", value: service.securityState.transportMode == .localOnly ? "Nur auf diesem Gerät" : "Online-Relay erlaubt")
+                    if let message = service.lastRelayHealthMessage {
+                        Text(message).font(.footnote).foregroundStyle(.secondary)
+                    }
+                    if service.securityState.transportMode == .localOnly {
+                        Button {
+                            guard isConnecting == false else { return }
+                            isConnecting = true
+                            Task {
+                                _ = await service.enablePrivateRoomRelay()
+                                isConnecting = false
+                            }
+                        } label: {
+                            HStack {
+                                Label("PrivateRoom verbinden", systemImage: "network")
+                                if isConnecting { ProgressView() }
+                            }
+                        }
+                        .disabled(isConnecting)
+                    } else {
+                        Button {
+                            Task { await service.checkRelayHealth() }
+                        } label: {
+                            HStack {
+                                Label("Verbindung prüfen", systemImage: "arrow.clockwise")
+                                if service.isRelayHealthCheckRunning { ProgressView() }
+                            }
+                        }
+                        .disabled(service.isRelayHealthCheckRunning)
+                        Button("Verbindung pausieren") {
+                            var state = service.securityState
+                            state.transportMode = .localOnly
+                            state.relayConfiguration.isEnabled = false
+                            _ = service.updateSecurityState(state)
+                        }
+                    }
+                    NavigationLink {
+                        PrivateRoomConnectionDetailsView(service: service)
+                    } label: {
+                        Label("Verbindung & Zustellung", systemImage: "tray.and.arrow.down")
+                    }
+                } header: { Text("Kommunikation") }
+                footer: {
+                    Text("Die App ruft Nachrichten ab, solange sie geöffnet und entsperrt ist. Ein Paket am Relay ist noch kein Zustell- oder Lesebeleg. Der Relay verarbeitet technische Metadaten.")
+                }
+                SwiftUI.Section {
+                    NavigationLink { PrivacyPolicyView() } label: {
+                        Label("Datenschutz verständlich erklärt", systemImage: "hand.raised")
+                    }
+                    Link(destination: URL(string: "https://securechat.team/support.html")!) {
+                        Label("Hilfe & Kontakt", systemImage: "questionmark.circle")
+                    }
+                    NavigationLink { PrivateRoomDiagnosticsView(service: service) } label: {
+                        Label("Geräte- & Supportdiagnose", systemImage: "stethoscope")
+                    }
+                    NavigationLink { PrivateRoomAdvancedSettingsView(service: service) } label: {
+                        Label("Erweiterte Verbindungseinstellungen", systemImage: "slider.horizontal.3")
+                    }
+                } header: { Text("Hilfe und Kontrolle") }
+                SwiftUI.Section {
+                    Label("Beta · unabhängiger Sicherheits-Audit offen", systemImage: "info.circle")
                         .font(.footnote)
-                        .foregroundStyle(.orange)
-
+                    Text("Kein Versprechen vollständiger Anonymität oder Sicherheit. Für hochsensible Kommunikation ist diese Beta noch nicht freigegeben.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                     Button {
                         UserDefaults.standard.set(false, forKey: "PrivateChat.didOnboard.v1")
                         UserDefaults.standard.set(false, forKey: "PrivateChat.didAcceptBetaDisclaimer.v1")
                     } label: {
-                        Label("Onboarding & Beta-Hinweis erneut anzeigen", systemImage: "arrow.counterclockwise")
+                        Label("Einführung erneut ansehen", systemImage: "arrow.counterclockwise")
                     }
-                } header: {
-                    Text("Beta & TestFlight")
-                } footer: {
-                    Text("Diese App ist technisch für TestFlight vorbereitet. Die Bezeichnung Production Candidate bedeutet: harte lokale Schutzmaßnahmen sind aktiv, aber externe Audits und Produkt-UX sind noch in Arbeit.")
-                }
-
-                SwiftUI.Section {
-                    NavigationLink {
-                        PrivacyPolicyView()
-                    } label: {
-                        Label("Datenschutzerklärung", systemImage: "hand.raised")
-                    }
-
-                    NavigationLink {
-                        SupportFeedbackView(service: service)
-                    } label: {
-                        Label("Support & Feedback", systemImage: "bubble.left.and.exclamationmark.bubble.right")
-                    }
-
-                    NavigationLink {
-                        TestFlightSubmissionView()
-                    } label: {
-                        Label("TestFlight Vorbereitung", systemImage: "testtube.2")
-                    }
-
-                    LabeledContent("Version") {
-                        Text(appVersionString)
-                            .font(.caption.monospaced())
-                    }
-                } header: {
-                    Text("TestFlight & App Store Connect")
-                } footer: {
-                    Text("Privacy-Policy-URL und Support-URL müssen in App Store Connect als externe HTTPS-URLs hinterlegt werden. Die Inhalte sind hier vorbereitet und in Docs/ dokumentiert.")
-                }
-
-                SwiftUI.Section {
-                    LabeledContent("Bundle") {
-                        Text("org.francois.PrivateChat")
-                    }
-
-                    LabeledContent("App") {
-                        Text("SecureChat")
-                    }
-
-                    LabeledContent("Identity") {
-                        Text(shortIdentity)
-                            .font(.caption.monospaced())
-                    }
-
-                    Toggle("Biometrische Entsperrung", isOn: biometricBinding)
-
-                    Stepper("Lokale Nachrichten-Retention: \(localMessageRetentionDays) Tage", value: $localMessageRetentionDays, in: 1...365)
-
-                    Button {
-                        saveLocalRetention()
-                        service.purgeExpiredLocalMessages()
-                    } label: {
-                        if service.isLocalRetentionPurgeRunning {
-                            ProgressView()
-                        } else {
-                            Text("Lokale Retention bereinigen")
-                        }
-                    }
-                    .disabled(service.isLocalRetentionPurgeRunning)
-
-                    if let summary = service.lastLocalRetentionSummary {
-                        LabeledContent("Retention-Bereinigung") {
-                            Text("\(summary.deletedMessages) Nachrichten, \(summary.deletedConversations) Chats")
-                        }
-                    }
-                } header: {
-                    Text("Security Core")
-                }
-
-                SwiftUI.Section {
-                    Toggle("Nachrichten-Vorschau in Listen verbergen", isOn: $hideMessagePreviews)
-                    Toggle("Keyboard-Vorschläge im Composer reduzieren", isOn: $reduceKeyboardSuggestions)
-
-                    Button("Privacy-Einstellungen speichern") {
-                        savePrivacySettings()
-                    }
-
-                    ShareLink(item: service.appDiagnosticsReport()) {
-                        Label("Diagnosebericht teilen", systemImage: "square.and.arrow.up")
-                    }
-
-                    Button {
-                        UIPasteboard.general.string = service.appDiagnosticsReport()
-                    } label: {
-                        Label("Diagnosebericht kopieren", systemImage: "doc.on.doc")
-                    }
-                } header: {
-                    Text("Privacy & Diagnose")
-                } footer: {
-                    Text("Der Vorschau-Schutz blendet Nachrichteninhalte in Listen aus. Der Diagnosebericht enthält technische Metadaten, aber keine Nachrichteninhalte.")
-                }
-
-                SwiftUI.Section {
-                    NavigationLink {
-                        RuntimeSecurityView(service: service)
-                    } label: {
-                        Label("App Hardening & Runtime Integrity", systemImage: "lock.shield")
-                    }
-
-                    LabeledContent("Runtime") {
-                        Text(service.runtimeSecuritySnapshot.localizedSummary)
-                            .foregroundStyle(runtimeRiskColor)
-                    }
-
-                    LabeledContent("Risiko") {
-                        Text(service.runtimeSecuritySnapshot.riskLevel.localizedTitle)
-                            .foregroundStyle(runtimeRiskColor)
-                    }
-
-                    Toggle("Runtime-Warnungen anzeigen", isOn: $warnOnRuntimeRisk)
-                    Toggle("Relay bei kritischem Runtime-Risiko blockieren", isOn: $restrictRelayOnRuntimeRisk)
-
-                    HStack {
-                        Button("Hardening speichern") {
-                            saveRuntimeHardeningSettings()
-                        }
-
-                        Spacer()
-
-                        Button {
-                            service.refreshRuntimeSecurityAssessment()
-                        } label: {
-                            Label("Neu prüfen", systemImage: "arrow.clockwise")
-                        }
-                    }
-                } header: {
-                    Text("Phase 11 App Hardening")
-                } footer: {
-                    Text("Warnungen informieren über Debugger-, Jailbreak- und Injection-Indikatoren. Der optionale Relay-Block stoppt Netzwerktransport nur bei kritischen Laufzeitrisiken.")
-                }
-
-                SwiftUI.Section {
-                    NavigationLink {
-                        SecuritySentinelView(service: service)
-                    } label: {
-                        Label("Lokaler KI-Security-Sentinel", systemImage: "brain.head.profile")
-                    }
-
-                    LabeledContent("Sentinel Score") {
-                        Text("\(service.securityAISnapshot.score)/100")
-                            .foregroundStyle(securityAIColor)
-                    }
-
-                    LabeledContent("Sentinel Risiko") {
-                        Text(service.securityAISnapshot.riskLevel.localizedTitle)
-                            .foregroundStyle(securityAIColor)
-                    }
-
-                    Button {
-                        service.refreshRuntimeSecurityAssessment()
-                        service.refreshSecurityAIAssessment()
-                    } label: {
-                        Label("Security Sentinel neu bewerten", systemImage: "arrow.clockwise")
-                    }
-                } header: {
-                    Text("Phase 12 Security Sentinel")
-                } footer: {
-                    Text("Lokale KI-/Heuristik-Bewertung ohne externe Übertragung. Der Sentinel analysiert Konfiguration, Runtime-Risiko, Relay-Zustand und lokale Qualitätsindikatoren, aber keine Nachrichtenklartexte.")
-                }
-
-                SwiftUI.Section {
-                    Picker("Modus", selection: transportModeBinding) {
-                        Text("Nur lokal").tag(TransportMode.localOnly)
-                        Text("Relay erlaubt").tag(TransportMode.relayAllowed)
-                    }
-                    .pickerStyle(.segmented)
-
-                    LabeledContent("Production-Profil") {
-                        VStack(alignment: .trailing, spacing: 4) {
-                            Text(SecureChatProductionProfile.relayBaseURLString)
-                                .font(.caption.monospaced())
-                                .foregroundStyle(.secondary)
-                            Text(relayProfileStatusText)
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(relayProfileStatusColor)
-                        }
-                    }
-
-                    HStack {
-                        Button {
-                            applyProductionRelayTemplate()
-                        } label: {
-                            Label("Production-URL übernehmen", systemImage: "globe")
-                        }
-
-                        Spacer()
-
-                        Button {
-                            applyProductionRelayTemplate()
-                            saveRelayConfiguration()
-                            Task { await service.checkRelayHealth() }
-                        } label: {
-                            Label("Übernehmen & prüfen", systemImage: "bolt.shield")
-                        }
-                        .disabled(service.isRelayHealthCheckRunning)
-                    }
-
-                    HStack {
-                        Button {
-                            activateProductionRelay()
-                        } label: {
-                            Label("Production Relay aktivieren", systemImage: "checkmark.shield")
-                        }
-                        .buttonStyle(.borderedProminent)
-
-                        Spacer()
-
-                        Button(role: .destructive) {
-                            clearObsoleteLocalRelayConfiguration()
-                        } label: {
-                            Label("Lokale Relay-Altlast löschen", systemImage: "trash")
-                        }
-                        .disabled(SecureChatProductionProfile.isObsoleteLocalRelay(relayURL) == false && SecureChatProductionProfile.isLocalOrPrivateRelay(relayURL) == false)
-                    }
-
-                    TextField(SecureChatProductionProfile.relayBaseURLString, text: $relayURL)
-                        .textInputAutocapitalization(.never)
-                        .keyboardType(.URL)
-                        .autocorrectionDisabled(true)
-
-                    SecureField("RELAY_AUTH_TOKEN", text: $relayToken)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled(true)
-
-                    LabeledContent("Token-Status") {
-                        Text(relayTokenStatusText)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(relayTokenStatusColor)
-                    }
-
-                    if SecureChatProductionProfile.isObsoleteLocalRelay(relayURL) {
-                        Label("Alte lokale Relay-URL erkannt. Diese wird nicht mehr für Production verwendet.", systemImage: "exclamationmark.triangle")
-                            .font(.caption)
-                            .foregroundStyle(.orange)
-                    }
-
-                    Stepper("Inbox Limit: \(relayPollingLimit)", value: $relayPollingLimit, in: 1...100)
-                    Stepper("Auto-Polling: \(relayAutoPollingInterval)s", value: $relayAutoPollingInterval, in: 5...300, step: 5)
-
-                    Toggle("Fehlgeschlagene Nachrichten automatisch erneut senden", isOn: $retryFailedMessagesAutomatically)
-                    Toggle("Relay-Erfolgslogs anzeigen", isOn: $verboseRelayLogging)
-
-                    HStack {
-                        Button("Relay speichern") {
-                            saveRelayConfiguration()
-                        }
-
-                        Spacer()
-
-                        Button {
-                            saveRelayConfiguration()
-                            Task { await service.checkRelayHealth() }
-                        } label: {
-                            if service.isRelayHealthCheckRunning {
-                                ProgressView()
-                            } else {
-                                Text("Relay prüfen")
-                            }
-                        }
-                        .disabled(service.isRelayHealthCheckRunning)
-                    }
-
-                    HStack {
-                        Button {
-                            Task { await service.syncRelayInbox() }
-                        } label: {
-                            if service.isRelaySyncRunning {
-                                ProgressView()
-                            } else {
-                                Text("Inbox abrufen")
-                            }
-                        }
-                        .disabled(service.isRelaySyncRunning || service.securityState.transportMode != .relayAllowed || service.securityState.relayConfiguration.isReadyForNetworkRequests == false)
-
-                        Spacer()
-
-                        Button {
-                            Task { await service.retryPendingOutboundMessages() }
-                        } label: {
-                            if service.isOutboxRetryRunning {
-                                ProgressView()
-                            } else {
-                                Text("Outbox erneut senden")
-                            }
-                        }
-                        .disabled(service.isOutboxRetryRunning || service.pendingOutboxCount() == 0 || service.securityState.relayConfiguration.isReadyForNetworkRequests == false)
-                    }
-
-                    HStack {
-                        Button {
-                            Task { await service.fetchRelayStats() }
-                        } label: {
-                            if service.isRelayStatsRunning {
-                                ProgressView()
-                            } else {
-                                Text("Relay Stats")
-                            }
-                        }
-                        .disabled(service.isRelayStatsRunning || service.securityState.transportMode != .relayAllowed || service.securityState.relayConfiguration.isReadyForNetworkRequests == false)
-
-                        Spacer()
-
-                        Button(role: .destructive) {
-                            Task { await service.purgeRelayInbox() }
-                        } label: {
-                            if service.isRelayPurgeRunning {
-                                ProgressView()
-                            } else {
-                                Text("Inbox am Relay leeren")
-                            }
-                        }
-                        .disabled(service.isRelayPurgeRunning || service.securityState.transportMode != .relayAllowed || service.securityState.relayConfiguration.isReadyForNetworkRequests == false)
-                    }
-
-                    if let stats = service.lastRelayStatsSnapshot {
-                        LabeledContent("Relay Pakete") {
-                            Text("\(stats.storedPackets)")
-                        }
-                        LabeledContent("Relay Empfänger") {
-                            Text("\(stats.activeRecipients)")
-                        }
-                        LabeledContent("ACK Tombstones") {
-                            Text("\(stats.acknowledgedPacketTombstones)")
-                        }
-                    }
-
-                    if let purge = service.lastRelayPurgeSummary {
-                        LabeledContent("Letzte Relay-Bereinigung") {
-                            Text("\(purge.deletedCount) Pakete")
-                        }
-                    }
-
-                    HStack {
-                        Text(transportStatusText)
-                            .font(.caption)
-                            .foregroundStyle(transportStatusColor)
-
-                        Spacer()
-
-                        if service.isRelayAutoPollingActive {
-                            Label("Auto-Polling aktiv", systemImage: "arrow.triangle.2.circlepath")
-                                .font(.caption)
-                                .foregroundStyle(.green)
-                        } else {
-                            Label("Auto-Polling bereit", systemImage: "pause.circle")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-
-                    LabeledContent("Relay-Verbindung") {
-                        HStack(spacing: 6) {
-                            Image(systemName: relayConnectivityIcon)
-                                .foregroundStyle(relayConnectivityColor)
-                            Text(service.relayConnectivityStatus.localizedStateTitle)
-                                .foregroundStyle(relayConnectivityColor)
-                        }
-                    }
-
-                    if service.relayConnectivityStatus.consecutiveFailureCount > 0 {
-                        LabeledContent("Fehlerfolge") {
-                            Text("\(service.relayConnectivityStatus.consecutiveFailureCount)")
-                        }
-                    }
-
-                    if service.relayConnectivityStatus.isPaused {
-                        LabeledContent("Pause") {
-                            Text("noch ca. \(service.relayConnectivityStatus.remainingPauseSeconds)s")
-                        }
-
-                        Button {
-                            service.resetRelayConnectivityBackoff()
-                        } label: {
-                            Label("Relay-Backoff zurücksetzen", systemImage: "play.circle")
-                        }
-                    }
-
-                    LabeledContent("Ausstehende Outbox") {
-                        Text("\(service.pendingOutboxCount())")
-                    }
-
-                    if let healthMessage = service.lastRelayHealthMessage {
-                        Label(healthMessage, systemImage: "checkmark.circle")
-                            .foregroundStyle(.green)
-                    }
-
-                    if let diagnosticMessage = service.lastTransportDiagnosticMessage {
-                        Label(diagnosticMessage, systemImage: "network")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    if let summary = service.lastRelaySyncSummary {
-                        LabeledContent("Letzter Sync") {
-                            Text(summary.receivedAt, style: .time)
-                        }
-                        LabeledContent("Verarbeitet") {
-                            Text("\(summary.processedCount)")
-                        }
-                        LabeledContent("Duplikate") {
-                            Text("\(summary.duplicateCount)")
-                        }
-                        LabeledContent("Verworfen") {
-                            Text("\(summary.rejectedCount)")
-                        }
-                        LabeledContent("Bestätigt") {
-                            Text("\(summary.deletedCount)")
-                        }
-                        LabeledContent("Receipts") {
-                            Text("\(summary.deliveryReceiptSentCount)")
-                        }
-                        LabeledContent("ACK-Fehler") {
-                            Text("\(summary.acknowledgementFailureCount)")
-                        }
-                        LabeledContent("Receipt-Fehler") {
-                            Text("\(summary.deliveryReceiptFailureCount)")
-                        }
-                    }
-
-                    if let retrySummary = service.lastOutboxRetrySummary {
-                        LabeledContent("Letzter Retry") {
-                            Text(retrySummary.completedAt, style: .time)
-                        }
-                        LabeledContent("Retry Ergebnis") {
-                            Text("\(retrySummary.sentCount)/\(retrySummary.attemptedCount) gesendet")
-                        }
-                    }
-                } header: {
-                    Text("Transport")
-                } footer: {
-                    Text(transportFooter)
-                }
-
-                SwiftUI.Section {
-                    LabeledContent("Paket-Ledger") {
-                        Text("\(service.relayLedgerEntryCount())")
-                    }
-                    LabeledContent("Receipt-Ledger") {
-                        Text("\(service.deliveryReceiptLedgerCount())")
-                    }
-
-                    Button {
-                        service.compactRelayLedger()
-                    } label: {
-                        Label("Lokales Relay-Ledger komprimieren", systemImage: "archivebox")
-                    }
-
-                    Button(role: .destructive) {
-                        service.clearRelayLedger()
-                    } label: {
-                        Label("Lokales Relay-Ledger löschen", systemImage: "trash")
-                    }
-                } header: {
-                    Text("Lokale Wartung")
-                } footer: {
-                    Text("Das Ledger enthält nur Paket-IDs und Receipt-Metadaten. Löschen ist für Tests nützlich, kann aber alte Relay-Pakete erneut als neu erscheinen lassen.")
-                }
-
-                SwiftUI.Section {
-                    NavigationLink {
-                        ProductionReadinessView(service: service)
-                    } label: {
-                        Label("Production Readiness", systemImage: "checkmark.shield")
-                    }
-
-                    Label("Production Relay: https://securechat.team", systemImage: "globe")
-                    Label("Docker/HTTPS-Relay-Baseline liegt im RelayServer-Ordner", systemImage: "externaldrive")
-                    Label("Persistenter Relay-Store: STORE_TYPE=file", systemImage: "externaldrive")
-                    Label("Bearer-Token schützt /v1/relay/*", systemImage: "key.horizontal")
-                } header: {
-                    Text("Phase 10")
-                } footer: {
-                    Text("Die Production-Ansicht ist eine Checkliste für den nächsten Schritt: öffentlicher HTTPS-Relay, Token-Härtung und kontrollierte Backup-Policy.")
-                }
-
-                SwiftUI.Section {
-                    Label("Nachrichtenstore ist lokal AES-GCM-verschlüsselt", systemImage: "checkmark.shield")
-                    Label("Store-Key liegt in der Keychain", systemImage: "key")
-                    Label("Trust-State liegt nicht in UserDefaults", systemImage: "lock")
-                    Label("Relay-Pakete sind signiert und AEAD-geschützt", systemImage: "signature")
-                    Label("Relay-ACKs sind idempotent", systemImage: "checkmark.seal")
-                    Label("Delivery-Receipts markieren Nachrichten als delivered", systemImage: "paperplane.circle")
-                    Label("Relay-Paket-Ledger liegt in der Keychain", systemImage: "tray.full")
-                    Label("Relay-Stats und Purge sind nur Metadaten; keine Klartexte", systemImage: "chart.bar")
-                    Label("Lokale Retention kann alte Nachrichten löschen", systemImage: "calendar.badge.clock")
-                    Label("Markierungen und Stumm-Status werden lokal verschlüsselt gespeichert", systemImage: "star")
-                    Label("Chat-Details zeigen nur lokale Metadaten und Safety-Number", systemImage: "info.circle")
-                    Label("Relay-Erfolgslogs sind standardmäßig leise und optional aktivierbar", systemImage: "speaker.slash")
-                    Label("Chat-Export erzeugt lokalen Klartext nur nach manueller Aktion", systemImage: "square.and.arrow.up")
-                    Label("Vorschau-Schutz blendet Nachrichteninhalte in Listen aus", systemImage: "eye.slash")
-                    Label("Diagnosebericht enthält keine Chat-Texte", systemImage: "doc.text.magnifyingglass")
-                } header: {
-                    Text("Persistenz")
-                }
+                    LabeledContent("Version", value: Self.appVersionString)
+                        .font(.caption)
+                } header: { Text("PrivateRoom") }
             }
-            .navigationTitle("Security")
+            .scrollContentBackground(.hidden)
+            .background(PrivateChatDesign.pageGradient.ignoresSafeArea())
+            .navigationTitle("Privatsphäre")
             .privateChatErrorAlert(service: service)
-            .onAppear {
-                loadRelayConfiguration()
+            .confirmationDialog("Abgelaufene Nachrichten löschen?", isPresented: $showRetentionConfirmation, titleVisibility: .visible) {
+                Button("Jetzt lokal bereinigen", role: .destructive) { service.purgeExpiredLocalMessages() }
+                Button("Abbrechen", role: .cancel) {}
+            } message: {
+                Text("Nachrichten außerhalb der eingestellten Aufbewahrungsgrenze und zugehörige lokale Anhänge werden entfernt. Diese Aktion kann nicht rückgängig gemacht werden.")
             }
         }
     }
 
-    private var appVersionString: String {
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+    private func setting(_ keyPath: WritableKeyPath<AppSecurityState, Bool>) -> Binding<Bool> {
+        Binding(
+            get: { service.securityState[keyPath: keyPath] },
+            set: { value in
+                var state = service.securityState
+                state[keyPath: keyPath] = value
+                _ = service.updateSecurityState(state)
+            }
+        )
+    }
+
+    private var retentionBinding: Binding<Int> {
+        Binding(
+            get: { service.securityState.localMessageRetentionDays },
+            set: { value in
+                var state = service.securityState
+                state.localMessageRetentionDays = value
+                _ = service.updateSecurityState(state)
+            }
+        )
+    }
+
+    static var appVersionString: String {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
         return "\(version) (\(build))"
     }
+}
 
-    private var shortIdentity: String {
-        let idPrefix = String(service.localIdentity.id.prefix(12))
-        return "\(idPrefix)…"
-    }
+private struct PrivateRoomConnectionDetailsView: View {
+    @ObservedObject var service: ConversationService
+    @State private var isEnrolling = false
 
-    private var transportStatusText: String {
-        switch service.securityState.transportMode {
-        case .localOnly:
-            return "Nur lokal"
-        case .relayAllowed:
-            let url = service.securityState.relayConfiguration.baseURLString.trimmingCharacters(in: .whitespacesAndNewlines)
-            if url.isEmpty || service.securityState.relayConfiguration.isEnabled == false {
-                return "Relay fehlt"
-            }
-            if service.securityState.relayConfiguration.isReadyForNetworkRequests == false {
-                return "Relay nicht bereit"
-            }
-            return "Relay aktiv"
-        }
-    }
-
-    private var transportStatusColor: Color {
-        switch service.securityState.transportMode {
-        case .localOnly:
-            return .orange
-        case .relayAllowed:
-            let url = service.securityState.relayConfiguration.baseURLString.trimmingCharacters(in: .whitespacesAndNewlines)
-            if url.isEmpty || service.securityState.relayConfiguration.isEnabled == false { return .red }
-            return service.securityState.relayConfiguration.isReadyForNetworkRequests ? .green : .orange
-        }
-    }
-
-    private var relayConnectivityColor: Color {
-        switch service.relayConnectivityStatus.state {
-        case .healthy:
-            return .green
-        case .degraded:
-            return .orange
-        case .paused:
-            return service.relayConnectivityStatus.isPaused ? .orange : .green
-        }
-    }
-
-    private var relayConnectivityIcon: String {
-        switch service.relayConnectivityStatus.state {
-        case .healthy:
-            return "checkmark.circle"
-        case .degraded:
-            return "exclamationmark.triangle"
-        case .paused:
-            return service.relayConnectivityStatus.isPaused ? "pause.circle" : "play.circle"
-        }
-    }
-
-    private var transportFooter: String {
-        "Production: https://securechat.team mit RELAY_AUTH_TOKEN aus /opt/securechat/.env verwenden. Alte LAN-HTTP-URLs werden blockiert. Auto-Polling startet nur, wenn URL und Token gültig sind."
-    }
-
-    private var relayProfileStatusText: String {
-        let trimmedURL = relayURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        if SecureChatProductionProfile.isConfiguredProductionRelay(trimmedURL) {
-            return "Production aktiv"
-        }
-        if SecureChatProductionProfile.isObsoleteLocalRelay(trimmedURL) {
-            return "alte lokale URL"
-        }
-        if SecureChatProductionProfile.isLocalOrPrivateRelay(trimmedURL) {
-            return "lokal blockiert"
-        }
-        if SecureChatProductionProfile.isHTTPSProductionCandidate(trimmedURL) {
-            return "HTTPS extern"
-        }
-        return trimmedURL.isEmpty ? "nicht gesetzt" : "prüfen"
-    }
-
-    private var relayProfileStatusColor: Color {
-        let trimmedURL = relayURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        if SecureChatProductionProfile.isConfiguredProductionRelay(trimmedURL) {
-            return .green
-        }
-        if SecureChatProductionProfile.isObsoleteLocalRelay(trimmedURL) || SecureChatProductionProfile.isLocalOrPrivateRelay(trimmedURL) {
-            return .orange
-        }
-        if trimmedURL.isEmpty {
-            return .secondary
-        }
-        if SecureChatProductionProfile.isHTTPSProductionCandidate(trimmedURL) {
-            return .accentColor
-        }
-        return .orange
-    }
-
-
-    private var relayTokenStatusText: String {
-        let trimmedToken = relayToken.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmedToken.isEmpty {
-            return "fehlt"
-        }
-        if SecureChatProductionProfile.isUsableClientToken(trimmedToken) {
-            return "gesetzt"
-        }
-        if trimmedToken.contains("RELAY_AUTH_TOKEN=") {
-            return "nur Wert einfügen"
-        }
-        return "prüfen"
-    }
-
-    private var relayTokenStatusColor: Color {
-        SecureChatProductionProfile.isUsableClientToken(relayToken) ? .green : .orange
-    }
-
-    private var biometricBinding: Binding<Bool> {
-        Binding<Bool>(
-            get: {
-                service.securityState.requireBiometricUnlock
-            },
-            set: { newValue in
-                guard newValue != service.securityState.requireBiometricUnlock else {
-                    return
+    var body: some View {
+        List {
+            SwiftUI.Section {
+                LabeledContent("Relay", value: service.securityState.relayConfiguration.baseURLString.isEmpty ? "Nicht eingerichtet" : service.securityState.relayConfiguration.baseURLString)
+                    .font(.footnote)
+                LabeledContent("Abruf", value: service.isRelayAutoPollingActive ? "Aktiv bei geöffneter App" : "Pausiert")
+                LabeledContent("Ausstehende Nachrichten", value: "\(service.pendingOutboxCount())")
+                LabeledContent("Fehlgeschlagene Nachrichten", value: "\(service.failedMessageCount())")
+                if let message = service.lastRelayHealthMessage {
+                    Text(message).font(.footnote).foregroundStyle(.secondary)
                 }
+                Button {
+                    guard isEnrolling == false else { return }
+                    isEnrolling = true
+                    Task {
+                        _ = await service.enrollLocalPeerIfNeeded()
+                        isEnrolling = false
+                    }
+                } label: {
+                    HStack {
+                        Label("Geräteverbindung erneut anmelden", systemImage: "person.crop.circle.badge.checkmark")
+                        if isEnrolling { ProgressView() }
+                    }
+                }
+                .disabled(isEnrolling || service.securityState.transportMode != .relayAllowed)
+                Button {
+                    Task { await service.syncRelayInbox() }
+                } label: {
+                    HStack {
+                        Label("Nachrichten jetzt abrufen", systemImage: "arrow.down.circle")
+                        if service.isRelaySyncRunning { ProgressView() }
+                    }
+                }
+                .disabled(service.isRelaySyncRunning || service.securityState.transportMode != .relayAllowed)
+                Button {
+                    Task { await service.retryPendingOutboundMessages() }
+                } label: {
+                    HStack {
+                        Label("Ausstehende Nachrichten aller Chats erneut senden", systemImage: "arrow.clockwise")
+                        if service.isOutboxRetryRunning { ProgressView() }
+                    }
+                }
+                .disabled(service.isOutboxRetryRunning || service.pendingOutboxCount() == 0 || service.securityState.transportMode != .relayAllowed)
+                if service.relayConnectivityStatus.isPaused {
+                    LabeledContent("Abrufpause", value: "Noch ca. \(service.relayConnectivityStatus.remainingPauseSeconds) Sekunden")
+                    Button("Automatische Abrufpause zurücksetzen") { service.resetRelayConnectivityBackoff() }
+                }
+                if let summary = service.lastRelaySyncSummary {
+                    LabeledContent("Zuletzt abgerufen", value: summary.receivedAt.formatted(date: .abbreviated, time: .shortened))
+                    LabeledContent("Verarbeitete Pakete", value: "\(summary.processedCount)")
+                }
+            } header: { Text("Tatsächlicher Verbindungsstatus") }
+            SwiftUI.Section {
+                status("Wartet", detail: "Lokal aufgenommen; Übertragung steht noch aus.", icon: "clock")
+                status("Sendet", detail: "Die App versucht gerade zu übertragen.", icon: "arrow.up.circle")
+                status("Am Relay", detail: "Der Vermittlungsserver hat das Paket angenommen. Das andere Gerät hat den Empfang noch nicht bestätigt.", icon: "tray.and.arrow.up")
+                status("Zugestellt", detail: "Das Gerät des Kontakts hat den Empfang bestätigt. Das ist keine Lesebestätigung.", icon: "checkmark.seal")
+                status("Fehler", detail: "Die Übertragung ist fehlgeschlagen. Prüfe Verbindung und Kontaktstatus, bevor du erneut sendest.", icon: "exclamationmark.triangle")
+            } header: { Text("Was die Zeichen bedeuten") }
+            footer: { Text("„Gesendet“ wird auch für lokale Notizen verwendet. Dort gibt es keine externe Gegenstelle.") }
+        }
+        .navigationTitle("Verbindung")
+        .navigationBarTitleDisplayMode(.inline)
+        .privateChatErrorAlert(service: service)
+    }
+
+    private func status(_ title: String, detail: String, icon: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label(title, systemImage: icon).font(.subheadline.weight(.semibold))
+            Text(detail).font(.footnote).foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 5)
+    }
+}
+
+private struct PrivateRoomDiagnosticsView: View {
+    @ObservedObject var service: ConversationService
+    @State private var showReport = false
+
+    var body: some View {
+        List {
+            SwiftUI.Section {
+                Text("Diese lokalen Hinweise sind keine Zertifizierung und kein unabhängiger Sicherheits-Audit. Sie untersuchen technische Zustände, nicht die Vertrauenswürdigkeit eines Kontakts.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                LabeledContent("Gerätestatus", value: service.runtimeSecuritySnapshot.riskLevel.localizedTitle)
+                Button {
+                    service.refreshRuntimeSecurityAssessment()
+                } label: { Label("Gerätestatus neu prüfen", systemImage: "arrow.clockwise") }
+                Toggle("Technische Warnungen anzeigen", isOn: runtimeSetting(\.warnOnRuntimeRisk))
+                Toggle("Relay bei kritischen Gerätehinweisen blockieren", isOn: runtimeSetting(\.restrictRelayOnRuntimeRisk))
+                ForEach(service.runtimeSecuritySnapshot.findings) { finding in
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(finding.title).font(.subheadline.weight(.semibold))
+                        Text(finding.detail).font(.footnote).foregroundStyle(.secondary)
+                    }
+                }
+            } header: { Text("Lokale Geräteprüfung") }
+            SwiftUI.Section {
+                Button { showReport = true } label: {
+                    Label("Supportbericht vor dem Teilen prüfen", systemImage: "doc.text.magnifyingglass")
+                }
+            } footer: {
+                Text("Der Bericht enthält keine Chat-Texte, Schlüssel oder Tokens. Technische Metadaten können trotzdem deine Konfiguration offenlegen. Prüfe den Inhalt vor dem Teilen.")
+            }
+        }
+        .navigationTitle("Diagnose")
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showReport) {
+            PrivateRoomSupportReportView(text: service.appDiagnosticsReport())
+        }
+        .privateChatErrorAlert(service: service)
+    }
+
+    private func runtimeSetting(_ keyPath: WritableKeyPath<AppSecurityState, Bool>) -> Binding<Bool> {
+        Binding(
+            get: { service.securityState[keyPath: keyPath] },
+            set: { value in
                 var state = service.securityState
-                state.requireBiometricUnlock = newValue
-                service.updateSecurityState(state)
+                state[keyPath: keyPath] = value
+                _ = service.updateSecurityState(state)
             }
         )
     }
+}
 
-    private var transportModeBinding: Binding<TransportMode> {
-        Binding<TransportMode>(
-            get: {
-                service.securityState.transportMode
-            },
-            set: { newValue in
-                guard newValue != service.securityState.transportMode else {
-                    return
+private struct PrivateRoomSupportReportView: View {
+    let text: String
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    Text("Du entscheidest, was du weitergibst.").font(.headline)
+                    Text("Technische Metadaten können Rückschlüsse auf dein Gerät und deine Verbindung erlauben. Der Bericht wird erst durch deine Aktion geteilt.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    Text(text).font(.caption.monospaced()).textSelection(.enabled)
+                    ShareLink(item: text) { Label("Geprüften Bericht teilen", systemImage: "square.and.arrow.up") }
+                        .buttonStyle(.bordered)
+                    Button {
+                        PrivateRoomClipboard.copy(text)
+                    } label: { Label("Lokal für 1 Minute kopieren", systemImage: "doc.on.doc") }
+                        .buttonStyle(.bordered)
                 }
-                var state = service.securityState
-                state.transportMode = newValue
-                state.relayConfiguration.isEnabled = newValue == .relayAllowed
-                service.updateSecurityState(state)
+                .padding(24)
+                .frame(maxWidth: 680)
+                .frame(maxWidth: .infinity)
             }
-        )
+            .navigationTitle("Supportbericht")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Schließen") { dismiss() } }
+            }
+        }
+    }
+}
+
+private struct PrivateRoomAdvancedSettingsView: View {
+    @ObservedObject var service: ConversationService
+    @State private var relayURL = ""
+    @State private var relayToken = ""
+    @State private var pollingLimit = 50
+    @State private var pollingInterval = 15
+    @State private var retryAutomatically = true
+    @State private var verboseLogging = false
+    @State private var showPurgeConfirmation = false
+    @State private var showLedgerConfirmation = false
+    @State private var savedMessage: String?
+
+    var body: some View {
+        Form {
+            SwiftUI.Section {
+                Text("Für selbst betriebene oder besonders konfigurierte Relay-Server. Die normale PrivateRoom-Verbindung wird ohne einen Betreiber-Token eingerichtet.")
+                    .font(.footnote).foregroundStyle(.secondary)
+                TextField("HTTPS-Relay-URL", text: $relayURL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .keyboardType(.URL)
+                SecureField("Zugangstoken des eigenen Relay · falls nötig", text: $relayToken)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                Button("Konfiguration speichern") { saveConfiguration() }
+                if let savedMessage { Text(savedMessage).font(.caption).foregroundStyle(.secondary) }
+                if service.securityState.transportMode == .localOnly {
+                    Button("Gespeicherte Verbindung bewusst aktivieren") {
+                        var state = service.securityState
+                        state.transportMode = .relayAllowed
+                        state.relayConfiguration.isEnabled = true
+                        guard service.updateSecurityState(state) else { return }
+                        Task { _ = await service.enrollLocalPeerIfNeeded() }
+                    }
+                }
+            } header: { Text("Eigener Relay") }
+            footer: {
+                Text("Speichern aktiviert keinen Netzwerktransport. Verwende nur einen Relay, dessen Betreiber du vertraust. HTTPS und Gerätesignaturen bleiben erforderlich.")
+            }
+            SwiftUI.Section {
+                Stepper("Pakete pro Abruf: \(pollingLimit)", value: $pollingLimit, in: 1...100)
+                Stepper("Abruf bei geöffneter App: \(pollingInterval) Sekunden", value: $pollingInterval, in: 5...300, step: 5)
+                Toggle("Fehlgeschlagene Übertragungen automatisch erneut versuchen", isOn: $retryAutomatically)
+                Toggle("Zusätzliche technische Erfolgshinweise", isOn: $verboseLogging)
+            } header: { Text("Abruf und technische Hinweise") }
+            SwiftUI.Section {
+                Button {
+                    Task { await service.fetchRelayStats() }
+                } label: {
+                    HStack {
+                        Label("Relay-Metadaten abrufen", systemImage: "chart.bar")
+                        if service.isRelayStatsRunning { ProgressView() }
+                    }
+                }
+                .disabled(service.isRelayStatsRunning || service.securityState.transportMode != .relayAllowed)
+                if let stats = service.lastRelayStatsSnapshot {
+                    LabeledContent("Gespeicherte Pakete", value: "\(stats.storedPackets)")
+                    LabeledContent("Aktive Empfänger", value: "\(stats.activeRecipients)")
+                }
+                Button("Relay-Inbox dieses Geräts leeren", role: .destructive) { showPurgeConfirmation = true }
+                    .disabled(service.isRelayPurgeRunning || service.securityState.transportMode != .relayAllowed)
+            } header: { Text("Relay-Wartung") }
+            SwiftUI.Section {
+                LabeledContent("Paket-Referenzen", value: "\(service.relayLedgerEntryCount())")
+                LabeledContent("Empfangsbestätigungen", value: "\(service.deliveryReceiptLedgerCount())")
+                Button("Referenzen kompakt speichern") { service.compactRelayLedger() }
+                Button("Lokale Zustellreferenzen zurücksetzen", role: .destructive) { showLedgerConfirmation = true }
+            } header: { Text("Lokale Wartung") }
+            footer: {
+                Text("Ein Zurücksetzen kann alte Relay-Pakete erneut als neu erscheinen lassen. Nur zur gezielten Fehlerbehebung verwenden.")
+            }
+        }
+        .navigationTitle("Erweitert")
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear { loadConfiguration() }
+        .privateChatErrorAlert(service: service)
+        .confirmationDialog("Relay-Inbox dieses Geräts leeren?", isPresented: $showPurgeConfirmation, titleVisibility: .visible) {
+            Button("Pakete am Relay löschen", role: .destructive) {
+                Task { await service.purgeRelayInbox() }
+            }
+            Button("Abbrechen", role: .cancel) {}
+        } message: { Text("Noch nicht abgerufene Pakete für dieses Gerät können verloren gehen. Lokale Chats und andere Empfänger werden nicht geleert.") }
+        .confirmationDialog("Lokale Zustellreferenzen zurücksetzen?", isPresented: $showLedgerConfirmation, titleVisibility: .visible) {
+            Button("Referenzen zurücksetzen", role: .destructive) { service.clearRelayLedger() }
+            Button("Abbrechen", role: .cancel) {}
+        } message: { Text("Die Duplikaterkennung verliert ihre gespeicherten Referenzen. Dies löscht keine Nachrichten beim Kontakt.") }
     }
 
-    private func loadRelayConfiguration() {
-        relayURL = service.securityState.relayConfiguration.migratedForSecureChatProduction.baseURLString
-        relayToken = service.securityState.relayConfiguration.registrationToken ?? ""
-        relayPollingLimit = service.securityState.relayConfiguration.inboxPollingLimit
-        relayAutoPollingInterval = service.securityState.relayConfiguration.autoPollingIntervalSeconds
-        retryFailedMessagesAutomatically = service.securityState.relayConfiguration.retryFailedMessagesAutomatically
-        verboseRelayLogging = service.securityState.relayConfiguration.verboseRelayLogging
-        localMessageRetentionDays = service.securityState.localMessageRetentionDays
-        hideMessagePreviews = service.securityState.hideMessagePreviews
-        reduceKeyboardSuggestions = service.securityState.reduceKeyboardSuggestions
-        warnOnRuntimeRisk = service.securityState.warnOnRuntimeRisk
-        restrictRelayOnRuntimeRisk = service.securityState.restrictRelayOnRuntimeRisk
+    private func loadConfiguration() {
+        let configuration = service.securityState.relayConfiguration
+        relayURL = configuration.baseURLString
+        relayToken = configuration.registrationToken ?? ""
+        pollingLimit = configuration.inboxPollingLimit
+        pollingInterval = configuration.autoPollingIntervalSeconds
+        retryAutomatically = configuration.retryFailedMessagesAutomatically
+        verboseLogging = configuration.verboseRelayLogging
     }
 
-    private func applyProductionRelayTemplate() {
-        relayURL = SecureChatProductionProfile.relayBaseURLString
-        relayPollingLimit = 50
-        relayAutoPollingInterval = 15
-        retryFailedMessagesAutomatically = true
-    }
-
-    private func activateProductionRelay() {
-        applyProductionRelayTemplate()
-        saveRelayConfiguration()
-    }
-
-    private func clearObsoleteLocalRelayConfiguration() {
-        relayURL = SecureChatProductionProfile.relayBaseURLString
-        saveRelayConfiguration()
-    }
-
-    private func saveRelayConfiguration() {
-        let trimmedURL = relayURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedToken = relayToken.trimmingCharacters(in: .whitespacesAndNewlines)
-
+    private func saveConfiguration() {
         var state = service.securityState
-        let normalizedURL = SecureChatProductionProfile.normalizeRelayBaseURL(trimmedURL)
-        let normalizedToken = SecureChatProductionProfile.normalizedToken(trimmedToken)
-        let candidateConfiguration = RelayConfiguration(
-            isEnabled: normalizedURL.isEmpty == false,
-            baseURLString: normalizedURL,
-            registrationToken: normalizedToken,
-            inboxPollingLimit: relayPollingLimit,
-            autoPollingIntervalSeconds: relayAutoPollingInterval,
-            retryFailedMessagesAutomatically: retryFailedMessagesAutomatically,
-            verboseRelayLogging: verboseRelayLogging
-        ).migratedForSecureChatProduction
-
-        let shouldEnableRelay = candidateConfiguration.baseURLString.isEmpty == false
-        state.transportMode = candidateConfiguration.baseURLString.isEmpty == false ? .relayAllowed : state.transportMode
+        let previousConfiguration = state.relayConfiguration
         state.relayConfiguration = RelayConfiguration(
-            isEnabled: shouldEnableRelay && state.transportMode == .relayAllowed,
-            baseURLString: candidateConfiguration.baseURLString,
-            registrationToken: candidateConfiguration.registrationToken,
-            inboxPollingLimit: relayPollingLimit,
-            autoPollingIntervalSeconds: relayAutoPollingInterval,
-            retryFailedMessagesAutomatically: retryFailedMessagesAutomatically,
-            verboseRelayLogging: verboseRelayLogging
+            isEnabled: state.transportMode == .relayAllowed && previousConfiguration.isEnabled,
+            baseURLString: SecureChatProductionProfile.normalizeRelayBaseURL(relayURL),
+            registrationToken: SecureChatProductionProfile.normalizedToken(relayToken),
+            inboxPollingLimit: pollingLimit,
+            autoPollingIntervalSeconds: pollingInterval,
+            retryFailedMessagesAutomatically: retryAutomatically,
+            autoPurgeRelayInboxAfterSuccessfulSync: previousConfiguration.autoPurgeRelayInboxAfterSuccessfulSync,
+            verboseRelayLogging: verboseLogging
         )
-        state.localMessageRetentionDays = localMessageRetentionDays
-        state.hideMessagePreviews = hideMessagePreviews
-        state.reduceKeyboardSuggestions = reduceKeyboardSuggestions
-        state.warnOnRuntimeRisk = warnOnRuntimeRisk
-        state.restrictRelayOnRuntimeRisk = restrictRelayOnRuntimeRisk
-
-        service.updateSecurityState(state)
-    }
-
-    private func saveLocalRetention() {
-        var state = service.securityState
-        state.localMessageRetentionDays = localMessageRetentionDays
-        service.updateSecurityState(state)
-    }
-
-    private func savePrivacySettings() {
-        var state = service.securityState
-        state.hideMessagePreviews = hideMessagePreviews
-        state.reduceKeyboardSuggestions = reduceKeyboardSuggestions
-        service.updateSecurityState(state)
-    }
-
-    private func saveRuntimeHardeningSettings() {
-        var state = service.securityState
-        state.warnOnRuntimeRisk = warnOnRuntimeRisk
-        state.restrictRelayOnRuntimeRisk = restrictRelayOnRuntimeRisk
-        service.updateSecurityState(state)
-        service.refreshRuntimeSecurityAssessment()
-    }
-
-    private var runtimeRiskColor: Color {
-        switch service.runtimeSecuritySnapshot.riskLevel {
-        case .normal:
-            return .green
-        case .development:
-            return .accentColor
-        case .elevated:
-            return .orange
-        case .compromised:
-            return .red
-        }
-    }
-
-    private var securityAIColor: Color {
-        switch service.securityAISnapshot.riskLevel {
-        case .optimal:
-            return .green
-        case .guarded:
-            return .accentColor
-        case .elevated:
-            return .orange
-        case .critical:
-            return .red
-        }
+        guard service.updateSecurityState(state) else { savedMessage = nil; return }
+        savedMessage = state.transportMode == .localOnly ? "Gespeichert. Die App bleibt nur lokal." : "Gespeichert. Der bereits aktivierte Relay-Modus bleibt bestehen."
     }
 }

@@ -23,6 +23,45 @@ struct PairingPayload: Codable, Equatable {
     let keyAgreementPublicKeyBase64: String
     let signingPublicKeyBase64: String
     let createdAt: Date
+    let signatureBase64: String?
+
+    init(
+        version: Int,
+        displayName: String,
+        keyAgreementPublicKeyBase64: String,
+        signingPublicKeyBase64: String,
+        createdAt: Date,
+        signatureBase64: String? = nil
+    ) {
+        self.version = version
+        self.displayName = displayName
+        self.keyAgreementPublicKeyBase64 = keyAgreementPublicKeyBase64
+        self.signingPublicKeyBase64 = signingPublicKeyBase64
+        self.createdAt = createdAt
+        self.signatureBase64 = signatureBase64
+    }
+
+    /// A length-delimited, domain-separated commitment to the complete
+    /// public identity. JSON serialization and field order are not part
+    /// of the signature format. Dates use the wire's whole-second format.
+    var authenticatedData: Data {
+        let fields = [
+            "PrivateRoom/pairing/v3",
+            String(version),
+            displayName,
+            signingPublicKeyBase64,
+            keyAgreementPublicKeyBase64,
+            DateCoding.string(from: createdAt)
+        ]
+        var result = Data()
+        for field in fields {
+            let bytes = Data(field.utf8)
+            var length = UInt32(bytes.count).bigEndian
+            withUnsafeBytes(of: &length) { result.append(contentsOf: $0) }
+            result.append(bytes)
+        }
+        return result
+    }
 }
 
 protocol IdentityManaging {
@@ -41,7 +80,10 @@ final class IdentityManager: IdentityManaging, PeerBoundSigningContext {
     }
 
     private enum Pairing {
-        static let urlPrefix = "privatechat://pairing/"
+        static let urlPrefix = "privateroom://pairing/"
+        static let acceptedPrefixes = [urlPrefix, "privatechat://pairing/", "securechat://pairing/"]
+        static let maximumEncodedBytes = 8_192
+        static let maximumDecodedBytes = 4_096
     }
 
     private let keychain: KeychainStoring
@@ -101,40 +143,100 @@ final class IdentityManager: IdentityManaging, PeerBoundSigningContext {
     }
 
     func exportPairingPayload(identity: LocalIdentity) throws -> String {
-        let payload = PairingPayload(
-            version: 2,
+        let unsignedPayload = PairingPayload(
+            version: 3,
             displayName: Self.normalizedDisplayName(identity.displayName),
             keyAgreementPublicKeyBase64: identity.keyAgreementPublicKeyData.base64EncodedString(),
             signingPublicKeyBase64: identity.signingPublicKeyData.base64EncodedString(),
             createdAt: Date()
+        )
+        let signature = try crypto.sign(unsignedPayload.authenticatedData, privateKey: identity.signingPrivateKey)
+        let payload = PairingPayload(
+            version: unsignedPayload.version,
+            displayName: unsignedPayload.displayName,
+            keyAgreementPublicKeyBase64: unsignedPayload.keyAgreementPublicKeyBase64,
+            signingPublicKeyBase64: unsignedPayload.signingPublicKeyBase64,
+            createdAt: unsignedPayload.createdAt,
+            signatureBase64: signature.base64EncodedString()
         )
         let data = try encoder.encode(payload)
         return Pairing.urlPrefix + Base64URL.encode(data)
     }
 
     func importPairingPayload(_ encodedPayload: String) throws -> TrustedPeer {
-        let normalizedPayload = encodedPayload
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: Pairing.urlPrefix, with: "")
+        guard encodedPayload.utf8.count <= Pairing.maximumEncodedBytes else {
+            throw PrivateChatError.invalidPairingPayload
+        }
+        var normalizedPayload = encodedPayload.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let prefix = Pairing.acceptedPrefixes.first(where: { normalizedPayload.hasPrefix($0) }) {
+            normalizedPayload.removeFirst(prefix.count)
+        }
 
-        guard let payloadData = Base64URL.decode(normalizedPayload) else {
+        guard normalizedPayload.isEmpty == false,
+              normalizedPayload.range(of: "^[A-Za-z0-9_-]+$", options: .regularExpression) != nil,
+              let payloadData = Base64URL.decode(normalizedPayload),
+              payloadData.count <= Pairing.maximumDecodedBytes else {
             throw PrivateChatError.invalidPairingPayload
         }
 
         let payload = try decoder.decode(PairingPayload.self, from: payloadData)
-        guard [1, 2].contains(payload.version),
+        guard [1, 2, 3].contains(payload.version),
+              payload.displayName.utf8.count <= 320,
+              payload.createdAt.timeIntervalSince1970.isFinite,
               let signingPublicKeyData = Data(base64Encoded: payload.signingPublicKeyBase64),
-              Data(base64Encoded: payload.keyAgreementPublicKeyBase64) != nil else {
+              let keyAgreementPublicKeyData = Data(base64Encoded: payload.keyAgreementPublicKeyBase64),
+              signingPublicKeyData.count == 32,
+              keyAgreementPublicKeyData.count == 32,
+              signingPublicKeyData.base64EncodedString() == payload.signingPublicKeyBase64,
+              keyAgreementPublicKeyData.base64EncodedString() == payload.keyAgreementPublicKeyBase64,
+              let remoteSigningKey = try? Curve25519.Signing.PublicKey(rawRepresentation: signingPublicKeyData),
+              let remoteAgreementKey = try? Curve25519.KeyAgreement.PublicKey(rawRepresentation: keyAgreementPublicKeyData) else {
+            throw PrivateChatError.invalidPairingPayload
+        }
+        if payload.version == 3 {
+            guard let encodedSignature = payload.signatureBase64,
+                  let signature = Data(base64Encoded: encodedSignature),
+                  signature.count == 64,
+                  encodedSignature == signature.base64EncodedString(),
+                  crypto.verify(signature: signature, data: payload.authenticatedData, publicKey: remoteSigningKey) else {
+                throw PrivateChatError.invalidPairingPayload
+            }
+        }
+
+        guard let localSigningPrivateKeyData = try keychain.readData(account: Account.signingPrivateKey) else {
+            throw PrivateChatError.invalidKeyMaterial
+        }
+        let localSigningPrivateKey = try Curve25519.Signing.PrivateKey(
+            rawRepresentation: localSigningPrivateKeyData
+        )
+        guard let localAgreementPrivateKeyData = try keychain.readData(account: Account.keyAgreementPrivateKey) else {
+            throw PrivateChatError.invalidKeyMaterial
+        }
+        let localAgreementPrivateKey = try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: localAgreementPrivateKeyData)
+        // Reject low-order X25519 inputs (including all-zero keys) before
+        // allowing a contact into the trust store.
+        do {
+            let shared = try localAgreementPrivateKey.sharedSecretFromKeyAgreement(with: remoteAgreementKey)
+            guard shared.withUnsafeBytes({ bytes in bytes.contains { $0 != 0 } }) else {
+                throw PrivateChatError.invalidPairingPayload
+            }
+        } catch {
             throw PrivateChatError.invalidPairingPayload
         }
 
         let peerID = crypto.peerID(publicKeyData: signingPublicKeyData)
+        let safetyNumber = SafetyNumberV3.make(
+            localSigningPublicKeyData: localSigningPrivateKey.publicKey.rawRepresentation,
+            localKeyAgreementPublicKeyData: localAgreementPrivateKey.publicKey.rawRepresentation,
+            remoteSigningPublicKeyData: signingPublicKeyData,
+            remoteKeyAgreementPublicKeyData: keyAgreementPublicKeyData
+        )
         return TrustedPeer(
             id: peerID,
             displayName: Self.normalizedDisplayName(payload.displayName),
             keyAgreementPublicKeyBase64: payload.keyAgreementPublicKeyBase64,
             signingPublicKeyBase64: payload.signingPublicKeyBase64,
-            safetyNumber: crypto.safetyNumber(peerID: peerID),
+            safetyNumber: safetyNumber,
             trustState: .unverified
         )
     }
@@ -179,33 +281,14 @@ final class IdentityManager: IdentityManaging, PeerBoundSigningContext {
         }
     }
 
-    public func currentSigningPrivateKey() -> Curve25519.Signing.PrivateKey {
-        // The forced-try here is acceptable
-        // because the only failure mode is a
-        // corrupt keychain. If that happens
-        // we want the relay request to fail
-        // loudly (the transport catches
-        // `try?` and sends an unsigned
-        // request, which the relay will
-        // refuse once
-        // `RELAY_REQUIRE_PEER_AUTH=*** is
-        // enabled).
-        if let identity = try? loadOrCreateLocalIdentity(displayName: "") {
-            return identity.signingPrivateKey
+    public func currentSigningPrivateKey() -> Curve25519.Signing.PrivateKey? {
+        do {
+            return try loadOrCreateLocalIdentity(displayName: "").signingPrivateKey
+        } catch {
+            Self.logger.error(
+                "PeerBoundSigningContext.currentSigningPrivateKey failed: \(error.localizedDescription, privacy: .public)"
+            )
+            return nil
         }
-        // Fallback: a fresh in-memory
-        // signing key. This is **not**
-        // persisted and **not** the user's
-        // real identity; it is only used so
-        // the transport can still build a
-        // canonical string in the unlikely
-        // case the keychain is unreachable.
-        // The relay will reject the
-        // signature (the public key is not
-        // registered) and the request will
-        // fail with 401/403, which the
-        // transport surfaces as a normal
-        // network error.
-        return Curve25519.Signing.PrivateKey()
     }
 }

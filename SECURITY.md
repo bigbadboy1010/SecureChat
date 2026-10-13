@@ -1,137 +1,55 @@
-# Security Policy
+# PrivateRoom security policy
 
-SecureChat is end-to-end encrypted, but software has bugs. We take
-reports seriously. Mailboxes and public endpoints referenced in this
-file are kept in sync with
-[`docs/CURRENT-ENDPOINTS.md`](docs/CURRENT-ENDPOINTS.md) — that file
-is the single source of truth for `security@securechat.team`, the
-public healthcheck, and the distribution channels.
+PrivateRoom is under active development as a **closed owner beta**. The 13 October 2026 integration candidate is **1.5.0 (15)**. A new Apple upload, TestFlight release or App Store publication has not been established by this review. An independent external protocol/application audit has **not** been completed.
 
-## Threat model in one paragraph
+Do not use the beta for high-sensitivity communication. The product does not promise absolute privacy, complete anonymity, forward secrecy, post-compromise recovery or protection of an already compromised endpoint.
 
-The relay is designed so that a successful subpoena, a server-side
-breach, or a curious operator is structurally incapable of reading
-user messages. The iOS app is the cryptographic root of trust: if a
-malicious build of the app is installed, all bets are off. The signed
-envelopes and replay protection are independent of the TLS transport;
-even a successful MITM cannot forge a sender. See
-[`docs/architecture.html`](https://securechat.team/docs/architecture.html)
-for the long form.
+## Current client and status
 
-## Supported versions
+- Public product: PrivateRoom.
+- Technical Xcode target/scheme: `PrivateChat`.
+- Existing bundle identifier: `org.francois.PrivateChat`.
+- iPhone/iPad baseline: iOS 16 or later; build with an appropriate installed Xcode SDK.
+- Canonical public host: `https://securechat.team`.
+- Hardened relay/site candidate: isolated canary until an accepted controlled public cutover.
+- Acceptance and publication record: [13 October review](Docs/PRIVATEROOM-REVIEW-2026-10-13.md).
 
-The SecureChat project ships two independently versioned artefacts.
+Source-level implementation, local tests, device acceptance, CI success and public deployment are different claims. Publish the exact scope that has evidence. Older phase/sprint or release notes are historical and do not establish the current security posture.
 
-### iOS app (TestFlight, bundle id `org.francois.securechat`)
+## Active cryptographic posture
 
-Distributed via [TestFlight](https://testflight.apple.com/join/TEWAWfVb).
+The active protocol-2 channel uses static X25519 identity agreement, HKDF-SHA256, AES-GCM authenticated encryption and Ed25519 envelope signatures. Private keys and local-store keys use device-bound Keychain protection. SC3 fingerprints bind both parties' signing **and** key-agreement public keys. Signed version-3 pairing proves possession of the advertised signing key; it does not establish the real person's identity.
 
-| Version          | Supported                |
-| ---------------- | ------------------------ |
-| v0.1.x          | ✅ Active (current beta) |
-| < v0.1           | ❌ End of life           |
+Users must compare SC3 on both devices over a trusted second channel before approving contact messaging. Legacy SC2 verification cannot silently remain trusted after migration, and substituted/changed keys require renewed verification.
 
-### Relay server (`securechat-relay`)
+The active channel has **no forward secrecy or post-compromise security**. Experimental ratchet work is disabled and has not received a dedicated independent protocol audit. Do not describe PrivateRoom as Signal-protocol compatible, audited Double Ratchet, post-quantum secure or metadata-free.
 
-Hosted at `https://relay.securechat.team/`. Source-available; the
-on-host deployment is patched in place. The reported build identifier
-is the canonical version string (e.g. `v0.1.0+<git-sha>` shown by
-`/healthz`).
+Using Apple CryptoKit does not audit PrivateRoom's protocol, enrollment, state transitions, persistence or interface. Future OpenMLS evaluation is documented in the [review](Docs/PRIVATEROOM-REVIEW-2026-10-13.md#future-protocol-work); it is not active functionality.
 
-| Build        | Supported                |
-| ------------ | ------------------------ |
-| v0.1.x       | ✅ Active (current)      |
-| v0.0.x       | ❌ Decommissioned        |
+## Access, storage and metadata
 
-## Reporting a vulnerability
+The candidate centrally invalidates user sessions on lock/background, covers inactive presentation and rejects stale authentication completion. Sensitive actions and delayed work are bound to the current user session. Open camera/share/preview/system surfaces require separate device verification; code checks alone are not an absolute screen-capture guarantee.
 
-**Please email `security@securechat.team`** rather than filing a
-public GitHub issue. Include:
+Messages, drafts and attachments are locally encrypted and excluded from cloud backup. Device-bound keys mean recovery after loss, reinstall or device change is not guaranteed. There is no accepted migration/recovery workflow. A transcript export is plaintext, and recipients or external apps can retain copies. PrivateRoom's explicit clipboard-copy actions use local-only, expiring items; external selections and applications have their own behavior.
 
-- A description of the vulnerability and its impact.
-- Steps to reproduce, ideally with a minimal PoC.
-- The relay or iOS app version, the iOS version, and any relevant
-  configuration.
-- Whether you intend to file a CVE.
+The relay receives ciphertext and delivery metadata, including routing/peer/packet identifiers, timestamps and acknowledgements. Network connections can expose IP addresses and operational metadata. No anonymous traffic-analysis or metadata-hiding guarantee is made. Local deletion does not remove a recipient's copy or immediately erase existing encrypted server backups.
 
-### PGP key for `security@securechat.team`
+The new canonical-host beta contract uses signed device enrollment and peer-bound authenticated requests. Ordinary approved devices must not receive an operator's shared secret. Custom-relay credentials, if configured, remain private. The [endpoint contract](Docs/CURRENT-ENDPOINTS.md) distinguishes candidate behavior from completed public deployment.
 
-> **Status (2026-06-23, Sprint 14): PGP key generation is in the
-> post-1.0 backlog.** The PGP key generation is tracked in the
-> open follow-up list; the canonical entry point for the
-> `security@securechat.team` mailbox is the
-> [Postfix / Mailcow box on the SecureChat server](https://securechat.team/docs/self-host.html)
-> which is the only target we monitor for vulnerability reports.
->
-> Until the PGP key is generated, please send vulnerability reports
-> in clear text. Once the key is generated it will be:
->
-> 1. Committed to this repository at
->    `Docs/SECURITY-PGP-KEY.asc` (history in git, no fake placeholder
->    block).
-> 2. Published to the public keyserver pool so reporters can verify
->    the fingerprint via the long-form URI.
-> 3. Rotated on the same schedule as the relay auth tokens
->    (every 12 months; the rotation is announced on the
->    [status page](https://securechat.team/status.html) and the
->    repo's commit log).
->
-> This section is intentionally **honest** rather than a fake
-> placeholder key. Do not paste a placeholder here under any
-> circumstances.
+## Report a vulnerability privately
 
-For sensitive reports, also include the following with your report:
+Supported contact: **miggu69@gmail.com**. The [support page](https://securechat.team/support.html) provides the public contact route. No separate security mailbox, PGP fingerprint or response-time guarantee is advertised here.
 
-- A throwaway reply-to address (Signal, ProtonMail, or a fresh
-  mailbox you control).
-- A short "encrypted reply request" so we know whether to send
-  the response encrypted (we will set up PGP for the reply if you
-  include your public key in the report).
+Do not open a public GitHub issue containing a vulnerability, live exploit, private key, access token, personal message or identifying production log. Send an initial description with the affected version/commit, expected and observed behavior, impact and minimal reproduction using synthetic data. Ask for an appropriate protected channel before transferring highly sensitive material; ordinary email is not a guaranteed confidential transport.
 
-If you would rather use the same key in OpenSSL or another tool, the
-ASCII-armoured block above is the canonical export. To verify a
-signature on a release artifact, run:
+Do not probe other users' devices or messages, disrupt the production relay, destroy data or send large unsolicited proof-of-concept traffic. Use an isolated fixture or obtain explicit authorization for live testing. This reporting process does not grant permission to attack unrelated services.
 
-```bash
-gpg --verify <signature> <artifact>
-```
+After remediation and coordination, publish a sanitized advisory stating affected/fixed versions, practical impact and residual limits. Do not claim an issue is fixed in deployed software until the relevant release/deployment is confirmed.
 
-We aim to:
+## Public source and confidential operations
 
-- Acknowledge new reports within 72 hours.
-- Provide a triage verdict (accepted / duplicate / not applicable)
-  within 7 days.
-- Ship a fix or a documented mitigation within 30 days for issues
-  rated High or Critical, 90 days for Medium, and at the next
-  regular release for Low.
+The public client repository may explain algorithms, request formats, data flow and known limitations. Relay-source secrecy is not a confidentiality boundary for messages.
 
-## Out-of-scope
+Never commit private keys, access tokens, production environment files, credentials, deployment addresses, real peer/device allowlists or identifiers, private logs, backups or raw personal content. Treat historical Git exposure separately: deleting a current file does not revoke a credential or erase history. Maintain private operational evidence outside the client repository and publish only sanitized summaries.
 
-- Attacks that require physical access to a device that is already
-  unlocked.
-- UI / UX issues that do not enable a confidentiality, integrity,
-  or availability breach.
-- Best-practice recommendations that do not enable a concrete
-  attack (e.g. "you should add a CSP header" on a page that does not
-  load third-party scripts).
-- The relay's `InMemoryRelayStore` is **not** for production; the
-  file store is the only supported production store. The in-memory
-  store is retained for tests and the dev environment.
-- The current public beta is **not** audited. High-assurance
-  deployments should wait for an external security audit (see the
-  <a href="https://securechat.team/known-issues.html">known-issues</a>
-  page).
-
-## Security advisories
-
-Security advisories are published as GitHub Security Advisories
-on the repository's Security tab. Each advisory has a CVE id (where
-one has been assigned) and a fixed-in version. Subscribe to the
-repository to be notified of new advisories.
-
-## Acknowledgements
-
-We thank the following researchers for responsible disclosures (in
-the order they were received):
-
-_(none yet — first public beta is the public-beta release, June 2026)_
+The existing repository license remains unchanged. This policy is not a certification, completed audit or confirmation of a future distribution agreement.

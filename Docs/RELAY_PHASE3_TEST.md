@@ -1,56 +1,33 @@
-# Relay Phase 3 Testablauf
+# Relay Phase 3 test – historical compatibility note
 
-## Server starten
+This filename is retained for old links. The original local Phase 3 server
+workflow is obsolete and must not be used for a Release/TestFlight build.
 
-```bash
-cd ~/Desktop/Xcode/SecureChat/RelayServer
-npm install
-npm run dev
-```
+Current sources of truth:
 
-## iPhone-Konfiguration
+- endpoints: [`CURRENT-ENDPOINTS.md`](CURRENT-ENDPOINTS.md);
+- full iPhone acceptance: [`iphone-test-acceptance.md`](iphone-test-acceptance.md);
+- release procedure: [`IOS-TESTFLIGHT-RUNBOOK.md`](IOS-TESTFLIGHT-RUNBOOK.md).
 
-In der App:
+## Current production test
 
-```text
-Security > Transport
-```
+In SecureChat:
 
-Relay-URL:
+1. Open `Einstellungen`.
+2. Select relay transport.
+3. Use `https://securechat.team`.
+4. Enter only the client `RELAY_AUTH_TOKEN` value.
+5. Save the configuration.
+6. Open `Einstellungen → Diagnose & Sicherheitsstatus` and refresh.
 
-```text
-http://192.168.178.229:8080
-```
+Expected behavior:
 
-Danach:
+- relay health is reported as reachable;
+- an enrolled, verified peer can send and receive;
+- received packets are acknowledged;
+- retry does not create duplicate messages;
+- no request uses a legacy DDNS, LAN or plain-HTTP endpoint.
 
-```text
-Relay speichern > Relay prüfen
-```
-
-## Erwartetes Verhalten
-
-- `Relay erreichbar` erscheint.
-- Nachrichten werden als `sent to relay` markiert.
-- Empfänger holt Nachrichten automatisch per Auto-Polling ab.
-- Abgeholte Relay-Pakete werden per ACK bestätigt.
-- Wiederholte ACKs erzeugen keinen HTTP-500-Fehler mehr.
-- Fehlgeschlagene Outbox-Nachrichten werden automatisch erneut versucht, sofern die Option aktiviert ist.
-
-## Falls weiterhin DELETE/ACK-Fehler erscheinen
-
-1. Laufenden Relay stoppen:
-
-```bash
-CTRL + C
-```
-
-2. Sicherstellen, dass der neue Relay-Server aus Phase 3 läuft:
-
-```bash
-cd ~/Desktop/Xcode/SecureChat/RelayServer
-npm install
-npm run dev
-```
-
-3. Nicht nur die iOS-App ersetzen, sondern auch den Ordner `RelayServer` aus dem ZIP übernehmen.
+For local relay engineering, use an isolated development configuration and
+the relay repository's current runbook. Never carry a development URL or
+admin credential into the iOS Release configuration.

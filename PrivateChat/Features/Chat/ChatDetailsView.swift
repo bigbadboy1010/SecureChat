@@ -6,6 +6,8 @@ struct ChatDetailsView: View {
     let conversationID: UUID
     @Environment(\.dismiss) private var dismiss
     @State private var editedTitle = ""
+    @State private var showClearHistoryConfirmation = false
+    @State private var showExport = false
 
     private var storedConversation: StoredConversation? {
         service.conversations.first { $0.id == conversationID }
@@ -43,6 +45,18 @@ struct ChatDetailsView: View {
             .onAppear {
                 editedTitle = conversation?.title ?? ""
             }
+            .sheet(isPresented: $showExport) {
+                PrivateRoomTranscriptExportView(text: service.exportTranscript(for: conversationID))
+            }
+            .confirmationDialog("Verlauf auf diesem Gerät leeren?", isPresented: $showClearHistoryConfirmation, titleVisibility: .visible) {
+                Button("Verlauf leeren", role: .destructive) {
+                    service.clearConversationMessages(id: conversationID)
+                }
+                Button("Abbrechen", role: .cancel) {}
+            } message: {
+                Text("Nachrichten und zugehörige lokale Anhänge werden entfernt. Bereits erhaltene Kopien beim Kontakt bleiben bestehen.")
+            }
+            .privateChatErrorAlert(service: service)
         }
     }
 
@@ -69,7 +83,7 @@ struct ChatDetailsView: View {
                             Label("Fixiert", systemImage: "pin.fill")
                         }
                         if conversation?.isMuted == true {
-                            Label("Stumm", systemImage: "bell.slash.fill")
+                        Label("Badge stumm", systemImage: "bell.slash.fill")
                         }
                         if conversation?.isArchived == true {
                             Label("Archiv", systemImage: "archivebox.fill")
@@ -111,15 +125,15 @@ struct ChatDetailsView: View {
     private var securitySection: some View {
         SwiftUI.Section {
             if let peer {
-                LabeledContent("Trust") {
-                    Text(peer.trustState.rawValue)
+                LabeledContent("Identität") {
+                    Text(peer.trustState == .verified ? "Von dir geprüft" : (peer.trustState == .blocked ? "Blockiert" : "Prüfung offen"))
                 }
                 LabeledContent("Peer ID") {
                     Text(String(peer.id.prefix(18)) + "…")
                         .font(.caption.monospaced())
                         .textSelection(.enabled)
                 }
-                LabeledContent("Safety Number") {
+                LabeledContent("Sicherheitsnummer") {
                     Text(peer.safetyNumber)
                         .font(.caption.monospaced())
                         .textSelection(.enabled)
@@ -127,13 +141,13 @@ struct ChatDetailsView: View {
                 NavigationLink {
                     SafetyNumberView(service: service, peer: peer)
                 } label: {
-                    Label("Safety Number vergleichen", systemImage: "checkmark.shield")
+                    Label("Sicherheitsnummer vergleichen", systemImage: "checkmark.shield")
                 }
 
                 Button {
-                    UIPasteboard.general.string = peer.safetyNumber
+                    PrivateRoomClipboard.copy(peer.safetyNumber)
                 } label: {
-                    Label("Safety Number kopieren", systemImage: "doc.on.doc")
+                    Label("Sicherheitsnummer lokal kopieren", systemImage: "doc.on.doc")
                 }
             } else {
                 Label("Keine externe Gegenstelle. Dieser Chat bleibt lokal.", systemImage: "lock")
@@ -146,19 +160,15 @@ struct ChatDetailsView: View {
 
     private var exportSection: some View {
         SwiftUI.Section {
-            ShareLink(item: service.exportTranscript(for: conversationID)) {
-                Label("Chat als Text teilen", systemImage: "square.and.arrow.up")
-            }
-
             Button {
-                UIPasteboard.general.string = service.exportTranscript(for: conversationID)
+                showExport = true
             } label: {
-                Label("Chat-Export kopieren", systemImage: "doc.on.doc")
+                Label("Klartext-Export ansehen", systemImage: "doc.text")
             }
         } header: {
             Text("Export")
         } footer: {
-            Text("Der Export ist Klartext und wird nur lokal nach deiner manuellen Aktion erzeugt.")
+            Text("Ein Export enthält lesbare Nachrichten. Außerhalb von PrivateRoom gilt der App-Schutz nicht mehr.")
         }
     }
 
@@ -173,7 +183,7 @@ struct ChatDetailsView: View {
             Button {
                 service.toggleConversationMuted(id: conversationID)
             } label: {
-                Label(conversation?.isMuted == true ? "Benachrichtigung aktivieren" : "Chat stummschalten", systemImage: conversation?.isMuted == true ? "bell" : "bell.slash")
+                Label(conversation?.isMuted == true ? "Ungelesen-Badge aktivieren" : "Ungelesen-Badge stummschalten", systemImage: conversation?.isMuted == true ? "bell" : "bell.slash")
             }
 
             Button {
@@ -191,14 +201,14 @@ struct ChatDetailsView: View {
 
             if analytics.failedCount > 0 || analytics.pendingCount > 0 {
                 Button {
-                    Task { await service.retryPendingOutboundMessages() }
+                    Task { await service.retryPendingOutboundMessages(conversationID: conversationID) }
                 } label: {
-                    Label("Ausstehende Nachrichten erneut senden", systemImage: "arrow.clockwise")
+                    Label("Ausstehende in diesem Chat erneut senden", systemImage: "arrow.clockwise")
                 }
             }
 
             Button(role: .destructive) {
-                service.clearConversationMessages(id: conversationID)
+                showClearHistoryConfirmation = true
             } label: {
                 Label("Nachrichtenverlauf leeren", systemImage: "trash")
             }
@@ -222,6 +232,54 @@ struct ChatDetailsView: View {
             return .red
         case nil:
             return .red
+        }
+    }
+}
+
+private struct PrivateRoomTranscriptExportView: View {
+    let text: String
+    @Environment(\.dismiss) private var dismiss
+    @State private var didCopy = false
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    Label("Dieser Export ist unverschlüsselter Text.", systemImage: "exclamationmark.triangle")
+                        .font(.headline)
+                        .foregroundStyle(PrivateChatDesign.warning)
+                    Text("Prüfe den Inhalt vor dem Teilen. Andere Apps oder Personen können eine Kopie behalten. Die Verschlüsselung und Sperre von PrivateRoom gelten dort nicht.")
+                        .font(.subheadline)
+                        .foregroundStyle(PrivateChatDesign.textSecondary)
+                    Text(text)
+                        .font(.footnote.monospaced())
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .privateChatGlassCard(padding: 18)
+                    ShareLink(item: text) {
+                        Label("Diesen Text teilen", systemImage: "square.and.arrow.up")
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(.bordered)
+                    Button {
+                        PrivateRoomClipboard.copy(text)
+                        didCopy = true
+                    } label: {
+                        Label(didCopy ? "Lokal kopiert · läuft nach 1 Minute ab" : "Nur auf diesem Gerät kopieren", systemImage: "doc.on.doc")
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .padding(24)
+                .frame(maxWidth: 680)
+                .frame(maxWidth: .infinity)
+            }
+            .background(PrivateChatDesign.pageGradient.ignoresSafeArea())
+            .navigationTitle("Export prüfen")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Schließen") { dismiss() } }
+            }
         }
     }
 }

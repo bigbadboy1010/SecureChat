@@ -103,7 +103,9 @@ final class EncryptedDraftStore: DraftStoring {
     private func saveAllDrafts(_ drafts: [String: String]) throws {
         do {
             if drafts.isEmpty {
-                try? FileManager.default.removeItem(at: fileURL)
+                if FileManager.default.fileExists(atPath: fileURL.path) {
+                    try FileManager.default.removeItem(at: fileURL)
+                }
                 return
             }
 

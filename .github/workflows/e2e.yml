@@ -1,8 +1,4 @@
-# Sprint 20 (2026-06-24): end-to-end CI workflow.
-#
-# Runs the smoke test on every PR + push, and the full
-# acceptance suite on release tags.
-name: e2e
+name: ios-ci
 
 on:
   push:
@@ -10,100 +6,77 @@ on:
     tags: ["v*"]
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  smoke:
-    name: relay smoke test
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+  test:
+    name: iOS build + unit tests
+    runs-on: macos-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: RelayServer/package-lock.json
-      - name: Install
-        run: npm ci
-        working-directory: RelayServer
-      - name: Typecheck
-        run: npm run typecheck
-        working-directory: RelayServer
-      - name: Smoke
-        run: npx tsx test/smoke.ts
-        working-directory: RelayServer
-      - name: Upload smoke log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: sc-smoke-log
-          path: RelayServer/build/
-          retention-days: 30
 
-  acceptance:
-    name: acceptance against ephemeral relay
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    if: startsWith(github.ref, 'refs/tags/v')
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: RelayServer/package-lock.json
-      - name: Install relay
-        run: npm ci
-        working-directory: RelayServer
-      - name: Build relay
-        run: npm run build
-        working-directory: RelayServer
-      - name: Start ephemeral relay
-        run: |
-          cd RelayServer
-          nohup node dist/index.js > /tmp/relay.log 2>&1 &
-          for i in 1 2 3 4 5 6 7 8 9 10; do
-            sleep 1
-            if curl -sf http://127.0.0.1:3000/healthz > /dev/null; then
-              echo "relay up"; break
-            fi
-          done
-        env:
-          PORT: "3000"
-          NODE_ENV: "test"
-          STORE_BACKEND: "memory"
-      - name: Acceptance
-        run: scripts/e2e-acceptance.sh
-        env:
-          RELAY_BASE_URL: "http://127.0.0.1:3000"
-      - name: Upload acceptance result
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: sc-e2e-result
-          path: build/e2e-result.json
-          retention-days: 90
+      - name: Xcode version
+        run: xcodebuild -version
 
-  ios-controller-build:
-    name: iOS controller build (release tag only)
-    runs-on: macos-14
-    timeout-minutes: 15
-    if: startsWith(github.ref, 'refs/tags/v')
-    steps:
-      - uses: actions/checkout@v4
-      - name: xcodebuild
+      - name: Validate project
         run: |
-          xcodebuild \
-            -project ios/PrivateChat.xcodeproj \
-            -scheme PrivateChat \
-            -destination 'generic/platform=iOS' \
-            -configuration Release \
-            -derivedDataPath build/derived \
-            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO \
-            build | tee build/xcodebuild.log
-      - name: Upload .app
+          test -f PrivateChat.xcodeproj/project.pbxproj
+          plutil -lint Config/Info.plist
+          plutil -lint PrivateChat/PrivacyInfo.xcprivacy
+
+      - name: Select Xcode-SDK-compatible iPhone simulator
+        shell: bash
+        run: |
+          SDK_VERSION="$(xcodebuild -version -sdk iphonesimulator SDKVersion | tail -1 | tr -d '[:space:]')"
+          echo "iOS Simulator SDK: $SDK_VERSION"
+          UDID="$(SDK_VERSION="$SDK_VERSION" python3 - <<'PY'
+          import json, os, subprocess
+          sdk = os.environ["SDK_VERSION"]
+          runtime_suffix = "SimRuntime.iOS-" + sdk.replace(".", "-")
+          data = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"]))
+          candidates = []
+          for runtime, devices in data["devices"].items():
+              if runtime_suffix not in runtime:
+                  continue
+              for device in devices:
+                  if device.get("isAvailable") and device["name"].startswith("iPhone"):
+                      candidates.append(device)
+          if not candidates:
+              raise SystemExit(f"no available iPhone simulator for iOS {sdk}")
+          preferred = next((d for d in candidates if "Pro" in d["name"]), candidates[0])
+          print(preferred["udid"])
+          PY
+          )"
+          echo "SIMULATOR_UDID=$UDID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          xcodebuild -project PrivateChat.xcodeproj -scheme PrivateChat -showdestinations
+          echo "Using iPhone simulator $UDID"
+
+      - name: Build and test on simulator
+        shell: bash
+        run: |
+          set -o pipefail
+          xcodebuild -project PrivateChat.xcodeproj -scheme PrivateChat -configuration Debug -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" CODE_SIGNING_ALLOWED=NO clean test 2>&1 | tee build-test.log
+
+      - name: Release compile gate
+        shell: bash
+        run: |
+          set -o pipefail
+          xcodebuild -project PrivateChat.xcodeproj -scheme PrivateChat -configuration Release -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build 2>&1 | tee build-release.log
+
+      - name: Upload Xcode logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: sc-ios-app
-          path: build/derived/Build/Products/Release-iphoneos/
+          name: securechat-xcode-logs
+          path: |
+            build-test.log
+            build-release.log
           retention-days: 30

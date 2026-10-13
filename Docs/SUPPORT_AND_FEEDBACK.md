@@ -15,7 +15,7 @@ Für TestFlight-Builds soll Feedback direkt über TestFlight gesendet werden:
 Build:
 Gerät:
 iOS-Version:
-Bereich: Onboarding / Relay / Pairing / Chat / Security / Sonstiges
+Bereich: Onboarding / Chat / Kontakte / Relay / Einstellungen / Sonstiges
 
 Erwartetes Verhalten:
 
@@ -31,7 +31,9 @@ Bitte keine Relay-Tokens, privaten Schlüssel oder Chat-Inhalte mitschicken.
 
 ## Diagnosebericht
 
-In der App kann unter „Security → Support & Feedback“ ein Diagnosebericht geteilt oder kopiert werden. Der Bericht enthält technische Metadaten, aber keine Chat-Texte, keine privaten Schlüssel und keine Tokens.
+In der App kann unter „Einstellungen → Support & Feedback“ ein
+Diagnosebericht geteilt oder kopiert werden. Der Bericht enthält technische
+Metadaten, aber keine Chat-Texte, keine privaten Schlüssel und keine Tokens.
 
 ## App Store Connect
 

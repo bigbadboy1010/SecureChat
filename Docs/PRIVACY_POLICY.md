@@ -1,6 +1,6 @@
 # SecureChat Datenschutzrichtlinie
 
-Stand: 2026-06-22
+Stand: 2026-09-19
 
 SecureChat ist ein Ende-zu-Ende-verschlüsselter Messenger für iOS. Die
 App verwendet keine Werbe-SDKs, keine Tracker und keine
@@ -10,8 +10,8 @@ welche Daten der **Beta-Vertrieb** über TestFlight sieht.
 
 ## 1. Welche Daten lokal gespeichert werden
 
-Nachrichteninhalte, Drafts und technische Chat-Metadaten werden lokal
-im App-Container gespeichert. Nachrichten- und Draft-Stores sind
+Nachrichteninhalte, Drafts, gesendete und empfangene Medien sowie technische Chat-Metadaten werden lokal
+im App-Container gespeichert. Nachrichten-, Draft- und Medien-Stores sind
 AES-GCM-verschlüsselt. Die zugehörigen Schlüssel liegen im iOS-Keychain.
 Lokale Stores werden vom iCloud-Backup ausgeschlossen.
 
@@ -23,7 +23,7 @@ Wenn der Relay-Modus aktiviert ist, überträgt die App verschlüsselte
 Pakete an:
 
 ```text
-https://relay.securechat.team
+https://securechat.team
 ```
 
 Der Relay verarbeitet **technische Zustellmetadaten** wie Sender-ID,
@@ -33,6 +33,16 @@ bestimmter Absender ein bestimmtes Paket geschickt hat — die
 Signaturprüfung erfolgt auf dem Empfänger-Gerät (siehe
 `Docs/ADR-002-envelope-and-crypto.md` für das Vertrauensmodell).
 
+Fotos, Videos und Dokumente werden auf dem sendenden Gerät in kleine Teile zerlegt.
+Jeder Teil wird innerhalb des bestehenden Ende-zu-Ende-verschlüsselten
+Nachrichtenformats übertragen. Der Relay sieht daher weder Bild- noch
+Videoinhalte. Auf dem Empfangsgerät werden die Teile erst nach Prüfung von
+Dateigröße und SHA-256-Prüfsumme zusammengesetzt und verschlüsselt gespeichert.
+
+Kamera und Mikrofon werden nur nach einer von dir ausgelösten Aufnahme
+verwendet. Der Zugriff auf die Fotomediathek erfolgt über Apples systemeigenen
+Auswahldialog. SecureChat lädt keine Mediathek im Hintergrund aus.
+
 ## 3. Pairing
 
 Pairing-Codes enthalten öffentliche Identity-Keys, Anzeigename und
@@ -40,13 +50,13 @@ Erstellungszeitpunkt. Der lokale Anzeigename kann vom Nutzer geändert
 werden und wird bei neu erzeugten Pairing-Codes als öffentlicher Name
 geteilt.
 
-## 4. Self-hosting
+## 4. Relay-Betrieb
 
-Nutzer können ihren eigenen Relay betreiben. Die offizielle
-Self-host-Anleitung liegt unter
-`https://securechat.team/docs/self-host.html` und in `Docs/`.
-Ein Self-host-Relay erhält nur die Pakete, die seine Nutzer explizit
-über ihn leiten.
+Die offizielle SecureChat-App verwendet den vom Betreiber verwalteten
+Relay unter `https://securechat.team`. Der produktive
+Relay-Servercode und die Deployment-Konfiguration liegen nicht im
+öffentlichen iOS-Repository. Ein eigener Relay ist für die offizielle
+TestFlight-Version derzeit kein unterstützter Betriebsmodus.
 
 ## 5. TestFlight Beta (Public Beta Phase)
 
