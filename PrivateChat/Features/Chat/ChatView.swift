@@ -33,6 +33,27 @@ struct ChatView: View {
         currentConversation.conversation.peerID != nil
     }
 
+    private var peerTrustState: TrustState? {
+        guard let peerID = currentConversation.conversation.peerID else { return nil }
+        return service.trustedPeers.first(where: { $0.id == peerID })?.trustState
+    }
+
+    private var sendRestrictionMessage: String? {
+        guard isPeerConversation else { return nil }
+        switch peerTrustState {
+        case .blocked:
+            return "Dieser Kontakt ist blockiert. Unter Kontakte kannst du ihn für eine erneute Identitätsprüfung freigeben."
+        case .unverified:
+            return "Die Identität ist noch nicht geprüft. Vergleicht eure Sicherheitsnummern über einen vertrauten zweiten Kanal und bestätigt den Kontakt."
+        case nil:
+            return "Dieser Kontakt ist nicht verfügbar. Füge ihn unter Kontakte hinzu und prüfe seine Identität erneut."
+        case .verified:
+            return service.securityState.transportMode == .localOnly
+                ? "Du bist im lokalen Modus. Verbinde PrivateRoom unter Privatsphäre, um mit diesem Kontakt zu schreiben."
+                : nil
+        }
+    }
+
     private var displayedMessages: [ChatMessage] {
         let needle = messageSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard needle.isEmpty == false else {
@@ -57,7 +78,7 @@ struct ChatView: View {
     private var canSend: Bool {
         !isSending && service.isCurrentUserSession(viewUserSessionID) &&
         (draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false || pendingMedia != nil) &&
-        (currentConversation.conversation.peerID == nil || service.securityState.transportMode == .relayAllowed)
+        (!isPeerConversation || (peerTrustState == .verified && service.securityState.transportMode == .relayAllowed))
     }
 
     private var draftBinding: Binding<String> {
@@ -75,7 +96,11 @@ struct ChatView: View {
                 ScrollView {
                     LazyVStack(spacing: 10) {
                         if currentConversation.messages.isEmpty {
-                            EmptyChatState(isPeerConversation: isPeerConversation)
+                            EmptyChatState(
+                                isPeerConversation: isPeerConversation,
+                                peerTrustState: peerTrustState,
+                                isRelayAllowed: service.securityState.transportMode == .relayAllowed
+                            )
                                 .padding(.top, 80)
                         } else if displayedMessages.isEmpty {
                             EmptySearchState(query: messageSearchText)
@@ -87,6 +112,7 @@ struct ChatView: View {
                                 service: service,
                                 conversationID: currentConversation.id,
                                 message: message,
+                                isLocalNote: !isPeerConversation,
                                 onShowDetails: { selectedMessage = message },
                                 onPreviewAttachment: { previewAttachment = $0 }
                             )
@@ -187,10 +213,10 @@ struct ChatView: View {
         VStack(spacing: 8) {
             Divider()
 
-            if currentConversation.conversation.peerID != nil && service.securityState.transportMode == .localOnly {
-                Label("Du bist im lokalen Modus. Verbinde PrivateRoom in den Einstellungen, um mit Kontakten zu schreiben.", systemImage: "exclamationmark.triangle")
+            if let sendRestrictionMessage {
+                Label(sendRestrictionMessage, systemImage: peerTrustState == .blocked ? "hand.raised" : "info.circle")
                     .font(.caption)
-                    .foregroundStyle(Color.orange)
+                    .foregroundStyle(PrivateChatDesign.warning)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal)
             }
@@ -212,14 +238,18 @@ struct ChatView: View {
                         self.pendingMedia = nil
                     } label: {
                         Image(systemName: "xmark.circle.fill")
+                            .frame(minWidth: 44, minHeight: 44)
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(PrivateChatDesign.textSecondary)
+                    .accessibilityLabel("Ausgewählten Anhang entfernen")
                 }
                 .padding(.horizontal)
 
                 if pendingMedia.kind != .image {
-                    Text("Videos und Dokumente können Zusatzinformationen wie Aufnahmeort oder Autor enthalten. Prüfe den Anhang vor dem Senden; dein Kontakt erhält die Datei.")
+                    Text(isPeerConversation
+                         ? "Videos und Dokumente können Zusatzinformationen wie Aufnahmeort oder Autor enthalten. Prüfe den Anhang vor dem Senden; dein Kontakt erhält die Datei."
+                         : "Videos und Dokumente können Zusatzinformationen wie Aufnahmeort oder Autor enthalten. In dieser lokalen Notiz bleibt der Anhang auf diesem Gerät.")
                         .font(.caption)
                         .foregroundStyle(PrivateChatDesign.textSecondary)
                         .padding(.horizontal)
@@ -253,6 +283,7 @@ struct ChatView: View {
                 } label: {
                     Image(systemName: "plus.circle.fill")
                         .font(.system(size: 30, weight: .semibold))
+                        .frame(minWidth: 44, minHeight: 44)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(PrivateChatDesign.brandCyan)
@@ -271,7 +302,9 @@ struct ChatView: View {
                 .foregroundStyle(canSend ? Color.accentColor : Color.secondary.opacity(0.45))
                 .disabled(canSend == false)
                 .frame(minWidth: 44, minHeight: 44)
-                .accessibilityLabel(isSending ? "Nachricht wird angenommen" : "Nachricht senden")
+                .accessibilityLabel(isPeerConversation
+                    ? (isSending ? "Nachricht wird angenommen" : "Nachricht senden")
+                    : (isSending ? "Notiz wird lokal gespeichert" : "Notiz lokal speichern"))
             }
             .padding(.horizontal)
             .padding(.bottom, 10)
@@ -534,15 +567,46 @@ struct ChatView: View {
 
 private struct EmptyChatState: View {
     let isPeerConversation: Bool
+    let peerTrustState: TrustState?
+    let isRelayAllowed: Bool
+
+    private var title: String {
+        guard isPeerConversation else { return "Lokale Notiz bereit" }
+        switch peerTrustState {
+        case .blocked: return "Kontakt blockiert"
+        case .unverified: return "Identität noch prüfen"
+        case nil: return "Kontakt nicht verfügbar"
+        case .verified: return isRelayAllowed ? "Chat bereit" : "Verbindung ist pausiert"
+        }
+    }
+
+    private var message: String {
+        guard isPeerConversation else { return "Deine Notiz bleibt auf diesem Gerät und wird an niemanden gesendet." }
+        switch peerTrustState {
+        case .blocked: return "An diesen Kontakt kannst du derzeit nicht senden. Eine erneute Freigabe und Prüfung findest du unter Kontakte."
+        case .unverified: return "Vergleicht und bestätigt eure Sicherheitsnummern, bevor du eine Nachricht sendest."
+        case nil: return "Füge den Kontakt hinzu und prüfe seine Identität über einen vertrauten zweiten Kanal."
+        case .verified: return isRelayAllowed ? "Schreibe deine erste Nachricht." : "Aktiviere die Verbindung unter Privatsphäre, um mit diesem Kontakt zu schreiben."
+        }
+    }
+
+    private var icon: String {
+        guard isPeerConversation else { return "note.text" }
+        switch peerTrustState {
+        case .blocked: return "hand.raised"
+        case .unverified, nil: return "person.crop.circle.badge.questionmark"
+        case .verified: return isRelayAllowed ? "bubble.left.and.bubble.right" : "pause.circle"
+        }
+    }
 
     var body: some View {
         VStack(spacing: 12) {
-            Image(systemName: isPeerConversation ? "lock.bubble.left.right" : "note.text")
+            Image(systemName: icon)
                 .font(.system(size: 48, weight: .semibold))
                 .foregroundStyle(Color.secondary)
-            Text(isPeerConversation ? "Sicherer Chat bereit" : "Lokale Notiz bereit")
+            Text(title)
                 .font(.headline)
-            Text(isPeerConversation ? "Schreibe deine erste Nachricht." : "Schreibe deine erste Notiz.")
+            Text(message)
                 .font(.subheadline)
                 .foregroundStyle(Color.secondary)
                 .multilineTextAlignment(.center)
@@ -574,6 +638,7 @@ private struct MessageBubble: View {
     @ObservedObject var service: ConversationService
     let conversationID: UUID
     let message: ChatMessage
+    let isLocalNote: Bool
     let onShowDetails: () -> Void
     let onPreviewAttachment: (ChatAttachment) -> Void
     @State private var attachmentImage: UIImage?
@@ -614,7 +679,7 @@ private struct MessageBubble: View {
                 .background(bubbleBackground, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 .overlay {
                     RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .stroke(message.isIncoming ? Color.white.opacity(0.16) : Color.white.opacity(0.10), lineWidth: 1)
+                        .stroke(message.isIncoming ? Color.white.opacity(0.16) : statusTint.opacity(0.35), lineWidth: 1)
                 }
                 .contextMenu {
                     Button {
@@ -653,8 +718,9 @@ private struct MessageBubble: View {
                 HStack(spacing: 5) {
                     Text(message.createdAt, style: .time)
                     if message.isIncoming == false {
-                        Image(systemName: message.status.systemImageName)
-                            .accessibilityLabel(message.status.localizedTitle)
+                        Label(statusTitle, systemImage: statusIcon)
+                            .foregroundStyle(statusTint)
+                            .accessibilityLabel(statusTitle)
                     } else if message.readAt != nil {
                         Image(systemName: "eye")
                     }
@@ -687,16 +753,24 @@ private struct MessageBubble: View {
     }
 
     private var bubbleBackground: some ShapeStyle {
-        if message.isIncoming {
-            return AnyShapeStyle(PrivateChatDesign.canvasHigh)
-        }
+        AnyShapeStyle(message.isIncoming ? PrivateChatDesign.canvasHigh : PrivateChatDesign.canvasElevated)
+    }
+
+    private var statusTitle: String {
+        if isLocalNote { return message.status == .failed ? "Lokaler Fehler" : "Lokal gespeichert" }
+        return message.status.localizedTitle
+    }
+
+    private var statusIcon: String {
+        if isLocalNote { return message.status == .failed ? "exclamationmark.triangle" : "lock.doc" }
+        return message.status.systemImageName
+    }
+
+    private var statusTint: Color {
         switch message.status {
-        case .failed:
-            return AnyShapeStyle(Color.red.opacity(0.82))
-        case .queued, .sending:
-            return AnyShapeStyle(Color.orange.opacity(0.82))
-        case .sentToRelay, .sent, .delivered:
-            return AnyShapeStyle(Color(red: 0.02, green: 0.43, blue: 0.56))
+        case .failed: return PrivateChatDesign.danger
+        case .queued, .sending: return isLocalNote ? PrivateChatDesign.brandCyan : PrivateChatDesign.warning
+        case .sentToRelay, .sent, .delivered: return PrivateChatDesign.brandCyan
         }
     }
 
@@ -739,6 +813,11 @@ private struct MessageDetailView: View {
     let message: ChatMessage
     @Environment(\.dismiss) private var dismiss
 
+    private var isLocalNote: Bool {
+        guard let conversation = service.conversations.first(where: { $0.id == conversationID }) else { return false }
+        return conversation.conversation.peerID == nil
+    }
+
     var body: some View {
         NavigationStack {
             List {
@@ -754,7 +833,9 @@ private struct MessageDetailView: View {
                         )
                     }
                     LabeledContent("Richtung", value: message.isIncoming ? "Eingehend" : "Ausgehend")
-                    LabeledContent("Status", value: message.status.localizedTitle)
+                    LabeledContent("Status", value: isLocalNote
+                        ? (message.status == .failed ? "Lokaler Fehler" : "Lokal gespeichert")
+                        : message.status.localizedTitle)
                     LabeledContent("Erstellt") {
                         Text(message.createdAt, format: .dateTime.day().month().year().hour().minute().second())
                     }

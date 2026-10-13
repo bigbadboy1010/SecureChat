@@ -119,8 +119,8 @@ struct SettingsView: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                     Button {
-                        UserDefaults.standard.set(false, forKey: "PrivateChat.didOnboard.v1")
-                        UserDefaults.standard.set(false, forKey: "PrivateChat.didAcceptBetaDisclaimer.v1")
+                        UserDefaults.standard.set(false, forKey: "PrivateRoom.didOnboard.v1")
+                        UserDefaults.standard.set(false, forKey: "PrivateRoom.didAcceptBetaDisclaimer.v1")
                     } label: {
                         Label("Einführung erneut ansehen", systemImage: "arrow.counterclockwise")
                     }
