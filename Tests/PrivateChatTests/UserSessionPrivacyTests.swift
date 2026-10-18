@@ -76,6 +76,31 @@ final class UserSessionPrivacyTests: XCTestCase {
         XCTAssertTrue(fixture.service.relayConnectivityStatus.isPaused)
     }
 
+    // This is evidence of an OPEN availability problem, not a mitigation.
+    func testReviewProofUnprocessableFirstPageHidesAValidTrustedMessage() async throws {
+        let fixture = try Fixture()
+        let valid = try fixture.packet(body: "valid trusted message behind first page")
+        let junk = (0..<50).map { _ in
+            OutboundTransportPacket(id: UUID(), senderID: String(repeating: "f", count: 64),
+                                    recipientID: fixture.alice.id, sealedPayloadBase64: valid.sealedPayloadBase64,
+                                    signatureBase64: valid.signatureBase64, createdAt: valid.createdAt,
+                                    expiresAt: valid.expiresAt)
+        }
+        fixture.transport.respectInboxLimit = true
+        fixture.transport.inbox = junk + [valid]
+        await fixture.service.syncRelayInbox()
+        await fixture.service.syncRelayInbox()
+        XCTAssertTrue(fixture.service.conversations.isEmpty)
+        XCTAssertTrue(fixture.transport.deletedIDs.isEmpty)
+        XCTAssertEqual(fixture.service.lastRelaySyncSummary?.rejectedCount, 50)
+        // Verify the held-back packet was fully decryptable and acceptable.
+        fixture.transport.inbox = [valid]
+        await fixture.service.syncRelayInbox()
+        XCTAssertEqual(fixture.service.conversations.first?.messages.first?.body,
+                       "valid trusted message behind first page")
+        XCTAssertEqual(fixture.transport.deletedIDs, [valid.id])
+    }
+
     private func waitUntil(timeout: TimeInterval = 2, _ predicate: () -> Bool) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while !predicate(), Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
@@ -384,6 +409,7 @@ private final class SessionTransport: TransportCoordinating {
     var onEnroll: (() -> Void)?
     var sendFailure: Error?
     var fetchFailure: Error?
+    var respectInboxLimit = false
     func send(_ packet: OutboundTransportPacket, mode: TransportMode, relayConfiguration: RelayConfiguration) async throws {
         sentPackets.append(packet); await Task.yield(); onSend?()
         if let sendFailure { throw sendFailure }
@@ -391,7 +417,7 @@ private final class SessionTransport: TransportCoordinating {
     func fetchRelayInbox(recipientID: String, relayConfiguration: RelayConfiguration) async throws -> [OutboundTransportPacket] {
         fetchCount += 1; await Task.yield(); onFetch?()
         if let fetchFailure { throw fetchFailure }
-        return inbox
+        return respectInboxLimit ? Array(inbox.prefix(relayConfiguration.inboxPollingLimit)) : inbox
     }
     func deleteRelayPacket(packetID: UUID, relayConfiguration: RelayConfiguration) async throws -> Bool { deletedIDs.append(packetID); return true }
     func checkRelayHealth(relayConfiguration: RelayConfiguration) async throws -> RelayHealthStatus {
