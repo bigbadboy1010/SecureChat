@@ -215,6 +215,107 @@ final class RelayTransportRequestSigningTests: XCTestCase {
         catch { XCTAssertFalse(error.localizedDescription.contains("internal-path")); XCTAssertFalse(error.localizedDescription.contains("recipient")) }
     }
 
+    func testOlmPublicationAndClaimSignExactTransmittedBodies() async throws {
+        let key = Curve25519.Signing.PrivateKey()
+        let identity = LocalIdentity(id:RequestSigner.sha256Hex(key.publicKey.rawRepresentation),displayName:"Synthetic wire peer",keyAgreementPrivateKey:.init(),signingPrivateKey:key)
+        let owner = try SyntheticOlmPeer(identity)
+        let remote = try SyntheticOlmPeer(LocalIdentity(id:String(repeating:"b",count:64),displayName:"Synthetic remote",keyAgreementPrivateKey:.init(),signingPrivateKey:.init()))
+        let claimID = UUID()
+        RelayURLProtocolStub.handler = { request in
+            let body = try Self.transmittedBody(request)
+            try Self.assertSigned(request,key:key,peerID:identity.id,body:body)
+            XCTAssertFalse(String(decoding:body,as:UTF8.self).contains("\\/"))
+            let fields = try XCTUnwrap(JSONSerialization.jsonObject(with:body) as? [String:Any])
+            let response: Data
+            if request.httpMethod == "PUT" {
+                XCTAssertEqual(request.url?.path,"/v1/relay/prekeys")
+                XCTAssertEqual(fields["identity"] as? String,owner.batch.identity)
+                XCTAssertEqual((fields["keys"] as? [Any])?.count,50)
+                XCTAssertNil(fields["peerID"])
+                response = Data("{\"saved\":true}".utf8)
+            } else {
+                XCTAssertEqual(request.url?.path,"/v1/relay/prekeys/claim")
+                XCTAssertEqual(fields["recipientID"] as? String,remote.identity.id)
+                XCTAssertEqual(fields["claimID"] as? String,claimID.uuidString.lowercased())
+                response = try DateCoding.makeEncoder().encode(remote.claim(requester:identity.id,claimID:claimID))
+            }
+            return (HTTPURLResponse(url:request.url!,statusCode:200,httpVersion:nil,headerFields:nil)!,response)
+        }
+        let transport = RelayTransport(configuration:configuration,signingContext:FixedPeerBoundSigningContext(peerID:identity.id,signingKey:key),urlSession:makeStubbedSession())
+        try await transport.publishOlmPrekeys(owner.batch)
+        let result = try await transport.claimOlmPrekey(recipientID:remote.identity.id,claimID:claimID)
+        XCTAssertEqual(result.prekey,remote.batch.keys[0])
+    }
+    func testPrekeyAvailabilityUsesSignedOwnerGetWithoutForeignIdentityQuery() async throws {
+        let key=Curve25519.Signing.PrivateKey(),id=RequestSigner.sha256Hex(key.publicKey.rawRepresentation)
+        RelayURLProtocolStub.handler = { request in
+            XCTAssertEqual(request.httpMethod,"GET");XCTAssertEqual(request.url?.path,"/v1/relay/prekeys");XCTAssertNil(request.url?.query)
+            try Self.assertSigned(request,key:key,peerID:id,body:Data())
+            return (HTTPURLResponse(url:request.url!,statusCode:200,httpVersion:nil,headerFields:nil)!,Data("{\"identity\":null,\"sequence\":0,\"available\":0}".utf8))
+        }
+        let transport=RelayTransport(configuration:configuration,signingContext:FixedPeerBoundSigningContext(peerID:id,signingKey:key),urlSession:makeStubbedSession())
+        let status=try await transport.olmPrekeyStatus();XCTAssertEqual(status.available,0);XCTAssertNil(status.identity)
+    }
+    func testConsentAndNeutralPushUseSignedOwnerRequests() async throws {
+        let key = Curve25519.Signing.PrivateKey(),id = RequestSigner.sha256Hex(key.publicKey.rawRepresentation)
+        let expiry = ISO8601DateFormatter().string(from:Date().addingTimeInterval(1000))
+        let consent = RelayRecipientConsent(recipientID:id,senderIDs:[String(repeating:"b",count:64)],updatedAt:ISO8601DateFormatter().string(from:Date()),expiresAt:expiry)
+        RelayURLProtocolStub.handler = { request in
+            let body = try Self.transmittedBody(request);try Self.assertSigned(request,key:key,peerID:id,body:body)
+            XCTAssertEqual(request.httpMethod,"PUT")
+            let fields = try XCTUnwrap(JSONSerialization.jsonObject(with:body) as? [String:Any])
+            let response:String
+            if request.url?.path == "/v1/relay/contacts" {
+                XCTAssertEqual(fields["recipientID"] as? String,id)
+                response = "{\"saved\":true,\"expiresAt\":\"\(expiry)\"}"
+            } else {
+                XCTAssertEqual(request.url?.path,"/v1/relay/push")
+                XCTAssertNil(fields["message"]);XCTAssertNil(fields["senderID"])
+                if fields["enabled"] as? Bool == false { XCTAssertEqual(fields.count,1);XCTAssertNil(fields["token"]) }
+                response = "{\"saved\":true}"
+            }
+            return (HTTPURLResponse(url:request.url!,statusCode:200,httpVersion:nil,headerFields:nil)!,Data(response.utf8))
+        }
+        let transport = RelayTransport(configuration:configuration,signingContext:FixedPeerBoundSigningContext(peerID:id,signingKey:key),urlSession:makeStubbedSession())
+        try await transport.replaceRecipientConsent(consent)
+        try await transport.configureNeutralPush(enabled:true,token:String(repeating:"c",count:64),environment:"production")
+        try await transport.configureNeutralPush(enabled:false,token:nil,environment:"production")
+    }
+    func testPaginationSignsCursorAndRejectsNonAdvancingOrMalformedCursor() async throws {
+        let key = Curve25519.Signing.PrivateKey(),id = RequestSigner.sha256Hex(key.publicKey.rawRepresentation)
+        let after = "00000000-0000-4000-8000-000000000001"
+        RelayURLProtocolStub.handler = { request in
+            let items = URLComponents(url:request.url!,resolvingAgainstBaseURL:false)!.queryItems!
+            XCTAssertEqual(items.first(where:{$0.name=="after"})?.value,after)
+            let signature = try XCTUnwrap(Data(base64URLEncoded:request.value(forHTTPHeaderField:"X-Securechat-Signature")!))
+            let canonical = RequestSigner.canonicalString(method:"GET",path:"/v1/relay/messages",queryStringCanonicalized:RequestSigner.canonicalQueryString(from: items),body:nil,timestamp:request.value(forHTTPHeaderField:"X-Securechat-Timestamp")!,nonce:request.value(forHTTPHeaderField:"X-Securechat-Nonce")!,peerID:id)
+            XCTAssertTrue(key.publicKey.isValidSignature(signature,for:Data(canonical.utf8)))
+            return (HTTPURLResponse(url:request.url!,statusCode:200,httpVersion:nil,headerFields:nil)!,Data("{\"packets\":[],\"nextCursor\":\"\(after)\"}".utf8))
+        }
+        let transport = RelayTransport(configuration:configuration,signingContext:FixedPeerBoundSigningContext(peerID:id,signingKey:key),urlSession:makeStubbedSession())
+        do { _ = try await transport.fetchInboxPage(recipientID:id,limit:40,after:after);XCTFail("Non-advancing cursor accepted") }
+        catch { XCTAssertEqual(error as? PrivateChatError,.relayInvalidResponse) }
+        do { _ = try await transport.fetchInboxPage(recipientID:id,limit:40,after:"invalid");XCTFail("Malformed cursor accepted") }
+        catch { XCTAssertEqual(error as? PrivateChatError,.relayInvalidResponse) }
+    }
+    func testRetryAfterSecondsAndHTTPDateAreHonoredByTransport() async throws {
+        let key = Curve25519.Signing.PrivateKey(),id = RequestSigner.sha256Hex(key.publicKey.rawRepresentation)
+        let formatter = DateFormatter();formatter.locale=Locale(identifier:"en_US_POSIX");formatter.timeZone=TimeZone(secondsFromGMT:0);formatter.dateFormat="EEE, dd MMM yyyy HH:mm:ss z"
+        for header in ["120",formatter.string(from:Date().addingTimeInterval(180))] {
+            RelayURLProtocolStub.handler = { request in
+                (HTTPURLResponse(url:request.url!,statusCode:429,httpVersion:nil,headerFields:["Retry-After":header])!,Data("{\"error\":\"device_rate_limit\"}".utf8))
+            }
+            let transport = RelayTransport(configuration:configuration,signingContext:FixedPeerBoundSigningContext(peerID:id,signingKey:key),urlSession:makeStubbedSession())
+            do { _ = try await transport.fetchInboxPage(recipientID:id,limit:40,after:nil);XCTFail("Expected backoff") }
+            catch PrivateChatError.relayBackoff(let status,let seconds,_) { XCTAssertEqual(status,429);XCTAssertGreaterThanOrEqual(seconds,120);XCTAssertLessThanOrEqual(seconds,180) }
+        }
+    }
+    nonisolated private static func assertSigned(_ request:URLRequest,key:Curve25519.Signing.PrivateKey,peerID:String,body:Data) throws {
+        let signature = try XCTUnwrap(Data(base64URLEncoded:request.value(forHTTPHeaderField:"X-Securechat-Signature")!))
+        let canonical = RequestSigner.canonicalString(method:request.httpMethod!,path:request.url!.path,queryStringCanonicalized:"",body:body,timestamp:request.value(forHTTPHeaderField:"X-Securechat-Timestamp")!,nonce:request.value(forHTTPHeaderField:"X-Securechat-Nonce")!,peerID:peerID)
+        XCTAssertTrue(key.publicKey.isValidSignature(signature,for:Data(canonical.utf8)))
+    }
+
     nonisolated private static func transmittedBody(_ request: URLRequest) throws -> Data {
         if let data = request.httpBody { return data }
         let stream = try XCTUnwrap(request.httpBodyStream)

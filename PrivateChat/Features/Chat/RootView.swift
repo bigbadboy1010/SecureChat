@@ -123,8 +123,6 @@ private struct MainTabView: View {
         .tint(SecureChatDesign.brandCyan)
         .task {
             service.refreshRuntimeSecurityAssessment()
-            service.startRelayAutoSyncLoop()
         }
-        .onDisappear { service.stopRelayAutoSyncLoop() }
     }
 }

@@ -323,6 +323,8 @@ final class MockTransportCoordinator: TransportCoordinating {
         RelayEnrollmentResponse(peerID: "stub", registeredAt: 0, registrySize: 1)
     )
 
+    func replaceRecipientConsent(_ consent: RelayRecipientConsent, relayConfiguration: RelayConfiguration) async throws { }
+
     func enrollLocalPeer(_ identity: LocalIdentity, relayConfiguration: RelayConfiguration) async throws -> RelayEnrollmentResponse {
         try nextEnrollmentResult.get()
     }

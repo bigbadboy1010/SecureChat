@@ -95,6 +95,19 @@ struct RelaySendResponse: Decodable, Equatable {
 
 struct RelayFetchResponse: Decodable, Equatable {
     let packets: [OutboundTransportPacket]
+    let nextCursor: String?
+
+    init(packets: [OutboundTransportPacket], nextCursor: String? = nil) {
+        self.packets = packets
+        self.nextCursor = nextCursor
+    }
+}
+
+struct RelayRecipientConsent: Encodable {
+    let recipientID: String
+    let senderIDs: [String]
+    let updatedAt: String
+    let expiresAt: String
 }
 
 struct RelayDeleteResponse: Decodable, Equatable {

@@ -37,6 +37,27 @@ final class RelayTransport: RelayMessageTransporting {
         configuration.isEnabled && normalizedBaseURL() != nil
     }
 
+    func olmPrekeyStatus() async throws -> OlmPrekeyStatus {
+        let data = try await perform(makeRequest(path: "/v1/relay/prekeys", method: "GET"))
+        let status = try decoder.decode(OlmPrekeyStatus.self, from: data)
+        guard status.sequence >= 0, (0...350).contains(status.available),
+              status.identity == nil || status.identity?.range(of: "^[A-Za-z0-9+/]{43}$", options: .regularExpression) != nil else { throw PrivateChatError.relayInvalidResponse }
+        return status
+    }
+    func publishOlmPrekeys(_ batch: OlmPrekeyBatch) async throws {
+        let data = try await perform(makeRequest(path: "/v1/relay/prekeys", method: "PUT", body: encoder.encode(batch)))
+        struct Response: Decodable { let saved: Bool }
+        guard try decoder.decode(Response.self, from: data).saved else { throw PrivateChatError.relayInvalidResponse }
+    }
+    func claimOlmPrekey(recipientID: String, claimID: UUID) async throws -> OlmPrekeyClaim {
+        struct Claim: Encodable { let recipientID: String; let claimID: String }
+        let body = Claim(recipientID: recipientID, claimID: claimID.uuidString.lowercased())
+        let data = try await perform(makeRequest(path: "/v1/relay/prekeys/claim", method: "POST", body: encoder.encode(body)))
+        let claim = try decoder.decode(OlmPrekeyClaim.self, from: data)
+        guard claim.recipientID == recipientID, claim.claimID == claimID, claim.requester == signingContext?.currentPeerID() else { throw PrivateChatError.relayInvalidResponse }
+        return claim
+    }
+
     func send(_ packet: OutboundTransportPacket) async throws {
         let body = try encoder.encode(packet)
         let request = try makeRequest(
@@ -52,11 +73,38 @@ final class RelayTransport: RelayMessageTransporting {
         }
     }
 
+    func configureNeutralPush(enabled: Bool, token: String?, environment: String) async throws {
+        var body: [String: Any] = ["enabled": enabled]
+        if enabled {
+            guard let token, token.range(of: "^[a-f0-9]{32,512}$", options: .regularExpression) != nil,
+                  ["production", "sandbox"].contains(environment) else { throw PrivateChatError.relayInvalidResponse }
+            body["token"] = token; body["environment"] = environment
+        }
+        let data = try await perform(makeRequest(path: "/v1/relay/push", method: "PUT", body: JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])))
+        struct Response: Decodable { let saved: Bool }
+        guard try decoder.decode(Response.self, from: data).saved else { throw PrivateChatError.relayInvalidResponse }
+    }
+
     func fetchInbox(recipientID: String, limit: Int) async throws -> [OutboundTransportPacket] {
-        let queryItems = [
+        try await fetchInboxPage(recipientID: recipientID, limit: limit, after: nil).packets
+    }
+
+    func replaceRecipientConsent(_ consent: RelayRecipientConsent) async throws {
+        let data = try await perform(makeRequest(path: "/v1/relay/contacts", method: "PUT", body: encoder.encode(consent)))
+        struct Response: Decodable { let saved: Bool; let expiresAt: String }
+        let response = try decoder.decode(Response.self, from: data)
+        guard response.saved, response.expiresAt == consent.expiresAt else { throw PrivateChatError.relayInvalidResponse }
+    }
+
+    func fetchInboxPage(recipientID: String, limit: Int, after: String?) async throws -> RelayFetchResponse {
+        var queryItems = [
             URLQueryItem(name: "recipientID", value: recipientID),
             URLQueryItem(name: "limit", value: String(max(1, min(limit, RelayWireCoding.maximumInboxBatch))))
         ]
+        if let after {
+            guard UUID(uuidString: after) != nil else { throw PrivateChatError.relayInvalidResponse }
+            queryItems.append(URLQueryItem(name: "after", value: after.lowercased()))
+        }
 
         // Use the common request builder so inbox reads receive the
         // same bearer token + peer-bound Ed25519 signature as writes,
@@ -71,7 +119,14 @@ final class RelayTransport: RelayMessageTransporting {
 
         let data = try await perform(request)
         let fetchResponse = try decoder.decode(RelayFetchResponse.self, from: data)
-        return fetchResponse.packets
+        guard fetchResponse.packets.count <= min(limit, RelayWireCoding.maximumInboxBatch),
+              fetchResponse.packets.allSatisfy({ $0.recipientID == recipientID }) else { throw PrivateChatError.relayInvalidResponse }
+        if let cursor = fetchResponse.nextCursor {
+            guard UUID(uuidString: cursor) != nil, cursor != after,
+                  fetchResponse.packets.last?.id.uuidString.lowercased() == cursor,
+                  after == nil || cursor > after! else { throw PrivateChatError.relayInvalidResponse }
+        }
+        return fetchResponse
     }
 
     func delete(packetID: UUID) async throws -> Bool {
@@ -407,6 +462,21 @@ final class RelayTransport: RelayMessageTransporting {
             throw PrivateChatError.relayInvalidResponse
         }
         guard (200...299).contains(httpResponse.statusCode) else {
+            if httpResponse.statusCode == 429 || httpResponse.statusCode == 503 {
+                let header = httpResponse.value(forHTTPHeaderField: "Retry-After")
+                var seconds = header.flatMap(Int.init)
+                if seconds == nil, let header {
+                    let formatter = DateFormatter()
+                    formatter.locale = Locale(identifier: "en_US_POSIX")
+                    formatter.timeZone = TimeZone(secondsFromGMT: 0)
+                    formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+                    if let date = formatter.date(from: header) { seconds = Int(ceil(date.timeIntervalSinceNow)) }
+                }
+                if seconds != nil || httpResponse.statusCode == 429 {
+                    throw PrivateChatError.relayBackoff(statusCode: httpResponse.statusCode,
+                        retryAfterSeconds: max(1, min(seconds ?? 60, 86_400)), message: relayErrorMessage(from: data))
+                }
+            }
             throw PrivateChatError.relayHTTPError(statusCode: httpResponse.statusCode, message: relayErrorMessage(from: data))
         }
     }

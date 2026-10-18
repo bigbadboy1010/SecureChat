@@ -85,6 +85,16 @@ enum AttachmentPacketIdentifier {
     }
 }
 
+enum StableRelayPacketIdentifier {
+    static func make(messageID: UUID, recipientID: String, kind: TransportPayloadKind) -> UUID {
+        let input = "PrivateRoom/stable-relay/\(kind.rawValue)/v1/\(messageID.uuidString.lowercased())/\(recipientID)"
+        var b = Array(SHA256.hash(data: Data(input.utf8)).prefix(16))
+        b[6] = (b[6] & 0x0f) | 0x40
+        b[8] = (b[8] & 0x3f) | 0x80
+        return UUID(uuid: (b[0],b[1],b[2],b[3],b[4],b[5],b[6],b[7],b[8],b[9],b[10],b[11],b[12],b[13],b[14],b[15]))
+    }
+}
+
 private struct OutboundMessageContext {
     let conversationID: UUID
     let peerID: String?
@@ -105,13 +115,7 @@ private struct InboundPacketProcessResult {
 
 @MainActor
 final class ConversationService: ObservableObject {
-    // The Double-Ratchet implementation remains in-tree for continued
-    // development and unit testing, but it is deliberately disabled in
-    // the TestFlight/production message path until its session bootstrap,
-    // turn rotation and crash-persistence semantics have completed an
-    // external cryptographic review. Protocol v2 (packet version 2) stays
-    // active and retains signed-envelope + AES-GCM E2E protection.
-    private static let experimentalDoubleRatchetEnabled = false
+    // New network traffic exclusively uses vodozemac Olm (protocol 4).
     static let maximumAttachmentBytes = 8 * 1_048_576
     private static let attachmentChunkBytes = 64 * 1_024
     private static let relayBulkRequestIntervalSeconds: TimeInterval = 0.65
@@ -144,6 +148,13 @@ final class ConversationService: ObservableObject {
     // and opens it only after device-owner authentication succeeds.
     private var userSessionAuthorized = true
     private var userSessionGeneration = UUID()
+    private var relayInboxCursor: String?
+    private var consentSyncTask: Task<Void, Error>?
+    private var consentSyncID: UUID?
+    private var synchronizedConsent: [String]?
+    private var consentRelayURL: String?
+    private var consentRefreshAt = Date.distantPast
+    private var lastConsentUpdate = Date.distantPast
 
     var currentUserSessionID: UUID? {
         userSessionAuthorized && criticalSessionFailure == nil ? userSessionGeneration : nil
@@ -155,7 +166,7 @@ final class ConversationService: ObservableObject {
 
     @discardableResult
     func beginUserSession() -> Bool {
-        guard !Task.isCancelled else { return false }
+        guard !Task.isCancelled, !forwardSecrets.blocked else { return false }
         if currentUserSessionID != nil { return true }
         if criticalSessionFailure != nil {
             do {
@@ -179,9 +190,18 @@ final class ConversationService: ObservableObject {
     }
 
     func endUserSession() {
+        forwardSecretPreparationTask?.cancel()
+        forwardSecretPreparationTask = nil
+        forwardSecretPreparationID = nil
+        consentSyncTask?.cancel()
+        consentSyncTask = nil
+        consentSyncID = nil
+        synchronizedConsent = nil
+        relayInboxCursor = nil
         userSessionAuthorized = false
         userSessionGeneration = UUID()
         stopRelayAutoSyncLoop()
+        visibleChatObservers.removeAll()
         isRelaySyncRunning = false
         isOutboxRetryRunning = false
         isRelayStatsRunning = false
@@ -217,6 +237,9 @@ final class ConversationService: ObservableObject {
         endUserSession()
     }
 
+    private let forwardSecrets: ForwardSecretService
+    private var forwardSecretPreparationTask: Task<Void, Error>?
+    private var forwardSecretPreparationID: UUID?
     private let messageStore: MessageStoring
     private let draftStore: DraftStoring
     private let peerTrustStore: PeerTrustStoring
@@ -229,17 +252,10 @@ final class ConversationService: ObservableObject {
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private var relayPacketLedger: RelayPacketLedger
-    // Sprint 9D: the v2 (Double Ratchet) envelope
-    // router. Owned by the service so the v2 path
-    // has the same lifetime as the v1 path. The
-    // router is library-complete; a future Sprint
-    // 10 will swap the in-memory store for the
-    // keychain-backed one.
-    private let ratchetRouter: RatchetEnvelopeRouter
-    private let ratchetStore: DoubleRatchetStoring
-    private var ratchetObservations: [RatchetSentinelObservation] = []
     private var relayAutoSyncTask: Task<Void, Never>?
     private var relayAutoSyncGeneration = UUID()
+    private var relayAutoSyncDelay: Task<Void, Never>?
+    private var visibleChatObservers: Set<UUID> = []
     private var nextRelayBulkRequestAt = Date.distantPast
 
     init(
@@ -252,8 +268,10 @@ final class ConversationService: ObservableObject {
         identityManager: IdentityManaging,
         crypto: CryptoServicing,
         transportCoordinator: TransportCoordinating,
-        attachmentStore: AttachmentStoring? = nil
+        attachmentStore: AttachmentStoring? = nil,
+        forwardSecretStore: ForwardSecretStoring
     ) {
+        self.forwardSecrets = ForwardSecretService(store: forwardSecretStore, local: localIdentity)
         self.localIdentity = localIdentity
         self.messageStore = messageStore
         self.draftStore = draftStore
@@ -269,21 +287,6 @@ final class ConversationService: ObservableObject {
         self.relayPacketLedger = .empty
         self.conversations = []
         self.trustedPeers = []
-        // Sprint 10A: own a Keychain-backed
-        // Double Ratchet store so the v2 envelope
-        // state survives an app relaunch. The
-        // first call to register/open a
-        // RatchetChannel will hit the keychain
-        // (account: "ratchet.<peerID>"); subsequent
-        // app launches will pick the same session
-        // up and continue the chain instead of
-        // falling back to v1.
-        let ratchetStore: DoubleRatchetStoring = KeychainDoubleRatchetStore()
-        self.ratchetStore = ratchetStore
-        self.ratchetRouter = RatchetEnvelopeRouter(
-            store: ratchetStore,
-            localIdentityID: { localIdentity.id }
-        )
         self.securityState = .secureDefault
         self.lastRelaySyncSummary = nil
         self.isRelaySyncRunning = false
@@ -307,6 +310,7 @@ final class ConversationService: ObservableObject {
     @discardableResult
     func load() -> Bool {
         do {
+            try forwardSecrets.load()
             conversations = try messageStore.load().sorted { $0.conversation.updatedAt > $1.conversation.updatedAt }
             guard resetInterruptedOutgoingMessages() else { return false }
             trustedPeers = try peerTrustStore.loadPeers()
@@ -346,6 +350,9 @@ final class ConversationService: ObservableObject {
             )
             try ensureUserSession(sessionID)
             guard response.peerID == localIdentity.id else { throw PrivateChatError.relayInvalidResponse }
+            try await synchronizeRecipientConsent(sessionID: sessionID)
+            try ensureUserSession(sessionID)
+            try await prepareForwardSecrecy(peerID: nil, sessionID: sessionID, checkAvailability: true)
             lastRelayHealthMessage = "PrivateRoom ist verbunden."
             lastErrorMessage = nil
             return true
@@ -365,6 +372,81 @@ final class ConversationService: ObservableObject {
 
     func clearError() {
         lastErrorMessage = nil
+    }
+
+    @discardableResult
+    func configureNeutralPush(enabled: Bool, token: String?) async -> Bool {
+        guard authorizeUserAction(), let sessionID = currentUserSessionID,
+              securityState.transportMode == .relayAllowed, securityState.relayConfiguration.isReadyForNetworkRequests else { return false }
+        #if DEBUG
+        let environment = "sandbox"
+        #else
+        let environment = "production"
+        #endif
+        do {
+            try await transportCoordinator.configureNeutralPush(enabled: enabled, token: token, environment: environment,
+                relayConfiguration: securityState.relayConfiguration)
+            try ensureUserSession(sessionID)
+            return true
+        } catch {
+            guard isCurrentUserSession(sessionID) else { return false }
+            lastErrorMessage = "Die Mitteilungseinstellung konnte am Relay noch nicht gespeichert werden."
+            return false
+        }
+    }
+
+    /// Only locally verified SC3 contacts may place packets in this inbox.
+    /// Replacements are serialized; an older in-flight grant cannot undo a block.
+    private func synchronizeRecipientConsent(sessionID: UUID) async throws {
+        try ensureUserSession(sessionID)
+        while let pending = consentSyncTask {
+            try await pending.value
+            try ensureUserSession(sessionID)
+            await Task.yield()
+        }
+        let senders = verifiedPeers().map(\.id).sorted()
+        if synchronizedConsent == senders && consentRelayURL == securityState.relayConfiguration.baseURLString && Date() < consentRefreshAt { return }
+        guard senders.count <= 256 else { throw PrivateChatError.relayInvalidResponse }
+        let updated = max(Date(), lastConsentUpdate.addingTimeInterval(0.002))
+        lastConsentUpdate = updated
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let consent = RelayRecipientConsent(recipientID: localIdentity.id, senderIDs: senders,
+            updatedAt: formatter.string(from: updated), expiresAt: formatter.string(from: updated.addingTimeInterval(6 * 86_400)))
+        let identifier = UUID()
+        let configuration = securityState.relayConfiguration
+        let pending = Task { @MainActor in
+            try self.ensureUserSession(sessionID)
+            try await self.transportCoordinator.replaceRecipientConsent(consent, relayConfiguration: configuration)
+        }
+        consentSyncTask = pending
+        consentSyncID = identifier
+        defer {
+            if consentSyncID == identifier { consentSyncTask = nil; consentSyncID = nil }
+        }
+        try await pending.value
+        try ensureUserSession(sessionID)
+        synchronizedConsent = senders
+        consentRelayURL = configuration.baseURLString
+        consentRefreshAt = Date().addingTimeInterval(3600)
+        // Trust may have changed while the network request was in flight.
+        if verifiedPeers().map(\.id).sorted() != senders || configuration.baseURLString != securityState.relayConfiguration.baseURLString {
+            consentSyncTask = nil; consentSyncID = nil
+            try await synchronizeRecipientConsent(sessionID: sessionID)
+        }
+    }
+
+    private func requestRecipientConsentRefresh() {
+        synchronizedConsent = nil
+        guard let sessionID = currentUserSessionID,
+              securityState.transportMode == .relayAllowed, securityState.relayConfiguration.isReadyForNetworkRequests else { return }
+        Task { @MainActor in
+            do { try await synchronizeRecipientConsent(sessionID: sessionID) }
+            catch {
+                guard isCurrentUserSession(sessionID) else { return }
+                lastErrorMessage = "Die Kontaktfreigabe am Relay ist noch nicht aktualisiert. Die lokale Blockierung gilt bereits. " + error.localizedDescription
+            }
+        }
     }
 
     func reportError(_ error: Error) {
@@ -428,7 +510,32 @@ final class ConversationService: ObservableObject {
         relayAutoSyncGeneration = UUID()
         relayAutoSyncTask?.cancel()
         relayAutoSyncTask = nil
+        relayAutoSyncDelay?.cancel()
+        relayAutoSyncDelay = nil
         isRelayAutoPollingActive = false
+    }
+
+    /// Tokens keep nested chat presentations from accidentally disabling each
+    /// other's faster cadence. They contain no contact or message data.
+    func beginObservingChat(conversationID: UUID) -> UUID? {
+        guard currentUserSessionID != nil,
+              conversations.contains(where: { $0.id == conversationID && $0.conversation.peerID != nil }) else { return nil }
+        let token = UUID()
+        visibleChatObservers.insert(token)
+        // Wake an idle delay without cancelling an in-flight fetch or ACK.
+        relayAutoSyncDelay?.cancel()
+        return token
+    }
+
+    func endObservingChat(_ token: UUID?) {
+        guard let token else { return }
+        visibleChatObservers.remove(token)
+    }
+
+    var foregroundInboxIntervalSeconds: Int {
+        visibleChatObservers.isEmpty
+            ? max(5, min(securityState.relayConfiguration.autoPollingIntervalSeconds, 300))
+            : 5
     }
 
     private func runRelayAutoSyncLoop(generation: UUID) async {
@@ -455,9 +562,15 @@ final class ConversationService: ObservableObject {
                 }
             }
 
-            let baseInterval = max(5, min(securityState.relayConfiguration.autoPollingIntervalSeconds, 300))
+            let baseInterval = foregroundInboxIntervalSeconds
             let sleepSeconds = relayConnectivityStatus.isPaused ? min(max(relayConnectivityStatus.remainingPauseSeconds, 5), 60) : baseInterval
-            try? await Task.sleep(nanoseconds: UInt64(sleepSeconds) * 1_000_000_000)
+            let delay = Task<Void, Never> {
+                do { try await Task.sleep(for: .seconds(sleepSeconds)) }
+                catch { /* Navigation or session end can wake the idle delay. */ }
+            }
+            relayAutoSyncDelay = delay
+            await delay.value
+            if relayAutoSyncGeneration == generation { relayAutoSyncDelay = nil }
         }
     }
 
@@ -965,6 +1078,7 @@ final class ConversationService: ObservableObject {
                 lastErrorMessage = nil
             }
             try peerTrustStore.savePeers(trustedPeers)
+            requestRecipientConsentRefresh()
 
             // Sprint 10C: opt the new peer into the
             // v2 (Double Ratchet) envelope by
@@ -983,7 +1097,6 @@ final class ConversationService: ObservableObject {
             // intentionally NOT registered, so the
             // blocked peer does not accidentally
             // end up with a v2 envelope.
-            registerRatchetChannelForPeer(peer, encodedPayload: encodedPayload)
             return lastErrorMessage == nil
         } catch {
             let undurableBlock = trustedPeers.contains { peer in
@@ -993,86 +1106,6 @@ final class ConversationService: ObservableObject {
             else { trustedPeers = previousPeers }
             lastErrorMessage = error.localizedDescription
             return false
-        }
-    }
-
-    /// Sprint 10C: build and persist a
-    /// RatchetChannel for a newly-imported peer.
-    /// The X3DH bundle material needs both the
-    /// raw PairingPayload (for `createdAt`) and
-    /// the local key-agreement private key, so
-    /// we decode the payload ourselves before
-    /// handing off to `RatchetChannel.register`.
-    private func registerRatchetChannelForPeer(
-        _ peer: TrustedPeer,
-        encodedPayload: String
-    ) {
-        guard Self.experimentalDoubleRatchetEnabled else {
-            return
-        }
-        // Skip v2 registration for blocked peers
-        // (key-changed during re-pairing).
-        guard peer.trustState != .blocked else {
-            return
-        }
-        // Skip if a channel already exists for
-        // this peer (re-import of an existing
-        // peer must not overwrite the ratchet
-        // state and lose the message chain).
-        if (try? ratchetStore.load(peerID: peer.id)) != nil {
-            return
-        }
-        do {
-            let normalized = encodedPayload
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .replacingOccurrences(of: "privatechat://pairing/", with: "")
-                .replacingOccurrences(of: "securechat://pairing/", with: "")
-            guard let payloadData = Base64URL.decode(normalized) else {
-                return
-            }
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            guard let payload = try? decoder.decode(
-                PairingPayload.self, from: payloadData
-            ) else {
-                return
-            }
-            guard let remoteKAPubData = Data(
-                base64Encoded: peer.keyAgreementPublicKeyBase64
-            ),
-                  let remoteSigningPubData = Data(
-                base64Encoded: peer.signingPublicKeyBase64
-            ) else {
-                return
-            }
-            let remoteKAPub = try Curve25519.KeyAgreement.PublicKey(
-                rawRepresentation: remoteKAPubData
-            )
-            // The remote signing public key is
-            // not used for ECDH in the current
-            // X3DH single-DH variant; we still
-            // pass it so the call signature is
-            // future-proof when Sprint 11 adds
-            // the 2-DH variant.
-            let remoteSigningPub = try Curve25519.Signing.PublicKey(
-                rawRepresentation: remoteSigningPubData
-            )
-            let localKAPriv = localIdentity.keyAgreementPrivateKey
-            _ = try RatchetChannel.register(
-                peerID: peer.id,
-                localKeyAgreementPrivateKey: localKAPriv,
-                remoteKeyAgreementPublicKey: remoteKAPub,
-                remoteSigningPublicKey: remoteSigningPub,
-                localPayloadCreatedAt: payload.createdAt,
-                remotePayloadCreatedAt: payload.createdAt,
-                store: ratchetStore
-            )
-        } catch {
-            // Soft failure: the v1 path still
-            // works for this peer; the user will
-            // see a "session still on v1" finding
-            // in the Sentinel until the next
-            // successful re-pairing.
         }
     }
 
@@ -1103,6 +1136,7 @@ final class ConversationService: ObservableObject {
         trustedPeers[index].trustState = .verified
         trustedPeers[index].lastVerifiedAt = Date()
         guard persistPeers() else { trustedPeers[index] = previous; return false }
+        requestRecipientConsentRefresh()
         return true
     }
 
@@ -1116,7 +1150,10 @@ final class ConversationService: ObservableObject {
             failClosedForUndurableSecurityState()
             return
         }
+        do { try forwardSecrets.discardPendingInbound(peerID: id) }
+        catch { failClosedForUndurableSecurityState(); return }
         revokeExperimentalRatchetState(peerID: id)
+        requestRecipientConsentRefresh()
     }
 
     func unblockPeerAsUnverified(id: String) {
@@ -1125,7 +1162,10 @@ final class ConversationService: ObservableObject {
         trustedPeers[index].trustState = .unverified
         trustedPeers[index].lastVerifiedAt = nil
         guard persistPeers() else { trustedPeers[index] = previous; return }
+        do { try forwardSecrets.discardPendingInbound(peerID: id) }
+        catch { failClosedForUndurableSecurityState(); return }
         revokeExperimentalRatchetState(peerID: id)
+        requestRecipientConsentRefresh()
     }
 
     func deletePeer(id: String) {
@@ -1149,7 +1189,10 @@ final class ConversationService: ObservableObject {
             return
         }
         reclaimUnreferencedAttachments(removed)
+        do { try forwardSecrets.discardPendingInbound(peerID: id) }
+        catch { failClosedForUndurableSecurityState(); return }
         revokeExperimentalRatchetState(peerID: id)
+        requestRecipientConsentRefresh()
     }
 
     func makeLocalPairingCode() throws -> String {
@@ -1188,6 +1231,8 @@ final class ConversationService: ObservableObject {
             lastRelayHealthMessage = nil
             if previousRelayURL != migratedState.relayConfiguration.baseURLString {
                 relayConnectivityStatus = .healthy
+                relayInboxCursor = nil
+                synchronizedConsent = nil
             }
             lastTransportDiagnosticMessage = transportDiagnosticSummary(for: migratedState)
             lastErrorMessage = nil
@@ -1431,7 +1476,7 @@ final class ConversationService: ObservableObject {
     }
 
     func refreshSecurityAIAssessment() {
-        var snapshot = SecurityAISentinel.assess(
+        securityAISnapshot = SecurityAISentinel.assess(
             securityState: securityState,
             runtimeSnapshot: runtimeSecuritySnapshot,
             relayConnectivityStatus: relayConnectivityStatus,
@@ -1440,44 +1485,7 @@ final class ConversationService: ObservableObject {
             relayStats: lastRelayStatsSnapshot,
             localIdentityID: localIdentity.id
         )
-        // Sprint 10D: merge the v1 / v2 envelope
-        // findings from the ratchet router into the
-        // Sentinel snapshot. The router has been
-        // collecting observations every time
-        // sendMessage or processInboundPacket
-        // produced an envelope; the
-        // RatchetSentinelFindings builder collapses
-        // them into a single "session still on v1"
-        // warning or a "session on v2" info finding.
-        // The list is drained so each refresh
-        // re-evaluates from the latest state.
-        let ratchetFindings = RatchetSentinelFindings.build(
-            observations: ratchetObservations
-        )
-        ratchetObservations.removeAll(keepingCapacity: true)
-        if !ratchetFindings.isEmpty {
-            // Rebuild the summary string so it
-            // reflects the merged findings. The
-            // score and riskLevel stay at the
-            // v1-assessment values because the
-            // ratchet findings are informational
-            // / warning, not critical security
-            // regressions.
-            let mergedFindings = snapshot.findings + ratchetFindings
-            let hardCount = mergedFindings.filter {
-                $0.severity == .critical || $0.severity == .high
-            }.count
-            snapshot = SecurityAISnapshot(
-                score: snapshot.score,
-                riskLevel: snapshot.riskLevel,
-                summary: "\(snapshot.summary) + \(ratchetFindings.count) Ratchet-Finding(s) (\(hardCount) hart).",
-                findings: mergedFindings,
-                generatedAt: snapshot.generatedAt
-            )
-        }
-        securityAISnapshot = snapshot
     }
-
 
     private func syncRelayInbox(showDisabledError: Bool) async {
         guard authorizeUserAction(), let sessionID = currentUserSessionID else { return }
@@ -1508,10 +1516,13 @@ final class ConversationService: ObservableObject {
         lastTransportDiagnosticMessage = "Relay-Inbox-Abruf gestartet. \(transportDiagnosticSummary())"
 
         do {
-            let packets = try await transportCoordinator.fetchRelayInbox(
+            try await synchronizeRecipientConsent(sessionID: sessionID)
+            let page = try await transportCoordinator.fetchRelayInboxPage(
                 recipientID: localIdentity.id,
+                after: relayInboxCursor,
                 relayConfiguration: securityState.relayConfiguration
             )
+            let packets = page.packets
             try ensureUserSession(sessionID)
             var processedCount = 0
             var duplicateCount = 0
@@ -1520,6 +1531,7 @@ final class ConversationService: ObservableObject {
             var acknowledgementFailureCount = 0
             var deliveryReceiptSentCount = 0
             var deliveryReceiptFailureCount = 0
+            var pageCompleted = true
 
             for packet in packets {
                 try ensureUserSession(sessionID)
@@ -1548,7 +1560,12 @@ final class ConversationService: ObservableObject {
                         } catch {
                             guard isCurrentUserSession(sessionID) else { return }
                             deliveryReceiptFailureCount += 1
-                            lastTransportDiagnosticMessage = "Delivery-Receipt fehlgeschlagen für Nachricht \(receiptContext.originalMessageID.uuidString): \(error.localizedDescription)"
+                            registerRelayFailure(error, showUserFacingError: showDisabledError, context: "Empfangsbestätigung")
+                            // Retain the already locally saved original packet
+                            // until its receipt was accepted, so the next fetch
+                            // can retry without duplicating the chat message.
+                            if relayConnectivityStatus.isPaused { pageCompleted = false; break }
+                            continue
                         }
                     }
                 } catch {
@@ -1573,17 +1590,21 @@ final class ConversationService: ObservableObject {
                     _ = try await transportCoordinator.deleteRelayPacket(packetID: packet.id, relayConfiguration: securityState.relayConfiguration)
                     try ensureUserSession(sessionID)
                     acknowledgedCount += 1
+                    do { try forwardSecrets.acknowledged(packetID: packet.id) }
+                    catch { failClosedForUndurableSecurityState(); throw error }
                     relayPacketLedger.registerAcknowledged(packetID: packet.id)
                     persistRelayPacketLedger()
                 } catch {
                     guard isCurrentUserSession(sessionID) else { return }
                     acknowledgementFailureCount += 1
-                    lastTransportDiagnosticMessage = "Relay-ACK fehlgeschlagen für Paket \(packet.id.uuidString): \(error.localizedDescription)"
+                    registerRelayFailure(error, showUserFacingError: showDisabledError, context: "Relay-Bestätigung")
+                    if relayConnectivityStatus.isPaused { pageCompleted = false; break }
                 }
             }
 
             try ensureUserSession(sessionID)
-            registerRelaySuccess(message: nil)
+            if pageCompleted { relayInboxCursor = page.nextCursor }
+            if acknowledgementFailureCount == 0 && deliveryReceiptFailureCount == 0 { registerRelaySuccess(message: nil) }
 
             lastRelaySyncSummary = RelayInboxSyncSummary(
                 processedCount: processedCount,
@@ -1679,6 +1700,7 @@ final class ConversationService: ObservableObject {
             storedConversation.messages.compactMap { message in
                 guard message.isIncoming == false,
                       message.recipientID != nil,
+                      message.createdAt.addingTimeInterval(86_400) > Date(),
                       message.status == .queued || message.status == .failed else {
                     return nil
                 }
@@ -1717,6 +1739,10 @@ final class ConversationService: ObservableObject {
         markMessage(messageID, in: conversationID, status: .sending)
 
         do {
+            if securityState.transportMode == .relayAllowed {
+                try await synchronizeRecipientConsent(sessionID: sessionID)
+                try ensureUserSession(sessionID)
+            }
             if let attachment = context.message.attachment {
                 let data = try attachmentStore.loadAttachment(id: attachment.id)
                 guard data.count == attachment.byteCount,
@@ -1800,30 +1826,17 @@ final class ConversationService: ObservableObject {
                 recipientID: peerID
             )
         } else {
-            stablePacketID = nil
+            stablePacketID = StableRelayPacketIdentifier.make(messageID: payload.messageID, recipientID: peerID, kind: payload.kind)
         }
-        let v1Packet = try makeTransportPacket(
-            payload: payload,
-            recipientID: peerID,
-            packetID: stablePacketID
-        )
+        guard payload.createdAt.addingTimeInterval(86_400) > Date() else { throw PrivateChatError.relayHTTPError(statusCode: 410, message: "packet_expired") }
+        try await prepareForwardSecrecy(peerID: peerID, sessionID: sessionID)
+        try ensureUserSession(sessionID)
+        _ = try verifiedPeer(id: peerID)
         let packet: OutboundTransportPacket
-        if Self.experimentalDoubleRatchetEnabled {
-            let payloadData = try encoder.encode(payload)
-            if let ratchetResult = try ratchetRouter.makeRatchetPacket(
-                peerID: peerID,
-                plaintext: payloadData,
-                existingPacket: v1Packet
-            ) {
-                packet = ratchetResult.0
-                ratchetObservations.append(ratchetResult.1)
-            } else {
-                packet = v1Packet
-                ratchetObservations.append(ratchetRouter.v1FallbackObservation(peerID: peerID))
-            }
-        } else {
-            packet = v1Packet
-            ratchetObservations.append(ratchetRouter.v1FallbackObservation(peerID: peerID))
+        do { packet = try forwardSecrets.makePacket(payload: payload, recipientID: peerID, packetID: stablePacketID!) }
+        catch {
+            if forwardSecrets.blocked { failClosedForUndurableSecurityState() }
+            throw error
         }
         try ensureUserSession(sessionID)
         try await transportCoordinator.send(
@@ -1933,7 +1946,10 @@ final class ConversationService: ObservableObject {
         let message = error.localizedDescription
         if isTransientRelayConnectivityError(error) {
             let failures = relayConnectivityStatus.consecutiveFailureCount + 1
-            let pauseSeconds = min(300, max(10, Int(pow(2.0, Double(min(failures, 6)))) * 5))
+            var pauseSeconds = min(300, max(10, Int(pow(2.0, Double(min(failures, 6)))) * 5))
+            if let relayError = error as? PrivateChatError, case .relayBackoff(_, let hint, _) = relayError {
+                pauseSeconds = max(pauseSeconds, hint)
+            }
             let pauseUntil = Date().addingTimeInterval(TimeInterval(pauseSeconds))
             relayConnectivityStatus = RelayConnectivityStatus(
                 state: .paused,
@@ -1969,7 +1985,7 @@ final class ConversationService: ObservableObject {
             return false
         }
         switch privateChatError {
-        case .relayTimedOut, .relayNoNetwork, .relayCannotConnectToHost, .relayConnectionLost, .relayRequestFailed:
+        case .relayTimedOut, .relayNoNetwork, .relayCannotConnectToHost, .relayConnectionLost, .relayRequestFailed, .relayBackoff:
             return true
         case .relayHTTPError(let status, _):
             return status == 429 || (500...599).contains(status)
@@ -1997,100 +2013,61 @@ final class ConversationService: ObservableObject {
         }
     }
 
-    private func makeTransportPacket(
-        payload: TransportMessagePayload,
-        recipientID: String,
-        packetID requestedPacketID: UUID? = nil
-    ) throws -> OutboundTransportPacket {
-        _ = try requireUserSession()
-        let peer = try verifiedPeer(id: recipientID)
-        guard let peerPublicKeyData = Data(base64Encoded: peer.keyAgreementPublicKeyBase64) else {
-            throw PrivateChatError.invalidKeyMaterial
+    /// Only the audited Olm primitive is used for new packets. There is no
+    /// network fallback to the historical static-key or experimental format.
+    private func prepareForwardSecrecy(peerID: String?, sessionID: UUID, checkAvailability: Bool = false) async throws {
+        try ensureUserSession(sessionID)
+        while let pending = forwardSecretPreparationTask {
+            try await pending.value
+            try ensureUserSession(sessionID)
+            await Task.yield()
         }
-
-        let peerPublicKey = try Curve25519.KeyAgreement.PublicKey(rawRepresentation: peerPublicKeyData)
-        let key = try makePairwiseKey(peerID: recipientID, peerPublicKey: peerPublicKey)
-        let payloadData = try encoder.encode(payload)
-        guard payloadData.count <= RelayWireCoding.maximumSealedPayloadBytes - 28 else {
-            throw PrivateChatError.attachmentTooLarge(maximumBytes: Self.maximumAttachmentBytes)
+        let identifier = UUID()
+        let configuration = securityState.relayConfiguration
+        let pending = Task { @MainActor in
+            try self.ensureUserSession(sessionID)
+            let status: OlmPrekeyStatus?
+            if checkAvailability {
+                status = try await self.transportCoordinator.olmPrekeyStatus(relayConfiguration: configuration)
+                try self.ensureUserSession(sessionID)
+            } else { status = nil }
+            if let batch = try self.forwardSecrets.publicationIfNeeded(serverStatus: status) {
+                try await self.transportCoordinator.publishOlmPrekeys(batch, relayConfiguration: configuration)
+                try self.ensureUserSession(sessionID)
+                try self.forwardSecrets.publicationAccepted(batch)
+            }
+            if let peerID, try self.forwardSecrets.needsSession(peerID: peerID) {
+                _ = try self.verifiedPeer(id: peerID)
+                let claimID = try self.forwardSecrets.claimID(peerID: peerID)
+                let claim = try await self.transportCoordinator.claimOlmPrekey(recipientID: peerID, claimID: claimID, relayConfiguration: configuration)
+                try self.ensureUserSession(sessionID)
+                let peer = try self.verifiedPeer(id: peerID)
+                try self.forwardSecrets.acceptClaim(claim, peer: peer)
+            }
         }
-        let packetID = requestedPacketID ?? UUID()
-        let createdAt = Date()
-        let expiresAt = createdAt.addingTimeInterval(86_400)
-        let unsignedPacket = OutboundTransportPacket(
-            id: packetID,
-            senderID: localIdentity.id,
-            recipientID: recipientID,
-            sealedPayloadBase64: try crypto.encrypt(
-                payloadData,
-                key: key,
-                aad: OutboundTransportPacket(
-                    id: packetID,
-                    senderID: localIdentity.id,
-                    recipientID: recipientID,
-                    sealedPayloadBase64: "pending",
-                    signatureBase64: "pending",
-                    createdAt: createdAt,
-                    expiresAt: expiresAt
-                ).payloadAAD
-            ).base64EncodedString(),
-            signatureBase64: "pending",
-            createdAt: createdAt,
-            expiresAt: expiresAt
-        )
-        let signature = try crypto.sign(unsignedPacket.authenticatedData, privateKey: localIdentity.signingPrivateKey)
-        return OutboundTransportPacket(
-            protocolVersion: unsignedPacket.protocolVersion,
-            id: unsignedPacket.id,
-            senderID: unsignedPacket.senderID,
-            recipientID: unsignedPacket.recipientID,
-            sealedPayloadBase64: unsignedPacket.sealedPayloadBase64,
-            signatureBase64: signature.base64EncodedString(),
-            createdAt: unsignedPacket.createdAt,
-            expiresAt: unsignedPacket.expiresAt
-        )
+        forwardSecretPreparationTask = pending; forwardSecretPreparationID = identifier
+        defer { if forwardSecretPreparationID == identifier { forwardSecretPreparationTask = nil; forwardSecretPreparationID = nil } }
+        do { try await pending.value }
+        catch { if forwardSecrets.blocked { failClosedForUndurableSecurityState() }; throw error }
+        try ensureUserSession(sessionID)
     }
 
     private func processInboundPacket(_ packet: OutboundTransportPacket) throws -> InboundPacketProcessResult {
         _ = try requireUserSession()
-        // Sprint 9D: accept both v1 (protocolVersion 2)
-        // and v2 (protocolVersion 3) envelopes. v2
-        // packets carry a RatchetChannelEnvelope in
-        // their sealedPayloadBase64; the v1 path
-        // continues to verify the Ed25519 envelope
-        // signature against the trusted-peer key.
-        guard (packet.protocolVersion == 2 ||
-               (Self.experimentalDoubleRatchetEnabled && packet.protocolVersion == 3)),
+        guard packet.protocolVersion == 4,
               packet.recipientID == localIdentity.id,
               packet.senderID != localIdentity.id,
               packet.createdAt.timeIntervalSinceNow <= 300,
-              packet.expiresAt > Date(),
-              packet.expiresAt > packet.createdAt,
+              packet.expiresAt > Date(), packet.expiresAt > packet.createdAt,
               packet.expiresAt.timeIntervalSince(packet.createdAt) <= 86_400 else {
             throw PrivateChatError.invalidInboundPacket
         }
-
         let wasSeenBefore = relayPacketLedger.entries.contains { $0.id == packet.id }
-
-        if packet.protocolVersion == 3 {
-            // v2 (Double Ratchet) path. Skip the
-            // Ed25519 envelope-signature verification
-            // and the trusted-peer pairwise key -- the
-            // Ratchet AEAD authenticates the sender.
-            return try processInboundV2Packet(packet, wasSeenBefore: wasSeenBefore)
-        }
-
         let peer = try verifiedPeer(id: packet.senderID)
         try verifyEnvelopeSignature(packet, peer: peer)
-
-        guard let peerPublicKeyData = Data(base64Encoded: peer.keyAgreementPublicKeyBase64),
-              let sealedPayloadData = Data(base64Encoded: packet.sealedPayloadBase64) else {
-            throw PrivateChatError.invalidInboundPacket
-        }
-
-        let peerPublicKey = try Curve25519.KeyAgreement.PublicKey(rawRepresentation: peerPublicKeyData)
-        let key = try makePairwiseKey(peerID: packet.senderID, peerPublicKey: peerPublicKey)
-        let payloadData = try crypto.decrypt(sealedPayloadData, key: key, aad: packet.payloadAAD)
+        let payloadData: Data
+        do { payloadData = try forwardSecrets.receive(packet, peer: peer) }
+        catch { if forwardSecrets.blocked { failClosedForUndurableSecurityState() }; throw error }
         let payload = try decoder.decode(TransportMessagePayload.self, from: payloadData)
 
         guard payload.version == 3,
@@ -2187,6 +2164,8 @@ final class ConversationService: ObservableObject {
                 throw PrivateChatError.invalidInboundPacket
             }
             let didMarkDelivered = try markDeliveredMessage(deliveredMessageID, from: payload.senderID)
+            do { try forwardSecrets.delivered(messageID: deliveredMessageID, peerID: payload.senderID) }
+            catch { if forwardSecrets.blocked { failClosedForUndurableSecurityState() }; throw error }
             return InboundPacketProcessResult(didProcessMessage: didMarkDelivered, isDuplicate: wasSeenBefore || didMarkDelivered == false, deliveryReceiptContext: nil)
         }
     }
@@ -2203,7 +2182,7 @@ final class ConversationService: ObservableObject {
         let payload = TransportMessagePayload(
             version: 3,
             kind: .deliveryReceipt,
-            messageID: UUID(),
+            messageID: context.originalMessageID,
             conversationID: context.originalConversationID,
             senderID: localIdentity.id,
             recipientID: context.originalSenderID,
@@ -2211,10 +2190,8 @@ final class ConversationService: ObservableObject {
             createdAt: Date(),
             deliveredMessageID: context.originalMessageID
         )
-        let packet = try makeTransportPacket(payload: payload, recipientID: context.originalSenderID)
         try await waitForRelayBulkRequestRateSlot(sessionID)
-        try ensureUserSession(sessionID)
-        try await transportCoordinator.send(packet, mode: .relayAllowed, relayConfiguration: securityState.relayConfiguration)
+        try await sendTransportPayload(payload, peerID: context.originalSenderID, sessionID: sessionID)
         try ensureUserSession(sessionID)
         relayPacketLedger.registerDeliveryReceiptSent(for: context.originalMessageID)
         persistRelayPacketLedger()
@@ -2231,61 +2208,6 @@ final class ConversationService: ObservableObject {
         guard crypto.verify(signature: signatureData, data: packet.authenticatedData, publicKey: publicKey) else {
             throw PrivateChatError.invalidSignature
         }
-    }
-
-    // Sprint 9D: handle a v2 (protocolVersion 3)
-    // inbound packet. The RatchetChannelEnvelope is
-    // in the sealedPayloadBase64; the ratchet AEAD
-    // authenticates the sender, so we do not run
-    // the v1 Ed25519 envelope-signature verify or
-    // the trusted-peer pairwise key. The decoded
-    // plaintext is the v1 TransportMessagePayload
-    // JSON, so the v1 post-decrypt pipeline
-    // (version check, senderID/recipientID check,
-    // appendInboundMessage) is reused as-is.
-    private func processInboundV2Packet(
-        _ packet: OutboundTransportPacket,
-        wasSeenBefore: Bool
-    ) throws -> InboundPacketProcessResult {
-        let (plaintext, obs) = try ratchetRouter.tryDecodeV2(packet: packet)
-            ?? (Data(), ratchetRouter.v1FallbackObservation(peerID: packet.senderID))
-        ratchetObservations.append(obs)
-        let payload = try decoder.decode(TransportMessagePayload.self, from: plaintext)
-        guard payload.version == 3,
-              payload.senderID == packet.senderID,
-              payload.recipientID == localIdentity.id else {
-            throw PrivateChatError.invalidInboundPacket
-        }
-        // The trusted-peer record is the v1
-        // invariant. For the v2 path we look it
-        // up by senderID; if it is missing, we
-        // synthesise a minimal TrustedPeer so the
-        // downstream appendInboundMessage and
-        // delivery-receipt flow continue to work.
-        let peer: TrustedPeer
-        if let existing = trustedPeers.first(where: { $0.id == packet.senderID }) {
-            peer = existing
-        } else {
-            // The Ratchet AEAD has already
-            // authenticated the sender; we use a
-            // deterministic placeholder for the
-            // fields the post-decrypt pipeline
-            // does not need (displayName,
-            // signingPublicKeyBase64, safetyNumber).
-            peer = TrustedPeer(
-                id: packet.senderID,
-                displayName: packet.senderID,
-                keyAgreementPublicKeyBase64: "",
-                signingPublicKeyBase64: "",
-                safetyNumber: ""
-            )
-        }
-        try appendInboundMessage(payload: payload, peer: peer)
-        return InboundPacketProcessResult(
-            didProcessMessage: true,
-            isDuplicate: wasSeenBefore,
-            deliveryReceiptContext: nil
-        )
     }
 
     private func appendInboundMessage(payload: TransportMessagePayload, peer: TrustedPeer) throws {
@@ -2362,7 +2284,7 @@ final class ConversationService: ObservableObject {
 
     private func revokeExperimentalRatchetState(peerID: String) {
         do {
-            try ratchetStore.delete(peerID: peerID)
+            try KeychainDoubleRatchetStore().delete(peerID: peerID)
         } catch {
             lastErrorMessage = "Ratchet-Session für den Kontakt konnte nicht sicher gelöscht werden: \(error.localizedDescription)"
         }
@@ -2381,16 +2303,6 @@ final class ConversationService: ObservableObject {
         return peer
     }
 
-    private func makePairwiseKey(peerID: String, peerPublicKey: Curve25519.KeyAgreement.PublicKey) throws -> SymmetricKey {
-        let orderedIDs = [localIdentity.id, peerID].sorted().joined(separator: ":")
-        let context = Data("PrivateChat/pairwise-message/v3/\(orderedIDs)".utf8)
-        return try crypto.derivePairwiseKey(
-            privateKey: localIdentity.keyAgreementPrivateKey,
-            peerPublicKey: peerPublicKey,
-            context: context
-        )
-    }
-
     private func hasMessage(id messageID: UUID) -> Bool {
         conversations.contains { storedConversation in
             storedConversation.messages.contains { $0.id == messageID }
@@ -2402,6 +2314,7 @@ final class ConversationService: ObservableObject {
               let messageIndex = conversations[conversationIndex].messages.firstIndex(where: { $0.id == messageID }) else {
             return
         }
+        guard conversations[conversationIndex].messages[messageIndex].status != .delivered || status == .delivered else { return }
         conversations[conversationIndex].messages[messageIndex].status = status
         conversations[conversationIndex].conversation.updatedAt = Date()
         sortConversations()

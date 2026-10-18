@@ -42,7 +42,8 @@ final class ConversationServiceTests: XCTestCase {
             relayPacketLedgerStore: MockRelayPacketLedgerStore(),
             identityManager: identity,
             crypto: StubCryptoService(),
-            transportCoordinator: transport
+            transportCoordinator: transport,
+            forwardSecretStore: InMemoryForwardSecretStore()
         )
         return (service, transport)
     }

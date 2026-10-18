@@ -1,0 +1,42 @@
+{
+  "rust": "1.90.0",
+  "vodozemac": "0.11.1",
+  "localBuildPathsRemapped": true,
+  "artifacts": [
+    {
+      "path": "Vendor/PrivateRoomOlm.xcframework/Info.plist",
+      "sha256": "dca11ee898c0256066ea13c50a482f418e78f5b96992fe5ab162bbfc16161d91",
+      "bytes": 1288
+    },
+    {
+      "path": "Vendor/PrivateRoomOlm.xcframework/ios-arm64/Headers/PrivateRoomOlm.h",
+      "sha256": "2ec45e0583f7ed4de9aff7b7bedebb1ff77bd714dced9dd6d3de8166f4aa6c38",
+      "bytes": 254
+    },
+    {
+      "path": "Vendor/PrivateRoomOlm.xcframework/ios-arm64/Headers/module.modulemap",
+      "sha256": "da176ac595127959ef8ec4550b5484a6d0d3cf4bbb3d948b7fe7c24f184de8f3",
+      "bytes": 69
+    },
+    {
+      "path": "Vendor/PrivateRoomOlm.xcframework/ios-arm64/libprivateroom_olm.a",
+      "sha256": "431d1d1c33ba4e3ba1e8dfec870df7bff3a6a68b4b34fae70809387400eb6032",
+      "bytes": 23850632
+    },
+    {
+      "path": "Vendor/PrivateRoomOlm.xcframework/ios-arm64_x86_64-simulator/Headers/PrivateRoomOlm.h",
+      "sha256": "2ec45e0583f7ed4de9aff7b7bedebb1ff77bd714dced9dd6d3de8166f4aa6c38",
+      "bytes": 254
+    },
+    {
+      "path": "Vendor/PrivateRoomOlm.xcframework/ios-arm64_x86_64-simulator/Headers/module.modulemap",
+      "sha256": "da176ac595127959ef8ec4550b5484a6d0d3cf4bbb3d948b7fe7c24f184de8f3",
+      "bytes": 69
+    },
+    {
+      "path": "Vendor/PrivateRoomOlm.xcframework/ios-arm64_x86_64-simulator/libprivateroom_olm.a",
+      "sha256": "526e301eb22938bb8bf3a115e47cf1f10e07680bd83050a719bab1dfaf9e7d64",
+      "bytes": 48067744
+    }
+  ]
+}

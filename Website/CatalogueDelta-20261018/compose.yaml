@@ -1,0 +1,65 @@
+{
+  "name": "miggu69-info-pararoam-privateroom-20261018",
+  "services": {
+    "web": {
+      "image": "miggu69-info-web:pararoam-privateroom-20261018",
+      "build": {
+        "context": ".",
+        "network": "none"
+      },
+      "container_name": "miggu69-info-pararoam-privateroom-web",
+      "restart": "unless-stopped",
+      "user": "101:101",
+      "read_only": true,
+      "cap_drop": [
+        "ALL"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "mem_limit": "128m",
+      "cpus": 0.25,
+      "pids_limit": 64,
+      "tmpfs": [
+        "/tmp:rw,noexec,nosuid,size=16m,uid=101,gid=101,mode=1770"
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD-SHELL",
+          "wget -q -O - http://127.0.0.1:8080/health.txt | grep -qx miggu69-info-static-v1"
+        ],
+        "interval": "30s",
+        "timeout": "5s",
+        "start_period": "10s",
+        "retries": 3
+      },
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-size": "1m",
+          "max-file": "2"
+        }
+      },
+      "labels": {
+        "com.centurylinklabs.watchtower.enable": "false"
+      },
+      "networks": {
+        "default": {
+          "ipv4_address": "${CATALOGUE_IPV4:?Set an unused internal address}"
+        }
+      }
+    }
+  },
+  "networks": {
+    "default": {
+      "internal": true,
+      "ipam": {
+        "config": [
+          {
+            "subnet": "${CATALOGUE_SUBNET:?Set a verified non-overlapping internal subnet}"
+          }
+        ]
+      }
+    }
+  }
+}

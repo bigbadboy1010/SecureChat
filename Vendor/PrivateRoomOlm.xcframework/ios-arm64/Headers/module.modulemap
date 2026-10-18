@@ -1,0 +1,4 @@
+module PrivateRoomOlm {
+    header "PrivateRoomOlm.h"
+    export *
+}

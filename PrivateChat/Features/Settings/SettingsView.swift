@@ -5,6 +5,7 @@ struct SettingsView: View {
     var onLock: (() -> Void)? = nil
     @State private var isConnecting = false
     @State private var showRetentionConfirmation = false
+    @ObservedObject private var notifications = PrivateRoomNotifications.shared
 
     var body: some View {
         NavigationStack {
@@ -99,6 +100,9 @@ struct SettingsView: View {
                     Text("Die App ruft Nachrichten ab, solange sie geöffnet und entsperrt ist. Ein Paket am Relay ist noch kein Zustell- oder Lesebeleg. Der Relay verarbeitet technische Metadaten.")
                 }
                 SwiftUI.Section {
+                    NavigationLink { DeviceSafetyView(service: service) } label: {
+                        Label("Geräteverlust & Gerätewechsel", systemImage: "iphone.slash")
+                    }
                     NavigationLink { PrivacyPolicyView() } label: {
                         Label("Datenschutz verständlich erklärt", systemImage: "hand.raised")
                     }
@@ -112,6 +116,15 @@ struct SettingsView: View {
                         Label("Erweiterte Verbindungseinstellungen", systemImage: "slider.horizontal.3")
                     }
                 } header: { Text("Hilfe und Kontrolle") }
+                SwiftUI.Section {
+                    Toggle("Neutrale Push-Mitteilungen", isOn: Binding(get: { notifications.enabled }, set: { value in
+                        Task { await notifications.setEnabled(value) }
+                    }))
+                    .disabled(notifications.isUpdating)
+                    Text(notifications.status).font(.footnote).foregroundStyle(.secondary)
+                    Text("Apple erhält einen neutralen Aktivitätshinweis und die Push-Gerätekennung, keine Absender oder Nachrichtentexte. Öffne und entsperre PrivateRoom zum Abrufen. Push ist keine Zustellbestätigung und kann verspätet eintreffen oder ausbleiben.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                } header: { Text("Mitteilungen") }
                 SwiftUI.Section {
                     Label("Beta · unabhängiger Sicherheits-Audit offen", systemImage: "info.circle")
                         .font(.footnote)
@@ -373,7 +386,7 @@ private struct PrivateRoomAdvancedSettingsView: View {
             }
             SwiftUI.Section {
                 Stepper("Pakete pro Abruf: \(pollingLimit)", value: $pollingLimit, in: 1...100)
-                Stepper("Abruf bei geöffneter App: \(pollingInterval) Sekunden", value: $pollingInterval, in: 5...300, step: 5)
+                Stepper("Abruf außerhalb eines Chats: \(pollingInterval) Sekunden", value: $pollingInterval, in: 5...300, step: 5)
                 Toggle("Fehlgeschlagene Übertragungen automatisch erneut versuchen", isOn: $retryAutomatically)
                 Toggle("Zusätzliche technische Erfolgshinweise", isOn: $verboseLogging)
             } header: { Text("Abruf und technische Hinweise") }

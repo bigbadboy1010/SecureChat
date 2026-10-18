@@ -1,0 +1,21 @@
+{
+  "minimumBuild": 19,
+  "uploadAllowed": false,
+  "stagingUpload": {
+    "ownerAuthorized": true,
+    "ownerRequestDate": "2026-10-18",
+    "build": 19,
+    "testerDistributionAllowed": false,
+    "lastAttemptDate": "2026-10-18",
+    "lastAttemptResult": "rejected-by-apple-export-compliance-code-90592",
+    "scope": "Upload candidate 1.5.2 (19) to App Store Connect on the owner's explicit request. No security, ANSSI or Apple export-compliance approval is asserted."
+  },
+  "reason": "Forward Secrecy must be accepted before TestFlight. Olm integration is implemented; review, real-device interoperability, coordinated relay rollout and Apple's new encryption declaration remain release gates.",
+  "checks": {
+    "forwardSecrecyImplementationAccepted": false,
+    "independentIntegrationReviewCompleted": false,
+    "realDeviceInteroperabilityCompleted": false,
+    "productionRelayRolloutCompleted": false,
+    "encryptionDeclarationCompleted": false
+  }
+}

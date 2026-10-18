@@ -25,6 +25,7 @@
 #     (see https://appleid.apple.com -> App-Specific Passwords).
 
 set -euo pipefail
+python3 "$(cd "$(dirname "$0")/.." && pwd)/scripts/check-security-release-gate.py"
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PROJECT="$REPO_ROOT/PrivateChat.xcodeproj"

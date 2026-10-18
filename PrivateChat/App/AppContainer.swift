@@ -74,7 +74,8 @@ final class AppContainer: ObservableObject {
                 identityManager: identityManager,
                 crypto: crypto,
                 transportCoordinator: transportCoordinator,
-                attachmentStore: attachmentStore
+                attachmentStore: attachmentStore,
+                forwardSecretStore: try EncryptedForwardSecretStore(keychain: keychain)
             )
             guard service.load() else {
                 throw PrivateChatError.persistenceFailed(
@@ -82,6 +83,7 @@ final class AppContainer: ObservableObject {
                 )
             }
             let container = AppContainer(conversationService: service, biometricGate: biometricGate, startupErrorMessage: nil)
+            PrivateRoomNotifications.shared.service = service
             return container
         } catch {
             let fallbackIdentity = LocalIdentity(
@@ -99,7 +101,8 @@ final class AppContainer: ObservableObject {
                 relayPacketLedgerStore: InMemoryRelayPacketLedgerStore(),
                 identityManager: identityManager,
                 crypto: crypto,
-                transportCoordinator: transportCoordinator
+                transportCoordinator: transportCoordinator,
+                forwardSecretStore: InMemoryForwardSecretStore()
             )
             service.load()
             return AppContainer(
@@ -185,8 +188,16 @@ final class AppContainer: ObservableObject {
     private func enrollAfterUnlock() {
         enrollmentTask?.cancel()
         enrollmentTask = Task { [weak self] in
-            guard let self, self.isUnlocked, !Task.isCancelled else { return }
+            guard let self, self.isUnlocked, !Task.isCancelled,
+                  let sessionID = self.conversationService.currentUserSessionID else { return }
             await self.conversationService.enrollLocalPeerIfNeeded()
+            guard self.isUnlocked, self.conversationService.isCurrentUserSession(sessionID) else { return }
+            // Reception belongs to the unlocked session, including navigation
+            // and sheets. A disappearing view must not stop inbox delivery.
+            self.conversationService.startRelayAutoSyncLoop()
+            if PrivateRoomNotifications.shared.service === self.conversationService {
+                await PrivateRoomNotifications.shared.resumeAfterUnlock()
+            }
         }
     }
 }
