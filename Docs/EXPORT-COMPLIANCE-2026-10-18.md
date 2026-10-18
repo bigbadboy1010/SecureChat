@@ -32,3 +32,7 @@ Before filing: confirm the declarant's legal capacity and required evidence; use
 - [Pinned implementation source](https://github.com/matrix-org/vodozemac/tree/v0.11.1)
 
 Release remains blocked by the unresolved declaration and security acceptance gates in `Config/SecurityReleaseGate.json`.
+
+## Actual App Store Connect questionnaire evidence
+
+On 18 October 2026, the app-level upload flow was opened for this app. Its purpose field described Olm messaging/local encryption. Only the externally implemented standard algorithm checkbox was selected. With France = yes, step 3 explicitly required **French encryption declaration approval** and a file attachment. No existing approval was available, so the incomplete form was cancelled without saving or uploading a substitute. The owner was asked whether an authenticated ANSSI/Démarche numérique account exists. No country was removed, no approval code entered and no declaration marked complete.
