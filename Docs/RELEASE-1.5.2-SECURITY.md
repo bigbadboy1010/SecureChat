@@ -1,6 +1,6 @@
 # Prepared security beta 1.5.2 (19)
 
-NOT DISTRIBUTED. The user explicitly requires accepted forward secrecy before the next TestFlight upload. See `Config/SecurityReleaseGate.json` and [protocol/persistence design](FORWARD-SECRECY-2026-10-18.md).
+NOT DISTRIBUTED. On 18 October the owner explicitly requested uploading build 19 for testing after being informed of the remaining gates. A build-specific **upload-only** authorization now permits staging the binary in App Store Connect, with the non-exempt encryption flag unchanged. This is not tester availability or security acceptance. The default distribution gate remains closed. See `Config/SecurityReleaseGate.json` and [protocol/persistence design](FORWARD-SECRECY-2026-10-18.md).
 
 Changes prepared together: exclusive Olm protocol 4, authenticated one-time bootstrap keys, durable retry/inbound journals, receiver-owned consent, inbox cursor pagination, sender/device capacity limits, stable packet IDs, Retry-After backoff, optional neutral push, clear device-loss guidance, and matching privacy notices. Relay 0.3 is required. Existing device identities and verified SC3 keys are preserved; no paid-branch source is overwritten.
 
