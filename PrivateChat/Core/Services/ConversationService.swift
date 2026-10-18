@@ -182,6 +182,7 @@ final class ConversationService: ObservableObject {
         userSessionAuthorized = false
         userSessionGeneration = UUID()
         stopRelayAutoSyncLoop()
+        visibleChatObservers.removeAll()
         isRelaySyncRunning = false
         isOutboxRetryRunning = false
         isRelayStatsRunning = false
@@ -240,6 +241,8 @@ final class ConversationService: ObservableObject {
     private var ratchetObservations: [RatchetSentinelObservation] = []
     private var relayAutoSyncTask: Task<Void, Never>?
     private var relayAutoSyncGeneration = UUID()
+    private var relayAutoSyncDelay: Task<Void, Never>?
+    private var visibleChatObservers: Set<UUID> = []
     private var nextRelayBulkRequestAt = Date.distantPast
 
     init(
@@ -428,7 +431,32 @@ final class ConversationService: ObservableObject {
         relayAutoSyncGeneration = UUID()
         relayAutoSyncTask?.cancel()
         relayAutoSyncTask = nil
+        relayAutoSyncDelay?.cancel()
+        relayAutoSyncDelay = nil
         isRelayAutoPollingActive = false
+    }
+
+    /// Tokens keep nested chat presentations from accidentally disabling each
+    /// other's faster cadence. They contain no contact or message data.
+    func beginObservingChat(conversationID: UUID) -> UUID? {
+        guard currentUserSessionID != nil,
+              conversations.contains(where: { $0.id == conversationID && $0.conversation.peerID != nil }) else { return nil }
+        let token = UUID()
+        visibleChatObservers.insert(token)
+        // Wake an idle delay without cancelling an in-flight fetch or ACK.
+        relayAutoSyncDelay?.cancel()
+        return token
+    }
+
+    func endObservingChat(_ token: UUID?) {
+        guard let token else { return }
+        visibleChatObservers.remove(token)
+    }
+
+    var foregroundInboxIntervalSeconds: Int {
+        visibleChatObservers.isEmpty
+            ? max(5, min(securityState.relayConfiguration.autoPollingIntervalSeconds, 300))
+            : 5
     }
 
     private func runRelayAutoSyncLoop(generation: UUID) async {
@@ -455,9 +483,15 @@ final class ConversationService: ObservableObject {
                 }
             }
 
-            let baseInterval = max(5, min(securityState.relayConfiguration.autoPollingIntervalSeconds, 300))
+            let baseInterval = foregroundInboxIntervalSeconds
             let sleepSeconds = relayConnectivityStatus.isPaused ? min(max(relayConnectivityStatus.remainingPauseSeconds, 5), 60) : baseInterval
-            try? await Task.sleep(nanoseconds: UInt64(sleepSeconds) * 1_000_000_000)
+            let delay = Task<Void, Never> {
+                do { try await Task.sleep(for: .seconds(sleepSeconds)) }
+                catch { /* Navigation or session end can wake the idle delay. */ }
+            }
+            relayAutoSyncDelay = delay
+            await delay.value
+            if relayAutoSyncGeneration == generation { relayAutoSyncDelay = nil }
         }
     }
 

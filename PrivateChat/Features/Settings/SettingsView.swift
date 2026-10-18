@@ -373,7 +373,7 @@ private struct PrivateRoomAdvancedSettingsView: View {
             }
             SwiftUI.Section {
                 Stepper("Pakete pro Abruf: \(pollingLimit)", value: $pollingLimit, in: 1...100)
-                Stepper("Abruf bei geöffneter App: \(pollingInterval) Sekunden", value: $pollingInterval, in: 5...300, step: 5)
+                Stepper("Abruf außerhalb eines Chats: \(pollingInterval) Sekunden", value: $pollingInterval, in: 5...300, step: 5)
                 Toggle("Fehlgeschlagene Übertragungen automatisch erneut versuchen", isOn: $retryAutomatically)
                 Toggle("Zusätzliche technische Erfolgshinweise", isOn: $verboseLogging)
             } header: { Text("Abruf und technische Hinweise") }

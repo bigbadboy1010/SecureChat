@@ -91,6 +91,17 @@ enum PrivateChatError: LocalizedError, Equatable {
         case .relayHealthCheckFailed(let message):
             return "Relay-Prüfung fehlgeschlagen: \(message)"
         case .relayHTTPError(let statusCode, let message):
+            if statusCode == 403 {
+                switch message?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+                case "recipient_not_admitted":
+                    return "Das Empfängergerät ist für die Beta noch nicht freigegeben. Gib dem Betreiber den öffentlichen Kontakt-Code dieses Geräts und sende die Nachricht nach der Freigabe erneut."
+                case "beta_admission_required":
+                    return "Dieses Gerät ist für die Beta noch nicht freigegeben. Teile deinen öffentlichen Kontakt-Code mit dem Betreiber und melde die Geräteverbindung nach der Freigabe erneut an."
+                case "device_access_revoked":
+                    return "Der Relay-Zugang dieses Geräts wurde gesperrt. Wende dich für eine erneute Freigabe an den Betreiber."
+                default: break
+                }
+            }
             if statusCode == 401 {
                 if let message, message.isEmpty == false {
                     return "Relay-Server hat HTTP 401 zurückgegeben: \(message). Der Server ist erreichbar; prüfe Bearer-Token, Peer-Registrierung und Request-Signatur."

@@ -4,6 +4,84 @@ import XCTest
 
 @MainActor
 final class UserSessionPrivacyTests: XCTestCase {
+    func testUnlockReceivesMessageWithoutCreatingOrReloadingChatView() async throws {
+        let fixture = try Fixture()
+        fixture.transport.inbox = [try fixture.packet(body: "automatic incoming")]
+        var state = fixture.service.securityState
+        state.requireBiometricUnlock = false
+        XCTAssertTrue(fixture.service.updateSecurityState(state))
+        let container = AppContainer(conversationService: fixture.service,
+                                     biometricGate: UnexpectedAutoSyncBiometricGate(), startupErrorMessage: nil)
+        defer { container.lock() }
+        await container.unlock()
+        let deadline = Date().addingTimeInterval(2)
+        while (fixture.service.conversations.first?.messages.first?.body != "automatic incoming" || fixture.service.isRelaySyncRunning), Date() < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(fixture.service.conversations.first?.messages.first?.body, "automatic incoming")
+        XCTAssertEqual(fixture.transport.deletedIDs.count, 1)
+        XCTAssertTrue(fixture.service.isRelayAutoPollingActive)
+    }
+
+    func testOpeningChatWakesIdleInboxAndLaterMessagesArriveWithoutManualSync() async throws {
+        let fixture = try Fixture()
+        let conversationID = try XCTUnwrap(fixture.service.createConversation(title: "Bob", peerID: fixture.bob.id))
+        fixture.service.startRelayAutoSyncLoop()
+        defer { fixture.service.endUserSession() }
+        try await waitUntil { fixture.transport.fetchCount == 1 && !fixture.service.isRelaySyncRunning }
+        // Let the first automatic cycle install its idle delay.
+        try await Task.sleep(for: .milliseconds(50))
+        fixture.transport.inbox = [try fixture.packet(body: "arrived while idle")]
+        let token = try XCTUnwrap(fixture.service.beginObservingChat(conversationID: conversationID))
+        try await waitUntil { fixture.service.conversations.first?.messages.count == 1 }
+        fixture.transport.inbox = [try fixture.packet(body: "arrived in open chat")]
+        try await waitUntil(timeout: 7) { fixture.service.conversations.first?.messages.count == 2 && !fixture.service.isRelaySyncRunning }
+        XCTAssertEqual(fixture.service.conversations.first?.messages.last?.body, "arrived in open chat")
+        XCTAssertEqual(fixture.transport.deletedIDs.count, 2)
+        fixture.service.endObservingChat(token)
+        XCTAssertEqual(fixture.service.foregroundInboxIntervalSeconds, 15)
+    }
+
+    func testChatObserversDoNotMultiplyLoopsAndLockClearsFastCadence() async throws {
+        let fixture = try Fixture()
+        let id = try XCTUnwrap(fixture.service.createConversation(title: "Bob", peerID: fixture.bob.id))
+        let first = try XCTUnwrap(fixture.service.beginObservingChat(conversationID: id))
+        let second = try XCTUnwrap(fixture.service.beginObservingChat(conversationID: id))
+        fixture.service.startRelayAutoSyncLoop()
+        fixture.service.startRelayAutoSyncLoop()
+        try await waitUntil { fixture.transport.fetchCount == 1 }
+        fixture.service.endObservingChat(first)
+        XCTAssertEqual(fixture.service.foregroundInboxIntervalSeconds, 5)
+        fixture.service.endUserSession()
+        let fetchesAtLock = fixture.transport.fetchCount
+        XCTAssertEqual(fixture.service.foregroundInboxIntervalSeconds, 15)
+        XCTAssertFalse(fixture.service.isRelayAutoPollingActive)
+        XCTAssertNil(fixture.service.beginObservingChat(conversationID: id))
+        fixture.service.endObservingChat(second)
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertEqual(fixture.transport.fetchCount, fetchesAtLock)
+    }
+
+    func testOpeningChatRespectsAutomaticServerBackoff() async throws {
+        let fixture = try Fixture()
+        let id = try XCTUnwrap(fixture.service.createConversation(title: "Bob", peerID: fixture.bob.id))
+        fixture.transport.fetchFailure = PrivateChatError.relayHTTPError(statusCode: 429, message: nil)
+        fixture.service.startRelayAutoSyncLoop()
+        defer { fixture.service.endUserSession() }
+        try await waitUntil { fixture.service.relayConnectivityStatus.isPaused }
+        try await Task.sleep(for: .milliseconds(50))
+        _ = fixture.service.beginObservingChat(conversationID: id)
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertEqual(fixture.transport.fetchCount, 1)
+        XCTAssertTrue(fixture.service.relayConnectivityStatus.isPaused)
+    }
+
+    private func waitUntil(timeout: TimeInterval = 2, _ predicate: () -> Bool) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !predicate(), Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertTrue(predicate(), "Automatic inbox update did not complete before deadline")
+    }
+
     func testRateLimitAndServerFailureBackoffPreserveOutboxAndDoNotRetryImmediately() async throws {
         for status in [429, 503] {
             let fixture = try Fixture()
@@ -250,6 +328,12 @@ final class UserSessionPrivacyTests: XCTestCase {
 }
 
 @MainActor
+private final class UnexpectedAutoSyncBiometricGate: BiometricGating {
+    func unlock(reason: String) async throws { XCTFail("Biometrics are disabled in this synthetic fixture") }
+    func cancel() {}
+}
+
+@MainActor
 private final class SessionMessageStore: MessageStoring {
     var persisted: [StoredConversation]
     var failSaves = false
@@ -299,12 +383,15 @@ private final class SessionTransport: TransportCoordinating {
     var onSend: (() -> Void)?
     var onEnroll: (() -> Void)?
     var sendFailure: Error?
+    var fetchFailure: Error?
     func send(_ packet: OutboundTransportPacket, mode: TransportMode, relayConfiguration: RelayConfiguration) async throws {
         sentPackets.append(packet); await Task.yield(); onSend?()
         if let sendFailure { throw sendFailure }
     }
     func fetchRelayInbox(recipientID: String, relayConfiguration: RelayConfiguration) async throws -> [OutboundTransportPacket] {
-        fetchCount += 1; await Task.yield(); onFetch?(); return inbox
+        fetchCount += 1; await Task.yield(); onFetch?()
+        if let fetchFailure { throw fetchFailure }
+        return inbox
     }
     func deleteRelayPacket(packetID: UUID, relayConfiguration: RelayConfiguration) async throws -> Bool { deletedIDs.append(packetID); return true }
     func checkRelayHealth(relayConfiguration: RelayConfiguration) async throws -> RelayHealthStatus {

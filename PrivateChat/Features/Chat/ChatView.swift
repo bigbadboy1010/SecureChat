@@ -24,6 +24,7 @@ struct ChatView: View {
     @State private var sendTask: Task<Void, Never>?
     @State private var mediaLoadTask: Task<Void, Never>?
     @State private var viewUserSessionID: UUID?
+    @State private var inboxObservationToken: UUID?
 
     private var currentConversation: StoredConversation {
         service.conversations.first { $0.id == storedConversation.id } ?? storedConversation
@@ -138,7 +139,12 @@ struct ChatView: View {
 
             composer
         }
-        .onAppear { viewUserSessionID = service.currentUserSessionID }
+        .onAppear {
+            viewUserSessionID = service.currentUserSessionID
+            if inboxObservationToken == nil {
+                inboxObservationToken = service.beginObservingChat(conversationID: storedConversation.id)
+            }
+        }
         .navigationTitle(currentConversation.conversation.title)
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $messageSearchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "In diesem Chat suchen")
@@ -193,6 +199,8 @@ struct ChatView: View {
             mediaLoadTask = Task { await loadLibraryItem(item, sessionID: sessionID) }
         }
         .onDisappear {
+            service.endObservingChat(inboxObservationToken)
+            inboxObservationToken = nil
             persistDraftValue(draft)
             sendTask?.cancel()
             mediaLoadTask?.cancel()
