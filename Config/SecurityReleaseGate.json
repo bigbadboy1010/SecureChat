@@ -1,0 +1,12 @@
+{
+  "minimumBuild": 19,
+  "uploadAllowed": false,
+  "reason": "Forward Secrecy must be accepted before TestFlight. Olm integration is implemented; review, real-device interoperability, coordinated relay rollout and Apple's new encryption declaration remain release gates.",
+  "checks": {
+    "forwardSecrecyImplementationAccepted": false,
+    "independentIntegrationReviewCompleted": false,
+    "realDeviceInteroperabilityCompleted": false,
+    "productionRelayRolloutCompleted": false,
+    "encryptionDeclarationCompleted": false
+  }
+}

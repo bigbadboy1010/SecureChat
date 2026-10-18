@@ -32,6 +32,7 @@ extension AttachmentStoring {
 }
 
 final class EncryptedAttachmentStore: AttachmentStoring {
+    private let durable = DurablePrivateFile()
     private enum Account {
         static let encryptionKey = "local.encryptedAttachmentStore.key.v1"
     }
@@ -396,11 +397,7 @@ final class EncryptedAttachmentStore: AttachmentStoring {
     }
 
     private func protectedWrite(_ data: Data, to url: URL) throws {
-        #if os(iOS)
-        try data.write(to: url, options: [.atomic, .completeFileProtection])
-        #else
-        try data.write(to: url, options: [.atomic])
-        #endif
+        try durable.write(data, to: url)
         try Self.excludeFromBackup(url)
     }
 

@@ -17,6 +17,7 @@
 # archive step and tells you how to upload via Xcode Organizer.
 
 set -euo pipefail
+python3 "$(cd "$(dirname "$0")/.." && pwd)/scripts/check-security-release-gate.py"
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 

@@ -288,10 +288,10 @@ private struct SecurityFindingRow: View {
             return (
                 headline: "Was ist der v2-Envelope?",
                 lines: [
-                    "X3DH-Initial-Bundle leitet einen geteilten 32-Byte Root-Key ab.",
-                    "Double Ratchet rotiert die Chain-Keys pro Nachricht (Forward Secrecy).",
-                    "Selbst bei kompromittiertem Langzeit-Key heilt die Ratchet innerhalb weniger Messages (Post-Compromise Security).",
-                    "Identitäts-Commitment läuft über die v1-Envelope-Signatur (Sprint 7)."
+                    "Diese ältere Diagnose beschreibt ein historisches experimentelles Format.",
+                    "Neue Nachrichten nutzen ausschließlich vodozemac Olm im Protokoll 4.",
+                    "Erholung nach einem kompromittierten Sitzungszustand erfordert frische DH-Schlüssel beider Seiten. Bei dauerhaft kompromittiertem Gerät gibt es diese Garantie nicht.",
+                    "Alle neuen Pakete werden zusätzlich mit der verifizierten Ed25519-Identität signiert."
                 ]
             )
         }
@@ -300,8 +300,8 @@ private struct SecurityFindingRow: View {
                 headline: "Was ist der v1-Envelope?",
                 lines: [
                     "Curve25519-ECDH + AES-GCM (ADR-002) — kein Forward Secrecy pro Nachricht.",
-                    "Wird durch das automatische Pairing-Opt-in seit Sprint 10 für neue Konversationen durch v2 ersetzt.",
-                    "Bestehende v1-Sitzungen bleiben lesbar; ein Re-Pairing aktiviert v2."
+                    "Neue Nachrichten verwenden Protokoll 4; ein Rückfall auf dieses alte Format ist gesperrt.",
+                    "Der lokale Verlauf bleibt lesbar. Alte Netzwerkpakete müssen nach dem Update bewusst neu gesendet werden."
                 ]
             )
         }

@@ -10,7 +10,7 @@ Two native candidate-16 simulators exchanged signed version-3 contact codes; all
 
 The approved-owner-beta relay and redesigned site went live at **12:00:14 UTC**; the live backend remains **0.2.0**, with **26 accepted backend regressions**. Backend **0.2.1**, including operator-only device revocation and **39 passing staged regressions**, awaits final deployment proof. It is not claimed live here. German beta information, URLs, reviewer instructions and the public contact were saved in App Store Connect. No tester invitation, Apple Review submission, App Store approval or independent security audit is claimed.
 
-PrivateRoom is not yet suitable for high-sensitivity communication. The active protocol has **no forward secrecy or post-compromise security**, and communication metadata remains visible to the relay. Read the [security policy](SECURITY.md) and [current review](Docs/PRIVATEROOM-REVIEW-2026-10-13.md) before testing.
+PrivateRoom is not yet suitable for high-sensitivity communication. **Unreleased 1.5.2 (19)** now uses vodozemac Olm for new messages; distributed 1.5.1 (18) still has no forward secrecy. App-integration review and Apple encryption compliance remain release gates. See [the implementation and limits](Docs/FORWARD-SECRECY-2026-10-18.md) and [prepared release status](Docs/RELEASE-1.5.2-SECURITY.md).
 
 ## What the candidate implements
 

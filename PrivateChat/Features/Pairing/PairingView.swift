@@ -82,7 +82,7 @@ struct PairingView: View {
                                     .padding(16)
                                     .background(.white, in: RoundedRectangle(cornerRadius: 20))
                             }
-                            Text("Dein öffentlicher Name und deine öffentlichen Schlüssel. Private Schlüssel bleiben auf diesem Gerät.")
+                            Text("Gerätekennung: \(service.localIdentity.id.prefix(12))\nDein öffentlicher Name und deine öffentlichen Schlüssel. Private Schlüssel bleiben auf diesem Gerät.")
                                 .font(.footnote)
                                 .foregroundStyle(PrivateChatDesign.textSecondary)
                                 .multilineTextAlignment(.center)
@@ -165,6 +165,7 @@ struct PairingView: View {
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(peer.displayName).font(.headline)
+                    Text("Gerät \(peer.id.prefix(12))").font(.caption.monospaced()).foregroundStyle(.secondary)
                     Label(trustTitle(peer.trustState), systemImage: trustIcon(peer.trustState))
                         .font(.caption)
                         .foregroundStyle(trustTint(peer.trustState))

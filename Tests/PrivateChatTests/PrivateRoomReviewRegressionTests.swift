@@ -16,6 +16,18 @@ final class PrivateRoomReviewRegressionTests: XCTestCase {
         XCTAssertEqual(imported.trustState, .unverified)
     }
 
+    func testDefaultNamesIncludePublicFingerprintAndStablePacketIDsAreDomainSeparated() throws {
+        let first = try IdentityManager(keychain: MockKeychainStore(), crypto: CryptoService()).loadOrCreateLocalIdentity(displayName: "PrivateRoom iPhone")
+        let second = try IdentityManager(keychain: MockKeychainStore(), crypto: CryptoService()).loadOrCreateLocalIdentity(displayName: "PrivateRoom iPhone")
+        XCTAssertNotEqual(first.displayName, second.displayName)
+        XCTAssertTrue(first.displayName.contains(String(first.id.prefix(6))))
+        let id = UUID()
+        let body = StableRelayPacketIdentifier.make(messageID: id, recipientID: first.id, kind: .message)
+        XCTAssertEqual(body, StableRelayPacketIdentifier.make(messageID: id, recipientID: first.id, kind: .message))
+        XCTAssertNotEqual(body, StableRelayPacketIdentifier.make(messageID: id, recipientID: first.id, kind: .deliveryReceipt))
+        XCTAssertNotEqual(body, StableRelayPacketIdentifier.make(messageID: id, recipientID: second.id, kind: .message))
+    }
+
     func testAdmissionErrorsExplainTheAffectedDeviceWithoutSuggestingProxyRepairs() {
         let recipient = PrivateChatError.relayHTTPError(statusCode: 403, message: "recipient_not_admitted").localizedDescription
         XCTAssertTrue(recipient.contains("Empfängergerät"))
@@ -27,9 +39,9 @@ final class PrivateRoomReviewRegressionTests: XCTestCase {
         XCTAssertTrue(revoked.contains("gesperrt"))
     }
 
-    // Evidence of an OPEN protocol limitation, not a security success:
-    // later exposure of a static long-term key recovers recorded ciphertext.
-    func testReviewProofStaticPairwiseEncryptionDoesNotProvideForwardSecrecy() throws {
+    // Historical primitive regression: demonstrates why the protocol-2
+    // encryption path was removed from ConversationService.
+    func testHistoricalStaticPrimitiveDoesNotProvideForwardSecrecy() throws {
         let crypto = CryptoService()
         let alice = Curve25519.KeyAgreement.PrivateKey()
         let bob = Curve25519.KeyAgreement.PrivateKey()

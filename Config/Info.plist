@@ -21,7 +21,18 @@
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>CFBundleURLTypes</key>
-	<array><dict><key>CFBundleURLName</key><string>org.francois.PrivateChat.pairing</string><key>CFBundleURLSchemes</key><array><string>privateroom</string><string>securechat</string><string>privatechat</string></array></dict></array>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>org.francois.PrivateChat.pairing</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>privateroom</string>
+				<string>securechat</string>
+				<string>privatechat</string>
+			</array>
+		</dict>
+	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSAppTransportSecurity</key>
@@ -36,7 +47,10 @@
 	<key>NSMicrophoneUsageDescription</key>
 	<string>PrivateRoom nutzt das Mikrofon ausschließlich für Videos, die du direkt im Chat aufnimmst.</string>
 	<key>UIApplicationSceneManifest</key>
-	<dict><key>UIApplicationSupportsMultipleScenes</key><false/></dict>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+	</dict>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchScreen</key>
@@ -65,5 +79,7 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<true/>
 </dict>
 </plist>

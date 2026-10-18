@@ -180,7 +180,7 @@ final class AppContainerPrivacyTests: XCTestCase {
                 localIdentity: identity, messageStore: MockMessageStore(), draftStore: MockDraftStore(),
                 peerTrustStore: MockPeerTrustStore(), settingsStore: MockSecuritySettingsStore(seed: settings),
                 relayPacketLedgerStore: MockRelayPacketLedgerStore(), identityManager: MockIdentityManager(localIdentity: identity),
-                crypto: crypto, transportCoordinator: MockTransportCoordinator()
+                crypto: crypto, transportCoordinator: MockTransportCoordinator(), forwardSecretStore: InMemoryForwardSecretStore()
             )
             XCTAssertTrue(localService.load())
             let controlledGate = ControlledBiometricGate()

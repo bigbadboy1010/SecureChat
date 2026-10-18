@@ -11,6 +11,7 @@ final class EncryptedMessageStore: MessageStoring {
         static let databaseKey = "local.encryptedMessageStore.key.v1"
     }
 
+    private let durable = DurablePrivateFile()
     private let keychain: KeychainStoring
     private let crypto: CryptoServicing
     private let encoder: JSONEncoder
@@ -67,11 +68,7 @@ final class EncryptedMessageStore: MessageStoring {
         do {
             let plaintext = try encoder.encode(conversations)
             let encryptedData = try crypto.encrypt(plaintext, key: try databaseKey(), aad: aad)
-            #if os(iOS)
-            try encryptedData.write(to: fileURL, options: [.atomic, .completeFileProtection])
-            #else
-            try encryptedData.write(to: fileURL, options: [.atomic])
-            #endif
+            try durable.write(encryptedData, to: fileURL)
             try Self.excludeFromBackup(fileURL)
         } catch let error as PrivateChatError {
             throw error

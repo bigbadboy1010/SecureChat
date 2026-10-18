@@ -43,3 +43,5 @@ DerivedData/
 coverage/
 .idea/
 .vscode/
+# Reproducible Rust bridge build output (source and Cargo.lock are tracked).
+Crypto/PrivateRoomOlm/target/

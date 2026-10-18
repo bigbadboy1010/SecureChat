@@ -18,8 +18,9 @@ struct PrivacyPolicyView: View {
                 .padding(.vertical, 8)
             }
             SwiftUI.Section {
-                policy("Deine Inhalte", icon: "lock.bubble", detail: "Nachrichten und Anhänge werden auf dem Gerät verschlüsselt. Beim Austausch vermittelt der Relay verschlüsselte Pakete; er erhält keinen Nachrichtenklartext.")
+                policy("Deine Inhalte", icon: "lock.shield", detail: "Nachrichten und Anhänge werden auf dem Gerät verschlüsselt. Beim Austausch vermittelt der Relay verschlüsselte Pakete; er erhält keinen Nachrichtenklartext.")
                 policy("Deine lokalen Daten", icon: "iphone", detail: "Nachrichten, Entwürfe und Anhänge liegen verschlüsselt im App-Container. Private Schlüssel und Speicherschlüssel liegen mit gerätegebundenem Schutz in der Keychain. Die sensiblen Stores sind vom Cloud-Backup ausgeschlossen.")
+                policy("Optionale Mitteilungen", icon: "bell", detail: "Nur wenn du sie aktivierst, erhält der Relay ein Geräte-Push-Token. Apple übermittelt einen neutralen Hinweis ohne Nachrichtentext oder Absender. Der Inhalt wird erst in der entsperrten App abgeholt und entschlüsselt.")
                 policy("Dein öffentlicher Kontakt-Code", icon: "qrcode", detail: "Dein gewählter Anzeigename, öffentliche Signatur- und Verschlüsselungsschlüssel sowie Zeitstempel werden mit Personen geteilt, denen du deinen Kontakt-Code gibst.")
             } header: { Text("Was auf deinem Gerät passiert") }
             SwiftUI.Section {
@@ -35,7 +36,7 @@ struct PrivacyPolicyView: View {
             } header: { Text("Deine bewussten Aktionen") }
             SwiftUI.Section {
                 policy("Sicherheitsnummer prüfen", icon: "checkmark.shield", detail: "SC3 bindet die Signatur- und Verschlüsselungsschlüssel beider Geräte. Vergleicht sie über einen vertrauten zweiten Kanal. Eine Signatur allein bestätigt nicht, wer hinter dem Gerät steht.")
-                policy("Noch keine Forward Secrecy", icon: "key", detail: "Der aktive Nachrichtenkanal besitzt noch keine unabhängig geprüfte laufende Schlüsselrotation mit Forward Secrecy. Experimentelle Ratchet-Bausteine sind keine zugesicherte aktive Funktion.")
+                policy("Forward Secrecy für neue Nachrichten", icon: "key", detail: "Der Olm Double Ratchet aus vodozemac wechselt Nachrichtenschlüssel und entfernt verbrauchte Schlüssel. Beide Geräte benötigen die neue Version. Frühere Nachrichten erhalten diesen Schutz nicht rückwirkend. Der unabhängige Audit der Bibliothek deckt unsere App-Einbindung nicht ab; deren externe Prüfung steht noch aus.")
                 policy("Beta mit offenem Audit", icon: "info.circle", detail: "Ein unabhängiger Sicherheits-Audit steht aus. Kompromittierte Geräte, Screenshots und das Weitergeben durch Empfänger können Inhalte offenlegen. Keine Garantie absoluter Sicherheit; diese Beta ist nicht für hochsensible Kommunikation freigegeben.")
                 policy("Geräteverlust", icon: "externaldrive.badge.exclamationmark", detail: "Die gerätegebundenen Schlüssel und ausgeschlossenen Backups können dazu führen, dass Chats nach Verlust, Neuinstallation oder Gerätewechsel nicht wiederherstellbar sind. Es gibt noch keinen geprüften Geräteumzug.")
             } header: { Text("Was PrivateRoom nicht verspricht") }
@@ -87,7 +88,7 @@ Der Relay vermittelt verschlüsselte Pakete und verarbeitet technische Zustellme
 
 Kamera und Mikrofon werden für von dir ausgelöste QR-, Foto- und Videoaktionen verwendet. Apples Geräte-Authentifizierung gibt keine biometrischen Daten an PrivateRoom weiter. Manuelle Exporte sind Klartext; externe Apps und Empfänger können Kopien behalten. Supportberichte enthalten technische Metadaten, aber keine Nachrichtenklartexte, privaten Schlüssel oder Tokens.
 
-Aktiver Nachrichtenkanal: noch keine Forward Secrecy. Unabhängiger Sicherheits-Audit offen. Diese Beta ist nicht für hochsensible Kommunikation freigegeben. Kompromittierte Geräte und Empfänger können Inhalte offenlegen.
+Neue Nachrichten verwenden Olm mit Forward Secrecy. Alte Aufzeichnungen werden dadurch nicht rückwirkend geschützt. Unabhängiger Audit der App-Einbindung offen. Diese Beta ist nicht für hochsensible Kommunikation freigegeben. Kompromittierte Geräte und Empfänger können Inhalte offenlegen.
 
 Vollständige Erklärung und Betreiberkontakt: https://securechat.team/privacy-de.html
 """

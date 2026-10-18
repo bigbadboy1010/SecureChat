@@ -150,7 +150,7 @@ final class PrivateRoomDraftDurabilityTests: XCTestCase {
         let service = ConversationService(localIdentity: identity, messageStore: MockMessageStore(), draftStore: store,
             peerTrustStore: MockPeerTrustStore(), settingsStore: MockSecuritySettingsStore(),
             relayPacketLedgerStore: MockRelayPacketLedgerStore(), identityManager: MockIdentityManager(localIdentity: identity),
-            crypto: crypto, transportCoordinator: MockTransportCoordinator())
+            crypto: crypto, transportCoordinator: MockTransportCoordinator(), forwardSecretStore: InMemoryForwardSecretStore())
         XCTAssertTrue(service.load())
         return service
     }

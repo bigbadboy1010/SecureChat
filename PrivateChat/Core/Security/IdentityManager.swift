@@ -117,12 +117,14 @@ final class IdentityManager: IdentityManaging, PeerBoundSigningContext {
 
         let storedDisplayName = try keychain.readData(account: Account.displayName)
             .flatMap { String(data: $0, encoding: .utf8) }
-        let effectiveDisplayName = Self.normalizedDisplayName(storedDisplayName ?? displayName)
+        let identityID = crypto.peerID(publicKeyData: signingPrivateKey.publicKey.rawRepresentation)
+        let initialName = ["PrivateRoom iPhone", "PrivateRoom iPad", "PrivateRoom iPod touch", "PrivateRoom Mac"].contains(displayName)
+            ? "\(displayName) · \(identityID.prefix(6))" : displayName
+        let effectiveDisplayName = Self.normalizedDisplayName(storedDisplayName ?? initialName)
         if storedDisplayName == nil {
             try keychain.writeData(Data(effectiveDisplayName.utf8), account: Account.displayName)
         }
 
-        let identityID = crypto.peerID(publicKeyData: signingPrivateKey.publicKey.rawRepresentation)
         return LocalIdentity(
             id: identityID,
             displayName: effectiveDisplayName,
